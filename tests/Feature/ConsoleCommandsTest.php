@@ -60,7 +60,7 @@ class ConsoleCommandsTest extends TestCase
             'riderId' => $rider->id,
             'bicycleId' => $bike->id,
             'status' => Rental::STATUS_ACTIVE,
-            'endTime' => now()->addMinutes(4),
+            'expectedEndTime' => now()->addMinutes(4),
             'warningSentAt' => null,
         ]);
 

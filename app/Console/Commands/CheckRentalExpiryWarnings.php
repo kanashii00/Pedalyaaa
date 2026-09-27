@@ -29,9 +29,11 @@ class CheckRentalExpiryWarnings extends Command
         $warnedRentals = Rental::with(['bicycle'])
             ->where('status', Rental::STATUS_ACTIVE)
             ->whereNull('warningSentAt')
-            ->whereNotNull('endTime')
-            ->where('endTime', '>', now())
-            ->where('endTime', '<=', $windowEnd)
+            // New rentals store their paid-for deadline in expectedEndTime.
+            // endTime is the actual return time, retained as a fallback for
+            // older rows that used it as the scheduled end.
+            ->whereRaw('COALESCE(expectedEndTime, endTime) > ?', [now()])
+            ->whereRaw('COALESCE(expectedEndTime, endTime) <= ?', [$windowEnd])
             ->get();
 
         if ($warnedRentals->isEmpty()) {
@@ -40,7 +42,8 @@ class CheckRentalExpiryWarnings extends Command
         }
 
         foreach ($warnedRentals as $rental) {
-            $remaining = max(0, (int) $rental->endTime->diffInSeconds(now()));
+            $deadline = $rental->expectedEndTime ?? $rental->endTime;
+            $remaining = max(0, (int) $deadline->diffInSeconds(now()));
 
             $notificationService->create(
                 $rental->riderId,
@@ -69,7 +72,7 @@ class CheckRentalExpiryWarnings extends Command
 
             $rental->update(['warningSentAt' => now()]);
 
-            $this->info("Rental #{$rental->id} warned (ends " . $rental->endTime->diffForHumans() . ').');
+            $this->info("Rental #{$rental->id} warned (ends " . $deadline->diffForHumans() . ').');
         }
 
         $this->info("Processed {$warnedRentals->count()} near-expiry warning(s).");

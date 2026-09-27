@@ -7,13 +7,16 @@ use App\Models\AuditLog;
 use App\Models\Bicycle;
 use App\Models\Payment;
 use App\Models\Rental;
+use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\IoTService;
 use App\Services\NotificationService;
 use App\Services\RentalService;
+use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Validation\Rule;
 
 class RentalController extends Controller
 {
@@ -26,7 +29,12 @@ class RentalController extends Controller
     public function index(Request $request): Response
     {
         $query = Rental::with(['bicycle', 'rider'])
-            ->whereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_PENDING, Rental::STATUS_OVERDUE]);
+            ->whereIn('status', [
+                Rental::STATUS_ACTIVE,
+                Rental::STATUS_PENDING,
+                Rental::STATUS_OVERDUE,
+                Rental::STATUS_EXPIRED,
+            ]);
 
         if ($request->filled('status')) {
             $query->where('status', $request->input('status'));
@@ -103,7 +111,10 @@ class RentalController extends Controller
         $query = Rental::with(['bicycle', 'rider']);
 
         if ($view === 'pending') {
-            $query->where('status', Rental::STATUS_AWAITING_RETURN);
+            $query->whereIn('status', [
+                Rental::STATUS_AWAITING_RETURN,
+                Rental::STATUS_OVERDUE_RETURN,
+            ]);
         } else {
             $query->whereIn('status', [Rental::STATUS_RETURNED, Rental::STATUS_COMPLETED]);
         }
@@ -133,18 +144,35 @@ class RentalController extends Controller
         $bicyclesList = Bicycle::orderBy('name')->get();
         $ridersList = User::where('role', User::ROLE_RIDER)->orderBy('name')->get();
 
+        $overdueStats = [];
+        if ($view === 'pending') {
+            foreach ($rentals as $rental) {
+                if ($rental->status === Rental::STATUS_OVERDUE_RETURN && $rental->returnDeadline !== null) {
+                    $overdueStats[$rental->id] = [
+                        'durationMinutes' => abs((int) now()->diffInMinutes($rental->returnDeadline)),
+                        'currentPenalty' => $this->rentalService->calculatePenaltyForRental($rental, now()),
+                    ];
+                }
+            }
+        }
+
         $summary = [
-            'pending' => Rental::where('status', Rental::STATUS_AWAITING_RETURN)->count(),
+            'pending' => Rental::whereIn('status', [
+                Rental::STATUS_AWAITING_RETURN,
+                Rental::STATUS_OVERDUE_RETURN,
+            ])->count(),
+            'overdueReturn' => Rental::where('status', Rental::STATUS_OVERDUE_RETURN)->count(),
             'processed' => Rental::whereIn('status', [Rental::STATUS_RETURNED, Rental::STATUS_COMPLETED])->count(),
             'totalFee' => (float) Rental::where('status', Rental::STATUS_RETURNED)->sum('finalFee'),
             'today' => Rental::whereIn('status', [Rental::STATUS_RETURNED, Rental::STATUS_COMPLETED])
                 ->whereDate('returnProcessedAt', today())
                 ->count(),
+            'penaltyRate' => (float) \App\Models\SystemSetting::getValue('lateReturnPenaltyPerHour', 20),
         ];
 
         return response()->view(
             'admin.rentals-returns',
-            compact('rentals', 'bicyclesList', 'ridersList', 'summary', 'view')
+            compact('rentals', 'bicyclesList', 'ridersList', 'summary', 'view', 'overdueStats')
         );
     }
 
@@ -386,6 +414,84 @@ class RentalController extends Controller
         );
     }
 
+    public function setDeadline(Request $request, int $id): RedirectResponse
+    {
+        $rental = Rental::with(['bicycle', 'rider'])->findOrFail($id);
+
+        if (!in_array($rental->status, [
+            Rental::STATUS_EXPIRED,
+            Rental::STATUS_AWAITING_RETURN,
+            Rental::STATUS_OVERDUE_RETURN,
+        ], true)) {
+            return back()->withErrors(['rental' => 'Only expired or awaiting-return rentals can get a return deadline.']);
+        }
+
+        $validated = $request->validate([
+            'minutes' => ['nullable', 'integer', 'min:1', 'max:1440'],
+            'deadline' => ['nullable', 'date', 'after:now'],
+            'penaltyType' => ['nullable', Rule::in(Rental::PENALTY_TYPES)],
+            'penaltyValue' => ['nullable', 'numeric', 'min:0'],
+            'message' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        if (empty($validated['minutes']) && empty($validated['deadline'])) {
+            return back()->withErrors(['minutes' => 'Specify the allowed return time in minutes or an exact deadline.']);
+        }
+
+        $penaltyType = $validated['penaltyType'] ?? Rental::PENALTY_PER_MINUTE;
+        $penaltyValue = ($validated['penaltyValue'] ?? '') !== ''
+            ? (float) $validated['penaltyValue']
+            : 10.00;
+
+        // Exact deadline always comes from the server clock: minutes are added
+        // to server time; an explicit deadline is only honoured as a fallback.
+        $deadline = !empty($validated['minutes'])
+            ? now()->addMinutes((int) $validated['minutes'])
+            : Carbon::parse($validated['deadline']);
+
+        $previousDeadline = $rental->returnDeadline;
+
+        try {
+            $this->rentalService->setReturnDeadline(
+                $rental,
+                $request->user(),
+                $deadline,
+                ['type' => $penaltyType, 'value' => $penaltyValue],
+                $validated['message'] ?? null,
+            );
+        } catch (\Throwable $e) {
+            return back()->withErrors(['rental' => $e->getMessage()]);
+        }
+
+        AuditLog::record(
+            $previousDeadline === null ? 'rental_deadline_set' : 'rental_deadline_changed',
+            auth()->id(),
+            [
+                'rentalId' => $rental->rentalId,
+                'deadline' => $deadline->toDateTimeString(),
+                'previous_deadline' => $previousDeadline?->toDateTimeString(),
+                'allowed_minutes' => $validated['minutes'] ?? null,
+                'penalty_type' => $penaltyType,
+                'penalty_value' => $penaltyValue,
+                'message' => $validated['message'] ?? null,
+            ]
+        );
+
+        $rateLabel = match ($penaltyType) {
+            Rental::PENALTY_PER_MINUTE => 'per minute',
+            Rental::PENALTY_PER_HOUR => 'per hour',
+            Rental::PENALTY_FIXED => 'fixed',
+            default => 'per minute',
+        };
+
+        return back()->with(
+            'success',
+            'Return deadline set to ' . $deadline->format('M d, Y g:i A')
+            . ' for rental ' . ($rental->rentalId ?? $rental->id)
+            . ' · Penalty ' . number_format($penaltyValue, 2) . ' ' . $rateLabel . '.'
+        );
+    }
+
     private function endRideError(Rental $rental): ?string
     {
         if (! in_array($rental->status, [Rental::STATUS_ACTIVE, Rental::STATUS_OVERDUE], true)) {
@@ -415,19 +521,10 @@ class RentalController extends Controller
             'cancelReason' => $request->input('reason'),
         ]);
 
-        $bicycle = $rental->bicycle;
-        if ($bicycle && (string) $bicycle->currentRentalId === (string) $rental->id) {
-            // Rental cancelled: bicycle becomes Available and the smart lock
-            // is Locked again since nobody is authorized to use it.
-            $bicycle->update([
-                'status' => Bicycle::STATUS_AVAILABLE,
-                'currentRider' => null,
-                'currentRentalId' => null,
-                'lockStatus' => Bicycle::LOCK_LOCKED,
-            ]);
-
-            $this->iotService->sendCommand($bicycle->id, 'lock', [], auth()->user());
-        }
+        // Rental cancelled: the service frees the bicycle (clears renter and
+        // rental pointers, locks it, and keeps it in maintenance if it is out
+        // of service) so this path cannot drift from the rider-facing one.
+        $this->rentalService->releaseBicycleOnCancel($rental, auth()->user());
 
         AuditLog::record('rental_cancelled', auth()->id(), [
             'rentalId' => $rental->rentalId,

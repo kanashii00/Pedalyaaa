@@ -34,6 +34,23 @@
     .bicycle-rental-card .card-body {
         padding: 16px;
     }
+    /* Single-bike demo mode: the rest of the fleet stays visible but inert. */
+    .bicycle-rental-card.bicycle-card-unavailable {
+        filter: grayscale(1);
+        opacity: 0.55;
+        box-shadow: none;
+    }
+    .bicycle-rental-card.bicycle-card-unavailable:hover {
+        transform: none;
+        box-shadow: none;
+    }
+    .bicycle-rental-card.bicycle-card-unavailable .card-image {
+        background: linear-gradient(135deg, #E0E0E0, #F5F5F5);
+    }
+    .badge-unavailable {
+        background: #E0E0E0;
+        color: #757575;
+    }
     .bicycle-rental-card .card-details {
         display: flex;
         gap: 12px;
@@ -83,13 +100,21 @@
 <h5 class="mb-3"><i class="bi bi-collection me-2"></i>Available Bicycles</h5>
 <div class="row g-4">
     @forelse($bicycles as $index => $bicycle)
+        @php
+            // An empty whitelist means no single-bike restriction is active.
+            $isSelectable = $selectableBicycleIds === [] || isset($selectableBicycleIds[$bicycle->id]);
+        @endphp
         <div class="col-lg-4 col-md-6">
-            <div class="bicycle-rental-card fade-in-up" style="animation-delay:{{ $index * 0.1 }}s;">
+            <div class="bicycle-rental-card fade-in-up {{ $isSelectable ? '' : 'bicycle-card-unavailable' }}" style="animation-delay:{{ $index * 0.1 }}s;">
                 <div class="card-image"><img src="{{ asset('assets/img/BIKE.png') }}" alt="{{ $bicycle->name }} bicycle" class="bicycle-card-img"></div>
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-start">
                         <h6>{{ $bicycle->serialNumber }} - {{ $bicycle->name }}</h6>
-                        <span class="badge-status badge-available">Available</span>
+                        @if($isSelectable)
+                            <span class="badge-status badge-available">Available</span>
+                        @else
+                            <span class="badge-status badge-unavailable">Unavailable</span>
+                        @endif
                     </div>
                     <p class="text-muted mb-2" style="font-size:0.85rem;">{{ $bicycle->model ?? '' }}</p>
                     <div class="card-details">
@@ -105,10 +130,17 @@
                         </span>
                         <span><strong>₱{{ number_format($bicycle->hourlyRate, 0) }}/hr</strong></span>
                     </div>
-                    <button type="button" class="btn btn-pedalya w-100 justify-content-center mt-3"
-                        onclick="selectBicycle('{{ $bicycle->id }}', '{{ $bicycle->serialNumber }} - {{ $bicycle->name }}', {{ $bicycle->batteryLevel }}, {{ $bicycle->hourlyRate }})">
-                        <i class="bi bi-key-fill"></i> Select & Rent
-                    </button>
+                    @if($isSelectable)
+                        <button type="button" class="btn btn-pedalya w-100 justify-content-center mt-3"
+                            onclick="selectBicycle('{{ $bicycle->id }}', '{{ $bicycle->serialNumber }} - {{ $bicycle->name }}', {{ $bicycle->batteryLevel }}, {{ $bicycle->hourlyRate }})">
+                            <i class="bi bi-key-fill"></i> Select & Rent
+                        </button>
+                    @else
+                        <button type="button" class="btn btn-secondary w-100 justify-content-center mt-3" disabled
+                            aria-disabled="true">
+                            <i class="bi bi-slash-circle"></i> Unavailable
+                        </button>
+                    @endif
                 </div>
             </div>
         </div>
@@ -147,9 +179,26 @@
                     </div>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label-pedalya">Rental Duration (hours)</label>
-                    <input type="range" class="form-range" min="1" max="8" value="2" id="durationSlider" oninput="updateCost()">
-                    <div class="d-flex justify-content-between"><small class="text-muted">1 hour</small><strong id="durationDisplay">2 hours</strong><small class="text-muted">8 hours</small></div>
+                    <label class="form-label-pedalya" for="durationMinutesInput">Rental Duration (minutes)</label>
+                    <input type="number" class="form-control" id="durationMinutesInput"
+                           min="1" max="{{ $maxDurationMinutes }}" step="1" value="60"
+                           inputmode="numeric" oninput="updateCost()">
+                    @error('durationMinutes')
+                        <div class="text-danger small mt-1">{{ $message }}</div>
+                    @enderror
+                    <div class="d-flex flex-wrap gap-2 mt-2" id="durationPresets">
+                        @foreach([15, 30, 45, 60, 90, 120] as $presetMinutes)
+                            @if($presetMinutes <= $maxDurationMinutes)
+                                <button type="button" class="btn btn-sm btn-outline-primary"
+                                        onclick="setDuration({{ $presetMinutes }})">{{ $presetMinutes }} min</button>
+                            @endif
+                        @endforeach
+                    </div>
+                    <div class="d-flex justify-content-between mt-2">
+                        <small class="text-muted">Min 1 minute</small>
+                        <strong id="durationDisplay">1 hour</strong>
+                        <small class="text-muted">Max {{ $maxDurationMinutes }} min</small>
+                    </div>
                 </div>
                 <div class="bg-primary-custom text-white rounded p-3 text-center mb-3">
                     <small>Estimated Cost</small>
@@ -216,7 +265,7 @@
                 <form action="{{ route('rider.rent.store') }}" method="POST" id="rentalForm" class="d-inline">
                     @csrf
                     <input type="hidden" name="bicycleId" id="selectedBicycleId" value="">
-                    <input type="hidden" name="durationHours" id="selectedDuration" value="2">
+                    <input type="hidden" name="durationMinutes" id="selectedDuration" value="60">
                     <input type="hidden" name="paymentMethod" id="selectedPaymentMethod" value="cash">
                     <input type="hidden" name="paymentReference" id="selectedPaymentRef" value="">
                     <button type="submit" class="btn btn-pedalya" id="confirmRentBtn"><i class="bi bi-key-fill"></i> Start Rental</button>
@@ -252,12 +301,32 @@
         new bootstrap.Modal(document.getElementById('rentalModal')).show();
     }
 
+    // Minutes are what the customer picks; hours are only a display format.
+    function formatDuration(mins) {
+        mins = parseInt(mins, 10) || 0;
+        if (mins < 60) return mins + (mins === 1 ? ' minute' : ' minutes');
+        var h = Math.floor(mins / 60), m = mins % 60;
+        return h + (h === 1 ? ' hour' : ' hours') + (m ? ' ' + m + 'm' : '');
+    }
+
+    // Billing rounds any part hour up to a whole charged hour, with a one hour
+    // minimum. This mirrors RentalService so the estimate shown here is the
+    // amount that actually gets charged.
+    function chargedHours(mins) {
+        return Math.max(Math.ceil((parseInt(mins, 10) || 0) / 60), 1);
+    }
+
+    function setDuration(mins) {
+        document.getElementById('durationMinutesInput').value = mins;
+        updateCost();
+    }
+
     function updateCost() {
-        var hours = document.getElementById('durationSlider').value;
-        document.getElementById('durationDisplay').textContent = hours + (hours == 1 ? ' hour' : ' hours');
-        var total = hours * currentRate;
+        var mins = parseInt(document.getElementById('durationMinutesInput').value, 10) || 0;
+        document.getElementById('durationDisplay').textContent = formatDuration(mins);
+        var total = chargedHours(mins) * currentRate;
+        document.getElementById('selectedDuration').value = mins;
         document.getElementById('costDisplay').textContent = '₱' + total.toFixed(2);
-        document.getElementById('selectedDuration').value = hours;
         document.getElementById('gcashAmountDisplay').textContent = '₱' + total.toFixed(2);
     }
 
@@ -288,7 +357,7 @@
 
     function generateGcashQr() {
         var canvas = document.getElementById('gcashQrCanvas');
-        var amount = (document.getElementById('durationSlider').value * currentRate).toFixed(2);
+        var amount = (chargedHours(document.getElementById('durationMinutesInput').value) * currentRate).toFixed(2);
         var text = 'gcash://pay?amount=' + amount + '&note=BicycleRental';
         canvas.width = 180;
         canvas.height = 180;

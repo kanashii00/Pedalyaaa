@@ -1,0 +1,230 @@
+[
+  {
+    "added_include_path": "C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12\\cores\\esp32"
+  },
+  {
+    "added_include_path": "C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12\\variants\\esp32"
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\sketch\\actuator_expiry_test.ino.cpp.merged",
+      "depfile_path": "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\sketch\\actuator_expiry_test.ino.cpp.merged.libsdetect.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2601/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/defines",
+        "-IC:\\Users\\Administrator\\pedalya\\firmware\\actuator_expiry_test",
+        "-iprefix",
+        "C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/include/",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/includes",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/qio_qspi/include",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12\\cores\\esp32",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12\\variants\\esp32",
+        "@C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test/build_opt.h",
+        "@C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test/file_opts",
+        "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\sketch\\actuator_expiry_test.ino.cpp.merged",
+        "-o",
+        "nul",
+        "-MMD",
+        "-MF",
+        "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\sketch\\actuator_expiry_test.ino.cpp.merged.libsdetect.d"
+      ]
+    }
+  },
+  {
+    "missing_include_h": "ESP32Servo.h"
+  },
+  {
+    "added_include_path": "C:\\Users\\Administrator\\OneDrive\\Pictures\\Documents\\Arduino\\libraries\\ESP32Servo\\src"
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\sketch\\actuator_expiry_test.ino.cpp.merged",
+      "depfile_path": "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\sketch\\actuator_expiry_test.ino.cpp.merged.libsdetect.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2601/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/defines",
+        "-IC:\\Users\\Administrator\\pedalya\\firmware\\actuator_expiry_test",
+        "-iprefix",
+        "C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/include/",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/includes",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/qio_qspi/include",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12\\cores\\esp32",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12\\variants\\esp32",
+        "-IC:\\Users\\Administrator\\OneDrive\\Pictures\\Documents\\Arduino\\libraries\\ESP32Servo\\src",
+        "@C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test/build_opt.h",
+        "@C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test/file_opts",
+        "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\sketch\\actuator_expiry_test.ino.cpp.merged",
+        "-o",
+        "nul",
+        "-MMD",
+        "-MF",
+        "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\sketch\\actuator_expiry_test.ino.cpp.merged.libsdetect.d"
+      ]
+    }
+  },
+  {
+    "missing_include_h": ""
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\Administrator\\OneDrive\\Pictures\\Documents\\Arduino\\libraries\\ESP32Servo\\src\\ESP32PWM.cpp",
+      "depfile_path": "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\libraries\\ESP32Servo\\ESP32PWM.cpp.libsdetect.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2601/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/defines",
+        "-IC:\\Users\\Administrator\\pedalya\\firmware\\actuator_expiry_test",
+        "-iprefix",
+        "C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/include/",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/includes",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/qio_qspi/include",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12\\cores\\esp32",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12\\variants\\esp32",
+        "-IC:\\Users\\Administrator\\OneDrive\\Pictures\\Documents\\Arduino\\libraries\\ESP32Servo\\src",
+        "@C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test/build_opt.h",
+        "@C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test/file_opts",
+        "C:\\Users\\Administrator\\OneDrive\\Pictures\\Documents\\Arduino\\libraries\\ESP32Servo\\src\\ESP32PWM.cpp",
+        "-o",
+        "nul",
+        "-MMD",
+        "-MF",
+        "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\libraries\\ESP32Servo\\ESP32PWM.cpp.libsdetect.d"
+      ]
+    }
+  },
+  {
+    "missing_include_h": ""
+  },
+  {
+    "compile": {
+      "source_path": "C:\\Users\\Administrator\\OneDrive\\Pictures\\Documents\\Arduino\\libraries\\ESP32Servo\\src\\ESP32Servo.cpp",
+      "depfile_path": "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\libraries\\ESP32Servo\\ESP32Servo.cpp.libsdetect.d"
+    },
+    "compile_task": {
+      "args": [
+        "C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-x32\\2601/bin/xtensa-esp32-elf-g++",
+        "-c",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/cpp_flags",
+        "-w",
+        "-Os",
+        "-Werror=return-type",
+        "-w",
+        "-x",
+        "c++",
+        "-E",
+        "-CC",
+        "-DF_CPU=240000000L",
+        "-DARDUINO=10607",
+        "-DARDUINO_ESP32_DEV",
+        "-DARDUINO_ARCH_ESP32",
+        "-DARDUINO_BOARD=\"ESP32_DEV\"",
+        "-DARDUINO_VARIANT=\"esp32\"",
+        "-DARDUINO_PARTITION_default",
+        "-DARDUINO_HOST_OS=\"windows\"",
+        "-DARDUINO_FQBN=\"esp32:esp32:esp32\"",
+        "-DESP32=ESP32",
+        "-DCORE_DEBUG_LEVEL=0",
+        "-DARDUINO_RUNNING_CORE=1",
+        "-DARDUINO_EVENT_RUNNING_CORE=1",
+        "-DARDUINO_USB_CDC_ON_BOOT=0",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/defines",
+        "-IC:\\Users\\Administrator\\pedalya\\firmware\\actuator_expiry_test",
+        "-iprefix",
+        "C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/include/",
+        "@C:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/flags/includes",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32-libs\\3.3.12/qio_qspi/include",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12\\cores\\esp32",
+        "-IC:\\Users\\Administrator\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12\\variants\\esp32",
+        "-IC:\\Users\\Administrator\\OneDrive\\Pictures\\Documents\\Arduino\\libraries\\ESP32Servo\\src",
+        "@C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test/build_opt.h",
+        "@C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test/file_opts",
+        "C:\\Users\\Administrator\\OneDrive\\Pictures\\Documents\\Arduino\\libraries\\ESP32Servo\\src\\ESP32Servo.cpp",
+        "-o",
+        "nul",
+        "-MMD",
+        "-MF",
+        "C:\\Users\\Administrator\\pedalya\\firmware\\build\\actuator-expiry-test\\libraries\\ESP32Servo\\ESP32Servo.cpp.libsdetect.d"
+      ]
+    }
+  },
+  {
+    "missing_include_h": ""
+  }
+]

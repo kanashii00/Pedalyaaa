@@ -90,7 +90,10 @@ class RentalControllerGateTest extends TestCase
             ->twice()
             ->andReturn(new DeviceCommand(), new DeviceCommand());
 
-        $rentalService = Mockery::mock(RentalService::class);
+        $rentalService = Mockery::mock(RentalService::class, [
+            $this->app->make(NotificationService::class),
+            $iotService,
+        ])->makePartial();
         $rentalService->shouldIgnoreMissing();
 
         $this->app->instance(NotificationService::class, $notificationService);
@@ -176,7 +179,10 @@ class RentalControllerGateTest extends TestCase
             ->twice()
             ->andReturn(new DeviceCommand(), new DeviceCommand());
 
-        $rentalService = Mockery::mock(RentalService::class);
+        $rentalService = Mockery::mock(RentalService::class, [
+            $this->app->make(NotificationService::class),
+            $iotService,
+        ])->makePartial();
         $rentalService->shouldIgnoreMissing();
 
         $this->app->instance(NotificationService::class, $notificationService);

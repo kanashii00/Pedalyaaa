@@ -2,64 +2,26 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Bicycle;
-use App\Models\Notification;
-use App\Models\Rental;
-use App\Models\User;
-use App\Services\NotificationService;
+use App\Services\RentalService;
 use Illuminate\Console\Command;
 
 class CheckOverdueRentals extends Command
 {
     protected $signature = 'rentals:check-overdue';
-    protected $description = 'Check for overdue rentals, flag them, and notify riders and admins';
 
-    public function handle(NotificationService $notificationService): int
+    protected $description = 'Expire active rentals when their expected end time passes, and notify administrators';
+
+    public function handle(RentalService $rentalService): int
     {
-       $overdueRentals = Rental::with(['bicycle'])
-    ->where('status', Rental::STATUS_ACTIVE)
-    ->whereNotNull('expectedEndTime')
-    ->where('expectedEndTime', '<=', now())
-    ->get();
+        $expiredCount = $rentalService->expireDueRentals();
 
-        if ($overdueRentals->isEmpty()) {
-            $this->info('No overdue rentals found.');
+        if ($expiredCount === 0) {
+            $this->info('No rentals to expire.');
             return Command::SUCCESS;
         }
 
-        foreach ($overdueRentals as $rental) {
-            $rental->update([
-                'status' => Rental::STATUS_OVERDUE,
-                'isOverdue' => true,
-                'overdueAt' => now(),
-            ]);
+        $this->info("Processed {$expiredCount} expired rental(s).");
 
-             // Do not lock immediately when the rental becomes overdue.
-            // The grace-period lock command handles the smart lock after
-            // the allowed grace period has elapsed.
-            
-            $notificationService->create(
-                $rental->riderId,
-                'Rental Overdue',
-                "Your rental for bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}) is now overdue. Please return the bicycle immediately.",
-                'rental_overdue',
-                ['rentalId' => $rental->rentalId]
-            );
-
-            $this->info("Rental #{$rental->id} marked as overdue.");
-        }
-
-        $adminIds = User::where('role', User::ROLE_ADMIN)->pluck('id')->all();
-        if (!empty($adminIds)) {
-            $notificationService->createForUsers(
-                $adminIds,
-                'Overdue Rentals',
-                $overdueRentals->count() . ' rental(s) are now overdue and require attention.',
-                'rental_overdue'
-            );
-        }
-
-        $this->info("Processed {$overdueRentals->count()} overdue rental(s).");
         return Command::SUCCESS;
     }
 }

@@ -31,9 +31,17 @@ class CheckOverdueGraceLocks extends Command
         }
 
         $rentals = Rental::with('bicycle')
-            ->where('status', Rental::STATUS_OVERDUE)
-            ->whereNotNull('overdueAt')
-            ->where('overdueAt', '<=', now()->subMinutes(5))
+            ->where(function ($query) {
+                $query->where('status', Rental::STATUS_OVERDUE)
+                    ->whereNotNull('overdueAt')
+                    ->where('overdueAt', '<=', now()->subMinutes(5))
+                    ->orWhere('status', Rental::STATUS_EXPIRED)
+                    ->whereNotNull('expiredAt')
+                    ->where('expiredAt', '<=', now()->subMinutes(5))
+                    ->orWhere('status', Rental::STATUS_OVERDUE_RETURN)
+                    ->whereNotNull('overdueReturnAt')
+                    ->where('overdueReturnAt', '<=', now()->subMinutes(5));
+            })
             ->get();
 
         if ($rentals->isEmpty()) {

@@ -26,6 +26,33 @@ class Rental extends Model
 
     public const STATUS_EXPIRED = 'expired';
 
+    public const STATUS_OVERDUE_RETURN = 'overdue_return';
+
+    /**
+     * Statuses in which a rental is still occupying its bicycle and the rider
+     * still owes time on it. A rental outside this set is settled and must
+     * never be presented as the bicycle's current, live rental.
+     */
+    public const LIVE_STATUSES = [
+        self::STATUS_ACTIVE,
+        self::STATUS_OVERDUE,
+        self::STATUS_EXPIRED,
+        self::STATUS_AWAITING_RETURN,
+        self::STATUS_OVERDUE_RETURN,
+    ];
+
+    public const PENALTY_FIXED = 'fixed';
+
+    public const PENALTY_PER_HOUR = 'per_hour';
+
+    public const PENALTY_PER_MINUTE = 'per_minute';
+
+    public const PENALTY_TYPES = [
+        self::PENALTY_FIXED,
+        self::PENALTY_PER_HOUR,
+        self::PENALTY_PER_MINUTE,
+    ];
+
     public const CONDITION_GOOD = 'good';
 
     public const CONDITION_FAIR = 'fair';
@@ -68,6 +95,13 @@ class Rental extends Model
         'approvedBy',
         'approvedAt',
         'warningSentAt',
+        'expiredAt',
+        'returnDeadline',
+        'returnDeadlineSetBy',
+        'overdueReturnAt',
+        'penaltyType',
+        'penaltyValue',
+        'penaltyAccrued',
         'returnRequestedAt',
         'returnCondition',
         'returnInspectedBy',
@@ -87,6 +121,9 @@ class Rental extends Model
             'endLocation' => 'array',
             'approvedAt' => 'datetime',
             'overdueAt' => 'datetime',
+            'expiredAt' => 'datetime',
+            'returnDeadline' => 'datetime',
+            'overdueReturnAt' => 'datetime',
             'warningSentAt' => 'datetime',
             'returnRequestedAt' => 'datetime',
             'returnProcessedAt' => 'datetime',
@@ -97,6 +134,10 @@ class Rental extends Model
             'ratePerHour' => 'decimal:2',
             'totalFee' => 'decimal:2',
             'totalDistance' => 'decimal:2',
+            'overdueFee' => 'decimal:2',
+            'finalFee' => 'decimal:2',
+            'penaltyValue' => 'decimal:2',
+            'penaltyAccrued' => 'decimal:2',
             'durationMinutes' => 'integer',
             'chargedHours' => 'integer',
         ];

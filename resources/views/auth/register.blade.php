@@ -54,14 +54,6 @@
                 </div>
             </div>
 
-            @if($pendingOauth)
-                <div class="alert alert-info alert-dismissible fade show" role="alert">
-                    <i class="bi bi-google me-2"></i>You're signed in with Google as
-                    <strong>{{ $pendingOauth['email'] }}</strong>. Enter your phone number below to finish creating your account.
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
-            @endif
-
             <div class="mb-3">
                 <label class="form-label-pedalya" for="phoneNumber">Phone Number</label>
                 <div class="input-group">

@@ -46,6 +46,7 @@
     .rv-summary__icon--accent { background: var(--accent-soft); color: var(--accent); }
     .rv-summary__icon--success { background: var(--success-soft); color: var(--success); }
     .rv-summary__icon--warning { background: var(--warning-soft); color: var(--warning); }
+    .rv-summary__icon--danger { background: var(--danger-soft); color: var(--danger); }
     .rv-summary__label {
         font-size: 10px; font-weight: 700; letter-spacing: 0.07em;
         text-transform: uppercase; color: var(--text-3);
@@ -190,6 +191,7 @@
     .rv-status--completed { background: var(--brand-soft); color: var(--brand-strong); border-color: color-mix(in srgb, var(--brand) 24%, transparent); }
     .rv-status--returned { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 22%, transparent); }
     .rv-status--cancelled { background: var(--surface-3); color: var(--text-3); border-color: var(--border-subtle); }
+    .rv-status--overdue { background: var(--danger-soft); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 24%, transparent); }
     .rv-status--paid { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 22%, transparent); }
     .rv-status--dot::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
     .rv-status--live::before { animation: rvPulse 1.8s ease-in-out infinite; }
@@ -574,6 +576,22 @@
                 <div class="rv-summary__sub">returns processed today</div>
             </div>
         </div>
+        <div class="rv-summary__card">
+            <div class="rv-summary__icon rv-summary__icon--danger"><i class="bi bi-exclamation-triangle"></i></div>
+            <div>
+                <div class="rv-summary__label">Overdue Returns</div>
+                <div class="rv-summary__value">{{ number_format($summary['overdueReturn'] ?? 0) }}</div>
+                <div class="rv-summary__sub">deadline passed</div>
+            </div>
+        </div>
+        <div class="rv-summary__card">
+            <div class="rv-summary__icon rv-summary__icon--accent"><i class="bi bi-clock-history"></i></div>
+            <div>
+                <div class="rv-summary__label">Late Penalty</div>
+                <div class="rv-summary__value">&#8369;{{ number_format($summary['penaltyRate'] ?? 20, 2) }}/hr</div>
+                <div class="rv-summary__sub">after return deadline</div>
+            </div>
+        </div>
     </div>
 
     {{-- ===== Filter bar ===== --}}
@@ -693,8 +711,8 @@
                             </td>
                             <td>
                                 <div class="rv-dt">
-                                    <div class="rv-dt__date">{{ $rental->endTime?->format('M d, Y') ?? '&mdash;' }}</div>
-                                    <div class="rv-dt__time">{{ $rental->endTime?->format('h:i A') ?? '&mdash;' }}</div>
+                                    <div class="rv-dt__date">{{ $rental->endTime?->format('M d, Y') ?? '—' }}</div>
+                                    <div class="rv-dt__time">{{ $rental->endTime?->format('h:i A') ?? '—' }}</div>
                                 </div>
                             </td>
                             <td>
@@ -716,8 +734,10 @@
                                 @endif
                             </td>
                             <td>
-                                @if($view === 'pending' || $rental->status === 'awaiting_return')
+                                @if($rental->status === 'awaiting_return')
                                     <span class="rv-status rv-status--awaiting rv-status--dot rv-status--live">Awaiting Return</span>
+                                @elseif($rental->status === 'overdue_return')
+                                    <span class="rv-status rv-status--overdue rv-status--dot rv-status--live">Overdue Return</span>
                                 @elseif($rental->status === 'returned')
                                     <span class="rv-status rv-status--returned rv-status--dot">Returned</span>
                                 @elseif($rental->status === 'completed')
@@ -744,7 +764,7 @@
                                             title="View details">
                                         <i class="bi bi-eye"></i>
                                     </button>
-                                    @if($view === 'pending' && $rental->status === 'awaiting_return')
+                                    @if($view === 'pending' && in_array($rental->status, ['awaiting_return', 'overdue_return']))
                                         <button type="button" class="rv-btn rv-btn--process"
                                                 data-return-process
                                                 data-rental-id="{{ $rental->id }}"
@@ -755,9 +775,30 @@
                                                 data-start="{{ $rental->startTime?->toIso8601String() }}"
                                                 data-expected-end="{{ $rental->expectedEndTime?->toIso8601String() }}"
                                                 data-end="{{ $rental->endTime?->toIso8601String() }}"
+                                                data-deadline="{{ $rental->returnDeadline?->toIso8601String() }}"
+                                                data-penalty-rate="{{ (float) ($summary['penaltyRate'] ?? \App\Models\SystemSetting::getValue('lateReturnPenaltyPerHour', 20)) }}"
+                                                data-penalty-type="{{ $rental->penaltyType }}"
+                                                data-penalty-value="{{ $rental->penaltyValue }}"
                                                 title="Process Return">
                                             <i class="bi bi-clipboard-check"></i> Process Return
                                         </button>
+                                        @if($rental->status === 'awaiting_return')
+                                            <button type="button" class="rv-btn rv-btn--process"
+                                                    data-return-deadline-open
+                                                    data-rental-id="{{ $rental->id }}"
+                                                    data-rental-code="{{ $rental->rentalId }}"
+                                                    data-rider="{{ $rental->rider->name ?? $rental->riderName ?? 'Unknown' }}"
+                                                    data-bike="{{ $rental->bicycle->name ?? $rental->bicycleName ?? 'Unknown' }}"
+                                                    data-expected-end="{{ $rental->expectedEndTime?->format('M d, Y g:i A') }}"
+                                                    data-expired-at="{{ $rental->expiredAt?->format('M d, Y g:i A') }}"
+                                                    data-status="{{ $rental->status }}"
+                                                    data-current-deadline="{{ $rental->returnDeadline?->format('Y-m-d\TH:i') }}"
+                                                    data-penalty-type="{{ $rental->penaltyType }}"
+                                                    data-penalty-value="{{ $rental->penaltyValue }}"
+                                                    title="{{ $rental->returnDeadline ? 'Set or change the return deadline & penalty' : 'Set return deadline & penalty' }}">
+                                                <i class="bi bi-calendar-plus"></i>
+                                            </button>
+                                        @endif
                                     @else
                                         @php
                                             $receiptData = [
@@ -800,8 +841,10 @@
                                                 <div class="rv-detail__title">
                                                     <i class="bi bi-arrow-return-left"></i>
                                                     Return #{{ $rental->id }}
-                                                    @if($view === 'pending' || $rental->status === 'awaiting_return')
+                                                    @if($rental->status === 'awaiting_return')
                                                         <span class="rv-status rv-status--awaiting rv-status--dot rv-status--live">Awaiting Return</span>
+                                                    @elseif($rental->status === 'overdue_return')
+                                                        <span class="rv-status rv-status--overdue rv-status--dot rv-status--live">Overdue Return</span>
                                                     @elseif($rental->status === 'returned')
                                                         <span class="rv-status rv-status--returned rv-status--dot">Returned</span>
                                                     @elseif($rental->status === 'completed')
@@ -811,7 +854,7 @@
                                                     @endif
                                                 </div>
                                                 <div class="rv-detail__meta">
-                                                    <i class="bi bi-clock-history me-1"></i>Returned {{ $rental->endTime?->format('M d, Y h:i A') ?? '&mdash;' }}
+                                                    <i class="bi bi-clock-history me-1"></i>Returned {{ $rental->endTime?->format('M d, Y h:i A') ?? '—' }}
                                                 </div>
                                             </div>
                                             <div class="rv-detail__body">
@@ -819,21 +862,33 @@
                                                     <div class="rv-panel">
                                                         <div class="rv-panel__label"><i class="bi bi-route"></i>Return Details</div>
                                                         <dl style="margin:0;">
-                                                            <div class="rv-kv"><dt>Start Time</dt><dd>{{ $rental->startTime?->format('M d, Y h:i A') ?? '&mdash;' }}</dd></div>
-                                                            <div class="rv-kv"><dt>Returned At</dt><dd>{{ $rental->endTime?->format('M d, Y h:i A') ?? '&mdash;' }}</dd></div>
-                                                            <div class="rv-kv"><dt>Duration</dt><dd>{{ $durLabel ?? '&mdash;' }}</dd></div>
-                                                            @if($rental->status === 'awaiting_return')
-                                                                <div class="rv-kv"><dt>Awaiting Since</dt><dd>{{ $rental->returnRequestedAt?->format('M d, Y h:i A') ?? '&mdash;' }}</dd></div>
+                                                            <div class="rv-kv"><dt>Start Time</dt><dd>{{ $rental->startTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                            <div class="rv-kv"><dt>Returned At</dt><dd>{{ $rental->endTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                            <div class="rv-kv"><dt>Duration</dt><dd>{{ $durLabel ?? '—' }}</dd></div>
+                                                            @if($rental->status === 'awaiting_return' || $rental->status === 'overdue_return')
+                                                                <div class="rv-kv"><dt>Awaiting Since</dt><dd>{{ $rental->returnRequestedAt?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                                @if($rental->returnDeadline)
+                                                                    <div class="rv-kv"><dt>Return Deadline</dt><dd>{{ $rental->returnDeadline->format('M d, Y h:i A') }}</dd></div>
+                                                                @endif
+                                                                @if($rental->status === 'overdue_return')
+                                                                    <div class="rv-kv"><dt>Overdue Since</dt><dd>{{ $rental->overdueReturnAt?->format('M d, Y h:i A') ?? $rental->returnDeadline?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                                    @if(isset($overdueStats[$rental->id]))
+                                                                        @php($od = $overdueStats[$rental->id])
+                                                                        <div class="rv-kv"><dt>Overdue Duration</dt><dd>
+                                                                            {{ floor($od['durationMinutes'] / 60) }}h {{ $od['durationMinutes'] % 60 }}m</dd></div>
+                                                                        <div class="rv-kv"><dt>Current Penalty</dt><dd class="text-danger">&nbsp;&#8369;{{ number_format((float) $od['currentPenalty'], 2) }}</dd></div>
+                                                                    @endif
+                                                                @endif
                                                             @else
-                                                                <div class="rv-kv"><dt>Processed At</dt><dd>{{ $rental->returnProcessedAt?->format('M d, Y h:i A') ?? '&mdash;' }}</dd></div>
-                                                                <div class="rv-kv"><dt>Inspected By</dt><dd>{{ $rental->returnInspectedBy ?? '&mdash;' }}</dd></div>
+                                                                <div class="rv-kv"><dt>Processed At</dt><dd>{{ $rental->returnProcessedAt?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                                <div class="rv-kv"><dt>Inspected By</dt><dd>{{ $rental->returnInspectedBy ?? '—' }}</dd></div>
                                                                 <div class="rv-kv"><dt>Condition</dt><dd>{{ ucfirst(str_replace('_', ' ', $rental->returnCondition ?? '—')) }}</dd></div>
                                                             @endif
                                                         </dl>
                                                         @if($rental->returnNote)
                                                             <div class="rv-notes"><strong><i class="bi bi-sticky me-1"></i>Return Note</strong>{{ $rental->returnNote }}</div>
                                                         @endif
-                                                        @if($rental->status === 'awaiting_return' && $view === 'pending')
+                                                        @if(in_array($rental->status, ['awaiting_return', 'overdue_return']) && $view === 'pending')
                                                             <button type="button" class="btn-admin btn-admin--primary btn-admin--sm mt-2"
                                                                     data-return-process
                                                                     data-rental-id="{{ $rental->id }}"
@@ -844,6 +899,10 @@
                                                                     data-start="{{ $rental->startTime?->toIso8601String() }}"
                                                                     data-expected-end="{{ $rental->expectedEndTime?->toIso8601String() }}"
                                                                     data-end="{{ $rental->endTime?->toIso8601String() }}"
+                                                                    data-deadline="{{ $rental->returnDeadline?->toIso8601String() }}"
+                                                                    data-penalty-rate="{{ (float) ($summary['penaltyRate'] ?? \App\Models\SystemSetting::getValue('lateReturnPenaltyPerHour', 20)) }}"
+                                                                    data-penalty-type="{{ $rental->penaltyType }}"
+                                                                    data-penalty-value="{{ $rental->penaltyValue }}"
                                                                     title="Process Return">
                                                                 <i class="bi bi-clipboard-check me-1"></i>Process Return
                                                             </button>
@@ -857,14 +916,14 @@
                                                                 <div class="user-avatar" style="width:32px;height:32px;font-size:12px;">{{ strtoupper(substr($rental->rider->name ?? 'U', 0, 1)) }}</div>
                                                                 <div style="min-width:0;">
                                                                     <div class="rv-rider__name">{{ $rental->rider->name ?? 'Unknown' }}</div>
-                                                                    <div class="rv-rider__email">{{ $rental->rider->email ?? '&mdash;' }}</div>
+                                                                    <div class="rv-rider__email">{{ $rental->rider->email ?? '—' }}</div>
                                                                 </div>
                                                             </div>
                                                             <div class="rv-party">
                                                                 <i class="bi bi-bicycle lead"></i>
                                                                 <div style="min-width:0;">
                                                                     <div class="rv-rider__name">{{ $rental->bicycle->name ?? 'Unknown' }}</div>
-                                                                    <div class="rv-rider__email">{{ $rental->bicycle->status ?? '&mdash;' }}</div>
+                                                                    <div class="rv-rider__email">{{ $rental->bicycle->status ?? '—' }}</div>
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -875,7 +934,7 @@
                                                             </div>
                                                             <div class="rv-tile">
                                                                 <div class="rv-tile__label">Duration</div>
-                                                                <div class="rv-tile__value">{{ $durLabel ?? '&mdash;' }}</div>
+                                                                <div class="rv-tile__value">{{ $durLabel ?? '—' }}</div>
                                                             </div>
                                                             <div class="rv-tile rv-tile--total">
                                                                 <div class="rv-tile__label">Final Fee</div>
@@ -979,8 +1038,9 @@
                 </div>
 
                 <div class="pr-summary">
+                    <div class="pr-summary__row"><dt>Return Deadline</dt><dd><span id="prDeadline">&mdash;</span></dd></div>
                     <div class="pr-summary__row"><dt>Base fee</dt><dd><span id="prBase">&#8369;0.00</span></dd></div>
-                    <div class="pr-summary__row"><dt>Overdue fee</dt><dd><span id="prOverdue">&#8369;0.00</span></dd></div>
+                    <div class="pr-summary__row"><dt>Late penalty <small id="prPenaltyRate" style="color:var(--text-3);font-weight:400;"></small></dt><dd><span id="prOverdue">&#8369;0.00</span></dd></div>
                     <div class="pr-summary__row pr-summary__row--total"><dt>Final Fee</dt><dd><span id="prTotal">&#8369;0.00</span></dd></div>
                 </div>
 
@@ -991,6 +1051,72 @@
             <div class="pr-modal__foot">
                 <button type="button" class="btn-admin btn-admin--secondary" data-pr-close>Cancel</button>
                 <button type="submit" class="btn-admin btn-admin--primary"><i class="bi bi-check2-circle me-1"></i>Confirm Return</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{-- ===== Set Return Deadline modal ===== --}}
+<div class="pr-modal" id="prDeadlineModal">
+    <div class="pr-modal__backdrop" data-pr-deadline-close></div>
+    <div class="pr-modal__dialog" role="dialog" aria-modal="true" aria-label="Set return deadline">
+        <div class="pr-modal__head">
+            <h3><i class="bi bi-calendar-plus"></i>Set Return Deadline</h3>
+            <button type="button" class="pr-modal__close" data-pr-deadline-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <form method="POST" id="prDeadlineForm">
+            @csrf
+            @method('PUT')
+            <div class="pr-modal__body">
+                <div class="pr-summary">
+                    <div class="pr-summary__row"><dt>Rental</dt><dd id="prDlCode">&mdash;</dd></div>
+                    <div class="pr-summary__row"><dt>Rider</dt><dd id="prDlRider">&mdash;</dd></div>
+                    <div class="pr-summary__row"><dt>Bicycle</dt><dd id="prDlBike">&mdash;</dd></div>
+                    <div class="pr-summary__row"><dt>Original Expiration</dt><dd id="prDlExpired">&mdash;</dd></div>
+                    <div class="pr-summary__row"><dt>Current Status</dt><dd id="prDlStatus">&mdash;</dd></div>
+                </div>
+
+                <div class="pr-form-field">
+                    <label for="prDlMinutes">Allowed Return Time (minutes)</label>
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                        <input type="number" step="1" min="1" max="1440" name="minutes" id="prDlMinutes" style="max-width:120px;" value="30" required>
+                        <button type="button" class="btn-admin btn-admin--sm" data-pr-min-chip="10">10 min</button>
+                        <button type="button" class="btn-admin btn-admin--sm" data-pr-min-chip="15">15 min</button>
+                        <button type="button" class="btn-admin btn-admin--sm" data-pr-min-chip="30">30 min</button>
+                        <button type="button" class="btn-admin btn-admin--sm" data-pr-min-chip="60">60 min</button>
+                    </div>
+                    <div style="margin-top:6px;font-size:12px;color:var(--text-2);">
+                        Deadline: <strong id="prDlPreview">&mdash;</strong> <span style="opacity:.75;">(approx. preview; exact deadline is set from the server time)</span>
+                    </div>
+                </div>
+
+                <div class="pr-form-field">
+                    <label for="prDlPenaltyType">Penalty Type</label>
+                    <select name="penaltyType" id="prDlPenaltyType" class="form-select">
+                        <option value="per_minute" selected>Per Minute</option>
+                        <option value="per_hour">Per Hour</option>
+                        <option value="fixed">Fixed Amount</option>
+                    </select>
+                </div>
+
+                <div class="pr-form-field">
+                    <label for="prDlPenaltyValue">Penalty Rate (&#8369;)</label>
+                    <input type="number" step="0.01" min="0" name="penaltyValue" id="prDlPenaltyValue" value="10.00" placeholder="e.g. 10.00" required>
+                    <div style="font-size:11.5px;color:var(--text-2);margin-top:3px;">Default &#8369;10.00 per overdue minute.</div>
+                </div>
+
+                <div class="pr-form-field">
+                    <label for="prDlMessage">Message to Renter <span style="font-weight:400;color:var(--text-2);">(optional)</span></label>
+                    <textarea name="message" id="prDlMessage" rows="2" maxlength="500" placeholder="e.g. Please return the bicycle at the station before the deadline."></textarea>
+                </div>
+
+                <div class="pr-note">
+                    <i class="bi bi-info-circle me-1"></i><strong>Grant a deadline.</strong> The renter is notified with the exact return deadline and penalty rule. If the bicycle is not returned before the deadline, the rental becomes Overdue Return and the penalty accrues until you confirm the return.
+                </div>
+            </div>
+            <div class="pr-modal__foot">
+                <button type="button" class="btn-admin btn-admin--secondary" data-pr-deadline-close>Cancel</button>
+                <button type="submit" class="btn-admin btn-admin--primary"><i class="bi bi-bell-fill me-1"></i>Set Deadline &amp; Notify Renter</button>
             </div>
         </form>
     </div>
@@ -1095,37 +1221,70 @@ document.addEventListener('DOMContentLoaded', function () {
     const money = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     function fmtLocal(dateStr) {
-        const d = new Date(dateStr);
+        const d = dateStr ? new Date(dateStr) : new Date();
         if (isNaN(d.getTime())) return new Date().toISOString();
         const p = n => String(n).padStart(2, '0');
         return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
     }
 
-    function computeFees(rate, startIso, expectedIso, endIso) {
+    function computeFees({ rate, startIso, expectedIso, endIso, deadlineIso, penaltyRate, penaltyType, penaltyValue }) {
         const ratePhp = Number(rate) || 0;
         const end = endIso ? new Date(endIso) : new Date(prReturnTime.value);
         const start = new Date(startIso);
         const durMin = Math.max(Math.round((end - start) / 60000), 0);
         const hours = Math.max(Math.ceil(durMin / 60), 1);
         const base = Math.round(hours * ratePhp * 100) / 100;
-        let overdue = 0;
-        if (expectedIso) {
+        let penalty = 0;
+        if (deadlineIso) {
+            const dl = new Date(deadlineIso);
+            if (!isNaN(dl.getTime()) && end > dl) {
+                const diffMin = Math.max(Math.round((end - dl) / 60000), 1);
+                const type = penaltyType || '';
+                if (type === 'fixed') {
+                    penalty = Math.round((Number(penaltyValue) || 0) * 100) / 100;
+                } else if (type === 'per_minute') {
+                    penalty = Math.round(diffMin * (Number(penaltyValue) || 0) * 100) / 100;
+                } else if (type === 'per_hour') {
+                    penalty = Math.round(Math.max(Math.ceil(diffMin / 60), 1) * (Number(penaltyValue) || 0) * 100) / 100;
+                } else {
+                    const penRatePhp = Number(penaltyRate) || 0;
+                    penalty = Math.round(Math.max(Math.ceil(diffMin / 60), 1) * penRatePhp * 100) / 100;
+                }
+            }
+        } else if (expectedIso) {
             const exp = new Date(expectedIso);
             if (end > exp) {
                 const diffMin = Math.max(Math.round((end - exp) / 60000), 1);
-                const overdueHrs = Math.max(Math.ceil(diffMin / 60), 1);
-                overdue = Math.round(overdueHrs * ratePhp * 100) / 100;
+                penalty = Math.round(Math.max(Math.ceil(diffMin / 60), 1) * ratePhp * 100) / 100;
             }
         }
-        const total = Math.round((base + overdue) * 100) / 100;
-        return { base, overdue, total, durMin };
+        const total = Math.round((base + penalty) * 100) / 100;
+        return { base, penalty, total, durMin };
     }
 
-    function updateFeePreview(rate, startIso, expectedIso, endIso) {
-        const f = computeFees(rate, startIso, expectedIso, endIso);
+    function fmtShort(dateStr) {
+        if (!dateStr) return '—';
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return '—';
+        return d.toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+
+    function updateFeePreview(params) {
+        const f = computeFees(params);
         document.getElementById('prBase').textContent = money(f.base);
-        document.getElementById('prOverdue').textContent = money(f.overdue);
+        document.getElementById('prOverdue').textContent = money(f.penalty);
         document.getElementById('prTotal').textContent = money(f.total);
+        const dlNode = document.getElementById('prDeadline');
+        if (dlNode) dlNode.textContent = fmtShort(params.deadlineIso);
+        const prRate = document.getElementById('prPenaltyRate');
+        if (prRate) {
+            if (!params.deadlineIso) { prRate.textContent = ''; }
+            else if (params.penaltyType === 'fixed') { prRate.textContent = '(fixed)'; }
+            else if (params.penaltyType === 'per_minute') { prRate.textContent = '(' + money(params.penaltyValue) + '/min)'; }
+            else if (params.penaltyType === 'per_hour') { prRate.textContent = '(' + money(params.penaltyValue) + '/hr)'; }
+            else if (params.penaltyRate) { prRate.textContent = '(' + money(params.penaltyRate) + '/hr)'; }
+            else { prRate.textContent = ''; }
+        }
     }
 
     document.querySelectorAll('[data-return-process]').forEach(btn => {
@@ -1134,24 +1293,99 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('prCode').textContent = this.dataset.rentalCode || ('#' + this.dataset.rentalId);
             document.getElementById('prRider').textContent = this.dataset.rider || 'Unknown';
             document.getElementById('prBike').textContent = this.dataset.bike || 'Unknown';
-            const rate = this.dataset.rate || 0;
-            const start = this.dataset.start || new Date().toISOString();
-            const expected = this.dataset.expectedEnd || '';
-            const end = this.dataset.end || new Date().toISOString();
-            prReturnTime.value = fmtLocal(end || new Date().toISOString());
+            const params = {
+                rate: this.dataset.rate || 0,
+                start: this.dataset.start || new Date().toISOString(),
+                expected: this.dataset.expectedEnd || '',
+                end: this.dataset.end || new Date().toISOString(),
+                deadline: this.dataset.deadline || '',
+                penaltyRate: this.dataset.penaltyRate || 0,
+                penaltyType: this.dataset.penaltyType || '',
+                penaltyValue: this.dataset.penaltyValue || 0,
+            };
+            prReturnTime.value = fmtLocal(params.end);
+            prReturnTime.dataset.rate = params.rate;
+            prReturnTime.dataset.start = params.start;
+            prReturnTime.dataset.expected = params.expected;
+            prReturnTime.dataset.deadline = params.deadline;
+            prReturnTime.dataset.penaltyRate = params.penaltyRate;
+            prReturnTime.dataset.penaltyType = params.penaltyType;
+            prReturnTime.dataset.penaltyValue = params.penaltyValue;
             document.getElementById('prNote').value = '';
             document.querySelector('input[name="condition"][value="good"]').checked = true;
-            updateFeePreview(rate, start, expected, end);
+            updateFeePreview(params);
             prModal.classList.add('open');
         });
     });
 
     if (prReturnTime) {
         prReturnTime.addEventListener('change', function () {
-            // recompute using the modal's stored rental params
-            const rate = document.getElementById('prRateCache') ? document.getElementById('prRateCache').value : 0;
-            updateFeePreview(rate, prReturnTime.dataset.start, prReturnTime.dataset.expected, prReturnTime.value);
+            updateFeePreview({
+                rate: prReturnTime.dataset.rate || 0,
+                start: prReturnTime.dataset.start || new Date().toISOString(),
+                expected: prReturnTime.dataset.expected || '',
+                deadline: prReturnTime.dataset.deadline || '',
+                penaltyRate: prReturnTime.dataset.penaltyRate || 0,
+                penaltyType: prReturnTime.dataset.penaltyType || '',
+                penaltyValue: prReturnTime.dataset.penaltyValue || 0,
+                end: this.value,
+            });
         });
+    }
+
+    /* ---- Set Return Deadline modal ---- */
+    const dlModal = document.getElementById('prDeadlineModal');
+    if (dlModal) {
+        const dlForm = document.getElementById('prDeadlineForm');
+        const dlMinutes = document.getElementById('prDlMinutes');
+        const dlSet = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val || '—'; };
+        const fmtDl = d => {
+            let h = d.getHours();
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            h = h % 12; if (h === 0) h = 12;
+            const p = n => String(n).padStart(2, '0');
+            return (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear() + ' ' + h + ':' + p(d.getMinutes()) + ' ' + ampm;
+        };
+        const updatePreview = () => {
+            const pr = document.getElementById('prDlPreview');
+            if (!pr) return;
+            const mins = parseInt(dlMinutes ? dlMinutes.value : '', 10);
+            if (!mins || mins < 1) { pr.textContent = '—'; return; }
+            pr.textContent = fmtDl(new Date(Date.now() + mins * 60000));
+        };
+
+        document.querySelectorAll('[data-return-deadline-open]').forEach(btn => {
+            btn.addEventListener('click', function () {
+                if (dlForm) dlForm.action = "{{ route('admin.rentals.set-deadline', '__ID__') }}".replace('__ID__', this.dataset.rentalId);
+                dlSet('prDlCode', this.dataset.rentalCode || ('#' + this.dataset.rentalId));
+                dlSet('prDlRider', this.dataset.rider);
+                dlSet('prDlBike', this.dataset.bike);
+                dlSet('prDlExpired', this.dataset.expectedEnd || this.dataset.expiredAt);
+                const status = this.dataset.status;
+                dlSet('prDlStatus', status ? status.replace(/_/g, ' ').replace(/\w\S*/g, t => t.charAt(0).toUpperCase() + t.substr(1).toLowerCase()) : '');
+                if (dlMinutes) dlMinutes.value = 30;
+                const pt = document.getElementById('prDlPenaltyType');
+                if (pt && this.dataset.penaltyType) pt.value = this.dataset.penaltyType;
+                const pv = document.getElementById('prDlPenaltyValue');
+                if (pv) pv.value = (this.dataset.penaltyValue && this.dataset.penaltyValue !== '0') ? this.dataset.penaltyValue : '10.00';
+                const msg = document.getElementById('prDlMessage');
+                if (msg) msg.value = '';
+                if (dlMinutes) {
+                    dlMinutes.removeEventListener('input', updatePreview);
+                    dlMinutes.addEventListener('input', updatePreview);
+                }
+                updatePreview();
+                dlModal.classList.add('open');
+            });
+        });
+
+        document.querySelectorAll('[data-pr-min-chip]').forEach(chip => {
+            chip.addEventListener('click', () => {
+                if (dlMinutes) { dlMinutes.value = chip.getAttribute('data-pr-min-chip'); updatePreview(); }
+            });
+        });
+
+        dlModal.querySelectorAll('[data-pr-deadline-close]').forEach(b => b.addEventListener('click', () => dlModal.classList.remove('open')));
     }
 
     function closePrModal() { prModal.classList.remove('open'); }

@@ -1,0 +1,5 @@
+.pio/
+.vscode/
+
+# Live per-bicycle device key and Wi-Fi password. Commit secrets_example.h.
+pedalya_lcd/secrets.h

@@ -46,7 +46,7 @@ Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])
 
 // Admin routes
 Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->group(function () {
-    Route::get('/dashboard', [AdminDashboard::class, 'index'])->name('dashboard');
+    Route::get('/dashboard', [AdminDashboard::class, 'index'])->middleware('rental.sync')->name('dashboard');
 
     // Bicycle management
     Route::get('/bicycles', [AdminBicycle::class, 'index'])->name('bicycles.index');
@@ -70,15 +70,16 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::put('/blacklisted-customers/{id}', [AdminRider::class, 'updateBlacklist'])->name('riders.blacklist.update');
 
     // Rental management
-    Route::get('/rentals', [AdminRental::class, 'index'])->name('rentals.index');
-    Route::get('/rentals/history', [AdminRental::class, 'history'])->name('rentals.history');
-    Route::get('/rentals/returns', [AdminRental::class, 'returns'])->name('rentals.returns');
-    Route::get('/rentals/{id}', [AdminRental::class, 'show'])->name('rentals.show');
+    Route::get('/rentals', [AdminRental::class, 'index'])->middleware('rental.sync')->name('rentals.index');
+    Route::get('/rentals/history', [AdminRental::class, 'history'])->middleware('rental.sync')->name('rentals.history');
+    Route::get('/rentals/returns', [AdminRental::class, 'returns'])->middleware('rental.sync')->name('rentals.returns');
+    Route::get('/rentals/{id}', [AdminRental::class, 'show'])->middleware('rental.sync')->name('rentals.show');
     Route::put('/rentals/{id}/approve', [AdminRental::class, 'approve'])->name('rentals.approve');
     Route::put('/rentals/{id}/verify-gcash', [AdminRental::class, 'verifyGcashPayment'])->name('rentals.verify-gcash');
     Route::put('/rentals/{id}/mark-paid', [AdminRental::class, 'markPaid'])->name('rentals.mark-paid');
     Route::put('/rentals/{id}/end-ride', [AdminRental::class, 'endRide'])->name('rentals.end-ride');
     Route::put('/rentals/{id}/process-return', [AdminRental::class, 'processReturn'])->name('rentals.process-return');
+    Route::put('/rentals/{id}/set-deadline', [AdminRental::class, 'setDeadline'])->name('rentals.set-deadline');
     Route::put('/rentals/{id}/cancel', [AdminRental::class, 'cancel'])->name('rentals.cancel');
 
     // Monitoring
@@ -151,15 +152,15 @@ Route::post('/theft/{id}/acknowledge', [AdminTheft::class, 'acknowledge'])->name
 
 // Rider routes
 Route::middleware(['auth', 'role:rider'])->prefix('rider')->name('rider.')->group(function () {
-    Route::get('/dashboard', [RiderDashboard::class, 'index'])->name('dashboard');
+    Route::get('/dashboard', [RiderDashboard::class, 'index'])->middleware('rental.sync')->name('dashboard');
 
     // Rent bicycle
-    Route::get('/rent', [RiderRent::class, 'index'])->name('rentals.create');
+    Route::get('/rent', [RiderRent::class, 'index'])->middleware('rental.sync')->name('rentals.create');
     Route::post('/rent', [RiderRent::class, 'store'])->name('rent.store');
-    Route::post('/rent/{id}/return', [RiderRent::class, 'returnRental'])->name('rentals.return');
+    Route::post('/rent/{id}/return', [RiderRent::class, 'returnRental'])->middleware('rental.sync')->name('rentals.return');
 
     // Rental history
-    Route::get('/history', [RiderRent::class, 'history'])->name('rentals.index');
+    Route::get('/history', [RiderRent::class, 'history'])->middleware('rental.sync')->name('rentals.index');
 
     // Profile
     Route::get('/profile', [RiderProfile::class, 'show'])->name('profile.index');

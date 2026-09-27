@@ -246,19 +246,9 @@ public function cancel(Request $request, int $id): JsonResponse
             'notes' => $request->input('notes'),
         ]);
 
-        $bicycle = Bicycle::find($rental->bicycleId);
-        if ($bicycle && (string) $bicycle->currentRentalId === (string) $rental->id) {
-            // Rental cancelled: bicycle becomes Available and the smart lock
-            // is Locked again since nobody is authorized to use it.
-            $bicycle->update([
-                'status' => Bicycle::STATUS_AVAILABLE,
-                'currentRider' => null,
-                'currentRentalId' => null,
-                'lockStatus' => Bicycle::LOCK_LOCKED,
-            ]);
-
-            $this->iotService->sendCommand($rental->bicycleId, 'lock', [], $user);
-        }
+        // Single source of truth for freeing the bicycle on cancellation, shared
+        // with the rider-facing and admin cancel paths.
+        $this->rentalService->releaseBicycleOnCancel($rental, $user);
 
         return response()->json([
             'message' => 'Rental cancelled successfully',

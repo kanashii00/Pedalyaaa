@@ -3,6 +3,16 @@
 return [
     'device_api_key' => env('DEVICE_API_KEY', 'pedalya-iot-device-key-2024'),
 
+    /*
+     * On-board display (ESP32 + 16x2 LCD) polling. The countdown runs locally
+     * on the device between polls, so this only needs to be frequent enough to
+     * keep a rider's view of the clock honest and to notice a newly-set
+     * deadline promptly.
+     */
+    'device_display' => [
+        'poll_after_seconds' => (int) env('DEVICE_DISPLAY_POLL_SECONDS', 15),
+    ],
+
     'google_maps' => [
         'api_key' => env('GOOGLE_MAPS_API_KEY', ''),
     ],

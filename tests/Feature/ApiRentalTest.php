@@ -128,6 +128,7 @@ class ApiRentalTest extends TestCase
         $rental = $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => Rental::STATUS_ACTIVE]);
 
         $service = Mockery::mock(RentalService::class);
+        $service->shouldReceive('synchronizeLifecycle')->andReturn(['expired' => 0, 'overdue_return' => 0]);
         $service->shouldReceive('markRideEnded')
             ->once()
             ->andReturn([

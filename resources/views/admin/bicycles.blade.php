@@ -38,6 +38,8 @@
                 <th class="sortable">Name <span class="sort-ind"></span></th>
                 <th class="sortable">Serial <span class="sort-ind"></span></th>
                 <th class="sortable">Status <span class="sort-ind"></span></th>
+                <th>Current Renter</th>
+                <th>Current Rental</th>
                 <th class="sortable">Battery <span class="sort-ind"></span></th>
                 <th class="sortable">Lock <span class="sort-ind"></span></th>
                 <th class="sortable">Condition <span class="sort-ind"></span></th>
@@ -52,6 +54,25 @@
                     $isLocked = $bike->lockStatus === 'locked';
                     $isRented = $bike->status === 'rented';
                     $inMaintenance = $bike->status === 'maintenance';
+
+                    // The one rental holding this bicycle, eager loaded by the
+                    // controller off the denormalised currentRentalId.
+                    $rental = $isRented ? $bike->currentRental : null;
+
+                    // processReturn() only accepts a rental that is already
+                    // waiting on (or past) its return deadline.
+                    $canProcessReturn = $rental && in_array($rental->status, [
+                        \App\Models\Rental::STATUS_AWAITING_RETURN,
+                        \App\Models\Rental::STATUS_OVERDUE_RETURN,
+                    ], true);
+
+                    // End Ride is the step that moves an in-progress rental
+                    // into the return workflow.
+                    $canEndRide = $rental && in_array($rental->status, [
+                        \App\Models\Rental::STATUS_ACTIVE,
+                        \App\Models\Rental::STATUS_OVERDUE,
+                        \App\Models\Rental::STATUS_EXPIRED,
+                    ], true);
                 @endphp
                 <tr>
                     <td class="cell-title" data-label="Name">{{ $bike->name }}</td>
@@ -65,6 +86,46 @@
                             <x-admin.badge type="warning" label="Maintenance" />
                         @else
                             <x-admin.badge type="neutral" :label="ucfirst($bike->status)" />
+                        @endif
+                    </td>
+                    <td data-label="Current Renter">
+                        @if($isRented && $bike->currentRiderUser)
+                            <div class="d-flex flex-column">
+                                <span class="fw-semibold">{{ $bike->currentRiderUser->name }}</span>
+                                <small class="text-muted">
+                                    {{ $bike->currentRiderUser->studentId ?? $bike->currentRiderUser->email }}
+                                </small>
+                            </div>
+                        @else
+                            <span class="text-muted">&mdash;</span>
+                        @endif
+                    </td>
+                    <td data-label="Current Rental">
+                        @if($rental)
+                            <div class="d-flex flex-column">
+                                <a href="{{ route('admin.rentals.show', $rental->id) }}"
+                                   class="text-decoration-none">
+                                    <code>{{ $rental->rentalId }}</code>
+                                </a>
+                                <small class="text-muted">
+                                    {{ \Illuminate\Support\Str::headline($rental->status) }}
+                                </small>
+                                <small class="text-muted">
+                                    <i class="bi bi-play-circle"></i>
+                                    {{ \Illuminate\Support\Carbon::parse($rental->startTime)->format('M j, g:i A') }}
+                                </small>
+                                <small class="text-muted">
+                                    <i class="bi bi-flag"></i>
+                                    Due
+                                    {{ \Illuminate\Support\Carbon::parse($rental->expectedEndTime)->format('M j, g:i A') }}
+                                </small>
+                                <small class="text-muted">
+                                    <i class="bi bi-hourglass-split"></i>
+                                    {{ $rental->durationFormatted ?: ($rental->durationMinutes . ' min') }}
+                                </small>
+                            </div>
+                        @else
+                            <span class="text-muted">&mdash;</span>
                         @endif
                     </td>
                     <td data-label="Battery">
@@ -154,9 +215,195 @@
                                     </button>
                                 </form>
                             @endif
+
+                            {{-- Rental-aware actions. Availability follows the
+                                 bicycle's live status, so a row can never offer
+                                 an action the server would reject. --}}
+                            @if($rental)
+                                <a href="{{ route('admin.rentals.show', $rental->id) }}"
+                                   class="btn-admin btn-admin--primary btn-admin--sm" title="View Rental {{ $rental->rentalId }}">
+                                    <i class="bi bi-receipt"></i>
+                                </a>
+                            @endif
+
+                            @if($canEndRide)
+                                <form action="{{ route('admin.rentals.end-ride', $rental->id) }}" method="POST">
+                                    @csrf
+                                    @method('PUT')
+                                    <button type="submit" class="btn-admin btn-admin--warning btn-admin--sm"
+                                            title="End Ride - rider is returning the bicycle"
+                                            data-confirm="End the ride for {{ $rental->rentalId }}?">
+                                        <i class="bi bi-stop-circle"></i>
+                                    </button>
+                                </form>
+                            @endif
+
+                            @if($canProcessReturn)
+                                <button type="button" class="btn-admin btn-admin--success btn-admin--sm"
+                                        title="Return Bicycle - confirm the rider returned it"
+                                        onclick="PedalyaModal.open('returnBicycleModal{{ $rental->id }}')">
+                                    <i class="bi bi-arrow-return-left"></i>
+                                </button>
+                            @endif
+
+                            <div class="dropdown">
+                                <button class="btn-admin btn-admin--soft btn-admin--sm dropdown-toggle" type="button"
+                                        data-bs-toggle="dropdown" aria-expanded="false"
+                                        title="More actions for {{ $bike->serialNumber }}">
+                                    <i class="bi bi-three-dots-vertical"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li>
+                                        <a class="dropdown-item" href="{{ route('admin.bicycles.show', $bike->id) }}">
+                                            <i class="bi bi-info-circle me-2"></i>View Details
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item"
+                                           href="{{ route('admin.rentals.index', ['bicycle_id' => $bike->id]) }}">
+                                            <i class="bi bi-clock-history me-2"></i>Rental History
+                                        </a>
+                                    </li>
+                                    @if($rental)
+                                        <li>
+                                            <a class="dropdown-item" href="{{ route('admin.rentals.show', $rental->id) }}">
+                                                <i class="bi bi-receipt me-2"></i>View Rental
+                                            </a>
+                                        </li>
+                                    @endif
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        {{-- A rented bicycle is in use, so it is pulled
+                                             back through the return workflow first. --}}
+                                        @if($isRented)
+                                            <span class="dropdown-item disabled"
+                                                  title="Unavailable while the bicycle is rented">
+                                                <i class="bi bi-wrench-adjustable me-2"></i>Mark Maintenance
+                                            </span>
+                                        @elseif($inMaintenance)
+                                            <a class="dropdown-item"
+                                               href="{{ route('admin.maintenance.index', ['bicycleId' => $bike->id]) }}">
+                                                <i class="bi bi-wrench-adjustable me-2"></i>View Maintenance
+                                            </a>
+                                        @else
+                                            <button type="button" class="dropdown-item"
+                                                    onclick="PedalyaModal.open('maintenanceBicycleModal{{ $bike->id }}')">
+                                                <i class="bi bi-wrench-adjustable me-2"></i>Mark Maintenance
+                                            </button>
+                                        @endif
+                                    </li>
+                                </ul>
+                            </div>
                         </div>
                     </td>
                 </tr>
+
+                {{-- Return Bicycle Modal: the inspected condition decides whether
+                     the bicycle returns to Available or is routed to Maintenance. --}}
+                @if($canProcessReturn)
+                    <div class="admin-modal" id="returnBicycleModal{{ $rental->id }}">
+                        <div class="admin-modal__backdrop" data-modal-close></div>
+                        <div class="admin-modal__dialog">
+                            <form action="{{ route('admin.rentals.process-return', $rental->id) }}" method="POST">
+                                @csrf
+                                @method('PUT')
+                                <div class="admin-modal__head">
+                                    <h3>Return {{ $rental->rentalId }}</h3>
+                                    <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+                                </div>
+                                <div class="admin-modal__body">
+                                    <div class="admin-form">
+                                        <p class="text-muted">
+                                            Confirm the return of <strong>{{ $bike->serialNumber }} - {{ $bike->name }}</strong>
+                                            and record the condition it came back in.
+                                        </p>
+
+                                        <div class="mb-3">
+                                            <label class="form-label" for="returnCondition{{ $rental->id }}">Condition on return</label>
+                                            <select class="form-select" id="returnCondition{{ $rental->id }}" name="condition">
+                                                <option value="good">Good - returns to Available</option>
+                                                <option value="fair">Fair - returns to Available</option>
+                                                <option value="damaged">Damaged - routes to Maintenance</option>
+                                                <option value="needs_maintenance">Needs maintenance - routes to Maintenance</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label" for="returnNote{{ $rental->id }}">Note (optional)</label>
+                                            <textarea class="form-control" id="returnNote{{ $rental->id }}" name="note"
+                                                      rows="2" maxlength="1000"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="admin-modal__foot">
+                                    <button type="button" class="btn-admin btn-admin--secondary" data-modal-close>Cancel</button>
+                                    <button type="submit" class="btn-admin btn-admin--success">Confirm Return</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                @endif
+
+                {{-- Mark Maintenance Modal: posts to the existing maintenance
+                     endpoint, which opens a record and moves the bicycle to
+                     maintenance + locked in one step. --}}
+                @if(!$isRented && !$inMaintenance)
+                    <div class="admin-modal" id="maintenanceBicycleModal{{ $bike->id }}">
+                        <div class="admin-modal__backdrop" data-modal-close></div>
+                        <div class="admin-modal__dialog">
+                            <form action="{{ route('admin.maintenance.store') }}" method="POST">
+                                @csrf
+                                <input type="hidden" name="bicycleId" value="{{ $bike->id }}">
+                                <div class="admin-modal__head">
+                                    <h3>Mark {{ $bike->serialNumber }} for Maintenance</h3>
+                                    <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+                                </div>
+                                <div class="admin-modal__body">
+                                    <div class="admin-form">
+                                        <p class="text-muted">
+                                            <strong>{{ $bike->serialNumber }} - {{ $bike->name }}</strong> will be taken out
+                                            of service: its status becomes Maintenance and the smart lock is locked.
+                                        </p>
+
+                                        <div class="mb-3">
+                                            <label class="form-label" for="maintType{{ $bike->id }}">Issue type</label>
+                                            <select class="form-select" id="maintType{{ $bike->id }}" name="type" required>
+                                                <option value="routine">Routine</option>
+                                                <option value="repair">Repair</option>
+                                                <option value="battery">Battery</option>
+                                                <option value="lock_mechanism">Lock mechanism</option>
+                                                <option value="gps_module">GPS module</option>
+                                                <option value="frame">Frame</option>
+                                                <option value="other">Other</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label" for="maintSeverity{{ $bike->id }}">Severity</label>
+                                            <select class="form-select" id="maintSeverity{{ $bike->id }}" name="severity">
+                                                <option value="low">Low</option>
+                                                <option value="medium">Medium</option>
+                                                <option value="high">High</option>
+                                                <option value="critical">Critical</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label" for="maintDesc{{ $bike->id }}">Description</label>
+                                            <textarea class="form-control" id="maintDesc{{ $bike->id }}" name="description"
+                                                      rows="3" maxlength="1000" required
+                                                      placeholder="What needs attention on this bicycle?"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="admin-modal__foot">
+                                    <button type="button" class="btn-admin btn-admin--secondary" data-modal-close>Cancel</button>
+                                    <button type="submit" class="btn-admin btn-admin--warning">Mark for Maintenance</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                @endif
 
                 {{-- Edit Modal --}}
                 <div class="admin-modal" id="editBicycleModal{{ $bike->id }}">

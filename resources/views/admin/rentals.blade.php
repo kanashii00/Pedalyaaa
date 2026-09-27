@@ -541,6 +541,7 @@
                         <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Active</option>
                         <option value="pending" {{ request('status') === 'pending' ? 'selected' : '' }}>Pending</option>
                         <option value="overdue" {{ request('status') === 'overdue' ? 'selected' : '' }}>Overdue</option>
+                        <option value="expired" {{ request('status') === 'expired' ? 'selected' : '' }}>Expired</option>
                     </select>
                 </div>
             </div>
@@ -562,7 +563,9 @@
                     <select name="bicycle_id" id="rvBike">
                         <option value="">All Bicycles</option>
                         @foreach($bicyclesList ?? [] as $b)
-                            <option value="{{ $b->id }}" {{ request('bicycle_id') == $b->id ? 'selected' : '' }}>{{ $b->name }}</option>
+                            {{-- Keyed by the unique serial number so the same bicycle is
+                                 identifiable in both modules. --}}
+                            <option value="{{ $b->id }}" {{ request('bicycle_id') == $b->id ? 'selected' : '' }}>{{ $b->serialNumber }} - {{ $b->name }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -629,20 +632,33 @@
                                 </div>
                             </td>
                             <td>
-                                <div class="rv-bike__name">{{ $rental->bicycle->name ?? 'Unknown' }}</div>
-                                @if($rental->bicycle?->serialNumber)
-                                    <div class="rv-bike__sub">SN &middot; {{ $rental->bicycle->serialNumber }}</div>
+                                {{-- Live bicycle data via the bicycleId relation, with the
+                                     snapshot columns as the fallback for deleted bicycles.
+                                     The link is the serial-keyed jump into Inventory. --}}
+                                @if($rental->bicycle)
+                                    <a href="{{ route('admin.bicycles.show', $rental->bicycle->id) }}"
+                                       class="text-decoration-none" title="View {{ $rental->bicycle->serialNumber }} in Bicycle Inventory">
+                                        <div class="rv-bike__name">{{ $rental->bicycle->name }}</div>
+                                        @if($rental->bicycle->serialNumber)
+                                            <div class="rv-bike__sub">SN &middot; {{ $rental->bicycle->serialNumber }}</div>
+                                        @endif
+                                    </a>
+                                @else
+                                    <div class="rv-bike__name">{{ $rental->bicycleName ?? 'Unknown' }}</div>
+                                    @if($rental->bicycleSerial)
+                                        <div class="rv-bike__sub">SN &middot; {{ $rental->bicycleSerial }}</div>
+                                    @endif
                                 @endif
                             </td>
                             <td>
                                 <div class="rv-dt">
-                                    <div class="rv-dt__date">{{ $rental->startTime?->format('M d, Y') ?? '&mdash;' }}</div>
+                                    <div class="rv-dt__date">{{ $rental->startTime?->format('M d, Y') ?? '—' }}</div>
                                     <div class="rv-dt__time">{{ $rental->startTime?->format('h:i A') ?? 'Not started' }}</div>
                                 </div>
                             </td>
                             <td>
                                 <div class="rv-dt">
-                                    <div class="rv-dt__date">{{ $rental->endTime?->format('M d, Y') ?? '&mdash;' }}</div>
+                                    <div class="rv-dt__date">{{ $rental->endTime?->format('M d, Y') ?? '—' }}</div>
                                     <div class="rv-dt__time">{{ $rental->endTime?->format('h:i A') ?? 'In progress' }}</div>
                                 </div>
                             </td>
@@ -673,6 +689,8 @@
                                     <span class="rv-status rv-status--pending rv-status--dot">Pending</span>
                                 @elseif($rental->status === 'overdue')
                                     <span class="rv-status rv-status--overdue rv-status--dot rv-status--live">Overdue</span>
+                                @elseif($rental->status === 'expired')
+                                    <span class="rv-status rv-status--overdue rv-status--dot rv-status--live">Expired</span>
                                 @elseif($rental->status === 'cancelled')
                                     <span class="rv-status rv-status--cancelled rv-status--dot">Cancelled</span>
                                 @else
@@ -768,6 +786,23 @@
                                             </button>
                                         </form>
                                     @endif
+                                    @if(in_array($rental->status, ['expired', 'awaiting_return']))
+                                        <button type="button" class="rv-btn rv-btn--complete"
+                                                data-deadline-open
+                                                data-rental-id="{{ $rental->id }}"
+                                                data-rental-code="{{ $rental->rentalId }}"
+                                                data-rider="{{ $rental->rider->name ?? $rental->riderName ?? 'Unknown' }}"
+                                                data-bike="{{ $rental->bicycle->name ?? $rental->bicycleName ?? 'Unknown' }}"
+                                                data-expected-end="{{ $rental->expectedEndTime?->format('M d, Y g:i A') }}"
+                                                data-expired-at="{{ $rental->expiredAt?->format('M d, Y g:i A') }}"
+                                                data-status="{{ $rental->status }}"
+                                                data-current-deadline="{{ $rental->returnDeadline?->format('Y-m-d\TH:i') }}"
+                                                data-penalty-type="{{ $rental->penaltyType }}"
+                                                data-penalty-value="{{ $rental->penaltyValue }}"
+                                                title="{{ $rental->returnDeadline ? 'Set or change the return deadline & penalty' : 'Set return deadline & penalty' }}">
+                                            <i class="bi bi-calendar-plus"></i>
+                                        </button>
+                                    @endif
                                     @if(in_array($rental->status, ['active', 'pending', 'overdue']))
                                         <form action="{{ route('admin.rentals.cancel', $rental->id) }}" method="POST" class="d-inline">
                                             @csrf
@@ -816,9 +851,35 @@
                                                     <div class="rv-panel">
                                                         <div class="rv-panel__label"><i class="bi bi-route"></i>Rental Details</div>
                                                         <dl style="margin:0;">
-                                                            <div class="rv-kv"><dt>Start Time</dt><dd>{{ $rental->startTime?->format('M d, Y h:i A') ?? '&mdash;' }}</dd></div>
-                                                            <div class="rv-kv"><dt>End Time</dt><dd>{{ $rental->endTime?->format('M d, Y h:i A') ?? '&mdash;' }}</dd></div>
-                                                            <div class="rv-kv"><dt>Duration</dt><dd>{{ $durLabel ?? '&mdash;' }}</dd></div>
+                                                            <div class="rv-kv"><dt>Start Time</dt><dd>{{ $rental->startTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                            <div class="rv-kv"><dt>End Time</dt><dd>{{ $rental->endTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                            <div class="rv-kv"><dt>Expected End Time</dt><dd>{{ $rental->expectedEndTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                            @if($rental->expiredAt)
+                                                                <div class="rv-kv"><dt>Expired At</dt><dd>{{ $rental->expiredAt->format('M d, Y h:i A') }}</dd></div>
+                                                            @endif
+                                                            @if($rental->returnDeadline)
+                                                                <div class="rv-kv"><dt>Return Deadline</dt><dd>{{ $rental->returnDeadline->format('M d, Y h:i A') }}</dd></div>
+                                                            @endif
+                                                            @if($rental->returnDeadlineSetBy)
+                                                                <div class="rv-kv"><dt>Deadline Set By</dt><dd>{{ $rental->returnDeadlineSetBy }}</dd></div>
+                                                            @endif
+                                                            @if($rental->penaltyType)
+                                                                <div class="rv-kv"><dt>Penalty Rule</dt><dd>
+                                                                    @if($rental->penaltyType === \App\Models\Rental::PENALTY_FIXED)
+                                                                        Fixed &#8369;{{ number_format((float) $rental->penaltyValue, 2) }}
+                                                                    @else
+                                                                        &#8369;{{ number_format((float) $rental->penaltyValue, 2) }}
+                                                                        {{ $rental->penaltyType === \App\Models\Rental::PENALTY_PER_MINUTE ? '/minute' : '/hour' }}
+                                                                    @endif
+                                                                </dd></div>
+                                                            @endif
+                                                            @if($rental->penaltyAccrued !== null)
+                                                                <div class="rv-kv"><dt>Penalty Accrued</dt><dd>&#8369;{{ number_format((float) $rental->penaltyAccrued, 2) }}</dd></div>
+                                                            @endif
+                                                            @if($rental->overdueReturnAt)
+                                                                <div class="rv-kv"><dt>Overdue Return At</dt><dd>{{ $rental->overdueReturnAt->format('M d, Y h:i A') }}</dd></div>
+                                                            @endif
+                                                            <div class="rv-kv"><dt>Duration</dt><dd>{{ $durLabel ?? '—' }}</dd></div>
                                                             <div class="rv-kv"><dt>Created</dt><dd>{{ $rental->created_at->format('M d, Y h:i A') }}</dd></div>
                                                         </dl>
                                                         @if($rental->notes)
@@ -834,7 +895,7 @@
                                                                 <div class="user-avatar" style="width:32px;height:32px;font-size:12px;">{{ strtoupper(substr($rental->rider->name ?? 'U', 0, 1)) }}</div>
                                                                 <div style="min-width:0;">
                                                                     <div class="rv-rider__name">{{ $rental->rider->name ?? 'Unknown' }}</div>
-                                                                    <div class="rv-rider__email">{{ $rental->rider->email ?? '&mdash;' }}</div>
+                                                                    <div class="rv-rider__email">{{ $rental->rider->email ?? '—' }}</div>
                                                                 </div>
                                                             </div>
                                                             <div class="rv-party">
@@ -852,7 +913,7 @@
                                                             </div>
                                                             <div class="rv-tile">
                                                                 <div class="rv-tile__label">Duration</div>
-                                                                <div class="rv-tile__value">{{ $durLabel ?? '&mdash;' }}</div>
+                                                                <div class="rv-tile__value">{{ $durLabel ?? '—' }}</div>
                                                             </div>
                                                             <div class="rv-tile rv-tile--total">
                                                                 <div class="rv-tile__label">Total Fee</div>
@@ -1045,6 +1106,93 @@
         </div>
     </div>
 </div>
+
+{{-- ===== Set Return Deadline modal ===== --}}
+<div class="rv-paid-modal" id="rvDeadlineModal">
+    <div class="rv-paid-modal__backdrop" data-rv-deadline-close></div>
+    <div class="rv-paid-modal__dialog" role="dialog" aria-modal="true" aria-label="Set return deadline">
+        <div class="rv-paid-modal__head">
+            <h3><i class="bi bi-calendar-plus"></i>Set Return Deadline</h3>
+            <button type="button" class="rv-paid-modal__close" data-rv-deadline-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="rv-paid-modal__body">
+            <p style="margin:0 0 14px;font-size:12.5px;color:var(--text-2);">
+                The rental period has ended. Grant the renter until this time to bring the bicycle back. The deadline, penalty rule, and message are saved and the renter is notified immediately.
+            </p>
+            <dl class="rv-paid-modal__list">
+                <div class="rv-paid-modal__kv rv-paid-modal__kv--wide">
+                    <dt>Rental ID</dt>
+                    <dd id="rvDlCode">&mdash;</dd>
+                </div>
+                <div class="rv-paid-modal__kv">
+                    <dt>Rider</dt>
+                    <dd id="rvDlRider">&mdash;</dd>
+                </div>
+                <div class="rv-paid-modal__kv">
+                    <dt>Bicycle</dt>
+                    <dd id="rvDlBike">&mdash;</dd>
+                </div>
+                <div class="rv-paid-modal__kv">
+                    <dt>Original Expiration</dt>
+                    <dd id="rvDlExpired">&mdash;</dd>
+                </div>
+                <div class="rv-paid-modal__kv">
+                    <dt>Current Status</dt>
+                    <dd id="rvDlStatus">&mdash;</dd>
+                </div>
+            </dl>
+
+            <div style="margin-top:14px;">
+                <label for="rvDlMinutes" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Allowed Return Time (minutes)</label>
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                    <input type="number" step="1" min="1" max="1440" id="rvDlMinutes" name="minutes" class="form-control" style="max-width:120px;" value="30" required>
+                    @foreach([10 => '10 min', 15 => '15 min', 30 => '30 min', 60 => '60 min'] as $mins => $label)
+                        <button type="button" class="btn-admin btn-admin--sm" style="padding:4px 10px;"
+                                data-rv-min-chip="{{ $mins }}">{{ $label }}</button>
+                    @endforeach
+                </div>
+                <div style="margin-top:6px;font-size:12px;color:var(--text-2);">
+                    Deadline: <strong id="rvDlPreview">&mdash;</strong> <span style="opacity:.75;">(approx. preview; exact deadline is set from the server time)</span>
+                </div>
+            </div>
+
+            <div class="row" style="margin-top:14px;">
+                <div class="col-sm-6">
+                    <label for="rvDlPenaltyType" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Penalty Type</label>
+                    <select id="rvDlPenaltyType" name="penaltyType" class="form-control form-select" style="max-width:100%;">
+                        <option value="per_minute" selected>Per Minute</option>
+                        <option value="per_hour">Per Hour</option>
+                        <option value="fixed">Fixed Amount</option>
+                    </select>
+                </div>
+                <div class="col-sm-6">
+                    <label for="rvDlPenaltyValue" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Penalty Rate (&#8369;)</label>
+                    <input type="number" step="0.01" min="0" id="rvDlPenaltyValue" name="penaltyValue" class="form-control" placeholder="e.g. 10.00" value="10.00" required>
+                    <div style="font-size:11.5px;color:var(--text-2);margin-top:3px;">Default &#8369;10.00 per overdue minute.</div>
+                </div>
+            </div>
+
+            <div style="margin-top:14px;">
+                <label for="rvDlMessage" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Message to Renter <span style="font-weight:400;color:var(--text-2);">(optional)</span></label>
+                <textarea id="rvDlMessage" name="message" class="form-control" rows="2" style="max-width:100%;" maxlength="500" placeholder="e.g. Please return the bicycle at the station before the deadline."></textarea>
+            </div>
+
+            <div class="rv-paid-modal__note">
+                <i class="bi bi-info-circle me-1"></i>The renter is notified with the exact deadline and penalty rule. If the bicycle is not returned before the deadline, the rental becomes Overdue Return and the penalty accrues until you confirm the return in the Returns module.
+            </div>
+        </div>
+        <div class="rv-paid-modal__foot">
+            <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-rv-deadline-close>Cancel</button>
+            <form id="rvDeadlineForm" action="#" method="POST" style="margin:0;">
+                @csrf
+                @method('PUT')
+                <button type="submit" class="btn-admin btn-admin--success btn-admin--sm">
+                    <i class="bi bi-bell-fill me-1"></i>Set Deadline &amp; Notify Renter
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
 @endsection
 
 @section('scripts')
@@ -1221,6 +1369,86 @@
     });
 
     modal.querySelectorAll('[data-rv-paid-close]').forEach(function (node) {
+        node.addEventListener('click', closeModal);
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
+    });
+})();
+
+/* ==================== Set Return Deadline modal ==================== */
+(function () {
+    var modal = document.getElementById('rvDeadlineModal');
+    if (!modal) return;
+
+    var form = document.getElementById('rvDeadlineForm');
+    var minutesInput = document.getElementById('rvDlMinutes');
+
+    function fmtDeadline(date) {
+        var p = function (n) { return String(n).padStart(2, '0'); };
+        var h = date.getHours();
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12; if (h === 0) h = 12;
+        return (date.getMonth() + 1) + '/' + date.getDate() + '/' + date.getFullYear()
+            + ' ' + h + ':' + p(date.getMinutes()) + ' ' + ampm;
+    }
+
+    function updatePreview() {
+        var pr = document.getElementById('rvDlPreview');
+        if (!pr) return;
+        var mins = parseInt(minutesInput ? minutesInput.value : '', 10);
+        if (!mins || mins < 1) { pr.textContent = '—'; return; }
+        var d = new Date(Date.now() + mins * 60000);
+        pr.textContent = fmtDeadline(d);
+    }
+
+    function openModal(btn) {
+        if (form) form.action = "{{ route('admin.rentals.set-deadline', '__ID__') }}".replace('__ID__', btn.getAttribute('data-rental-id'));
+        var set = function (id, val) {
+            var node = document.getElementById(id);
+            if (node) node.textContent = val || '—';
+        };
+        set('rvDlCode', btn.getAttribute('data-rental-code') || ('#' + btn.getAttribute('data-rental-id')));
+        set('rvDlRider', btn.getAttribute('data-rider'));
+        set('rvDlBike', btn.getAttribute('data-bike'));
+        set('rvDlExpired', btn.getAttribute('data-expected-end') || btn.getAttribute('data-expired-at'));
+        var status = btn.getAttribute('data-status');
+        set('rvDlStatus', status ? status.replace(/_/g, ' ').replace(/\w\S*/g, function (t) { return t.charAt(0).toUpperCase() + t.substr(1).toLowerCase(); }) : '—');
+        if (minutesInput) minutesInput.value = 30;
+        var pt = btn.getAttribute('data-penalty-type');
+        if (pt) { var ptNode = document.getElementById('rvDlPenaltyType'); if (ptNode) ptNode.value = pt; }
+        var pv = btn.getAttribute('data-penalty-value');
+        var pvNode = document.getElementById('rvDlPenaltyValue');
+        if (pvNode) pvNode.value = (pv && pv !== '' && pv !== '0') ? pv : '10.00';
+        var msgNode = document.getElementById('rvDlMessage');
+        if (msgNode) msgNode.value = '';
+        if (minutesInput) {
+            minutesInput.removeEventListener('input', updatePreview);
+            minutesInput.addEventListener('input', updatePreview);
+        }
+        updatePreview();
+        modal.classList.add('open');
+    }
+
+    function closeModal() {
+        modal.classList.remove('open');
+    }
+
+    document.querySelectorAll('[data-rv-min-chip]').forEach(function (chip) {
+        chip.addEventListener('click', function () {
+            if (minutesInput) {
+                minutesInput.value = chip.getAttribute('data-rv-min-chip');
+                updatePreview();
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-deadline-open]').forEach(function (btn) {
+        btn.addEventListener('click', function () { openModal(btn); });
+    });
+
+    modal.querySelectorAll('[data-rv-deadline-close]').forEach(function (node) {
         node.addEventListener('click', closeModal);
     });
 

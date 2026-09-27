@@ -6,6 +6,7 @@ use App\Exceptions\RentalException;
 use App\Models\Bicycle;
 use App\Models\Payment;
 use App\Models\Rental;
+use App\Models\SystemSetting;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -254,8 +255,8 @@ public function startRental(
         ?Carbon $returnTime = null,
         ?string $notes = null
     ): array {
-        if (!in_array($rental->status, ['active', 'overdue'], true)) {
-            throw new RentalException('Only active or overdue rentals can be returned.');
+        if (!in_array($rental->status, ['active', 'overdue', 'expired'], true)) {
+            throw new RentalException('Only active, overdue, or expired rentals can be returned.');
         }
 
         $endTime = $returnTime ?? Carbon::now();
@@ -294,6 +295,296 @@ public function startRental(
     }
 
     /**
+     * Rider-side return entry point used by the web app.
+     *
+     * Dispatches to the matching step of the return lifecycle: when the
+     * bicycle is no longer in use (active / overdue / expired) this "ends the
+     * ride" and parks the bicycle awaiting confirmation; once the rental is
+     * already awaiting a return or overdue for return it simply records the
+     * request so the administrator can confirm.
+     */
+    public function returnRental(
+        Rental $rental,
+        User $user,
+        ?float $returnLat = null,
+        ?float $returnLng = null,
+        ?string $paymentMethod = null,
+        ?string $paymentReference = null,
+        ?string $notes = null
+    ): array {
+        if (in_array($rental->status, ['active', 'overdue', 'expired'], true)) {
+            return $this->markRideEnded($rental, $user, $returnLat, $returnLng, null, $notes);
+        }
+
+        return $this->requestReturn($rental, $user);
+    }
+
+    /**
+     * Record a rider's return request for a rental that is already waiting on
+     * (or past) its return deadline. The bicycle stays held until the
+     * administrator confirms the return via processReturn().
+     *
+     * Re-sending the request is idempotent: the first request is recorded and
+     * notifies the administrators, repeated requests are no-ops.
+     */
+    public function requestReturn(Rental $rental, User $user, ?Carbon $returnTime = null, ?string $notes = null): array
+    {
+        if (!in_array($rental->status, [
+            Rental::STATUS_ACTIVE,
+            Rental::STATUS_OVERDUE,
+            Rental::STATUS_EXPIRED,
+            Rental::STATUS_AWAITING_RETURN,
+            Rental::STATUS_OVERDUE_RETURN,
+        ], true)) {
+            throw new RentalException('This rental cannot request a return in its current status.');
+        }
+
+        $alreadyRequested = $rental->returnRequestedAt !== null;
+
+        if ($alreadyRequested) {
+            return ['rental' => $rental->fresh(), 'requested' => false];
+        }
+
+        $rental->update([
+            'returnRequestedAt' => $returnTime ?? Carbon::now(),
+        ]);
+
+        $adminIds = User::where('role', User::ROLE_ADMIN)->pluck('id')->all();
+
+        if (!empty($adminIds)) {
+            $this->notificationService->createForUsers(
+                $adminIds,
+                'Return Requested',
+                "{$user->name} requested a return for rental {$rental->rentalId} "
+                    . "(bicycle {$rental->bicycleName} #{$rental->bicycleSerial}). Confirm the return to settle it.",
+                'return_requested',
+                ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
+            );
+        }
+
+        return ['rental' => $rental->fresh(), 'requested' => true];
+    }
+
+    /**
+     * Grant (or change) the return deadline for an expired / awaiting-return /
+     * overdue-return rental. Deadline changes are idempotent.
+     *
+     * Sets the rental back to awaiting_return so the Returns module surfaces
+     * it for confirmation, and notifies the renter of the new deadline.
+     */
+    public function setReturnDeadline(
+        Rental $rental,
+        User $admin,
+        Carbon $deadline,
+        array $penalty = [],
+        ?string $message = null
+    ): Rental {
+        if (!in_array($rental->status, [
+            Rental::STATUS_EXPIRED,
+            Rental::STATUS_AWAITING_RETURN,
+            Rental::STATUS_OVERDUE_RETURN,
+        ], true)) {
+            throw new RentalException('Only expired, awaiting-return, or overdue-return rentals can get a return deadline.');
+        }
+
+        $deadline = $deadline->copy()->floorMinute();
+
+        $penaltyType = $penalty['type'] ?? null;
+        $penaltyValue = isset($penalty['value']) && is_numeric($penalty['value'])
+            ? round((float) $penalty['value'], 2)
+            : null;
+
+        if ($penaltyType !== null && !in_array($penaltyType, Rental::PENALTY_TYPES, true)) {
+            throw new RentalException('Invalid penalty type.');
+        }
+
+        $unchanged = $rental->returnDeadline !== null
+            && $rental->returnDeadline->floorMinute()->eq($deadline)
+            && $rental->penaltyType === $penaltyType
+            && (float) $rental->penaltyValue === (float) $penaltyValue;
+
+        if ($unchanged) {
+            return $rental->fresh();
+        }
+
+        $attributes = [
+            'status' => Rental::STATUS_AWAITING_RETURN,
+            'returnDeadline' => $deadline,
+            'returnDeadlineSetBy' => (string) ($admin->name ?? $admin->id),
+            'penaltyType' => $penaltyType,
+            'penaltyValue' => $penaltyValue,
+        ];
+
+        if ($message !== null && trim($message) !== '') {
+            $attributes['notes'] = trim(implode(PHP_EOL, array_filter([
+                $rental->notes,
+                'Return deadline message: ' . trim($message),
+            ])));
+        }
+
+        $rental->update($attributes);
+
+        $penaltyLine = $this->penaltyRuleDescription($penaltyType, $penaltyValue);
+
+        $notificationMessage = "Your rental period for bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}) has ended. "
+            . "Please return the bicycle by {$deadline->format('M d, Y g:i A')}."
+            . ($penaltyLine ? " {$penaltyLine}." : '')
+            . ($message ? " Message from Pedalya: {$message}" : '');
+
+        $this->notificationService->create(
+            $rental->riderId,
+            'Return Deadline Set',
+            $notificationMessage,
+            'rental_deadline',
+            ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
+        );
+
+        return $rental->fresh();
+    }
+
+    /**
+     * Human-readable description of the saved late-return penalty rule, used
+     * in renter notifications and admin summaries. Returns '' when no rule is
+     * configured (legacy global per-hour setting is then the source of truth).
+     */
+    private function penaltyRuleDescription(?string $type, ?float $value): string
+    {
+        if ($type === null || $value === null || $value <= 0) {
+            return '';
+        }
+
+        $amount = number_format($value, 2);
+
+        return match ($type) {
+            Rental::PENALTY_FIXED => "A fixed late-return penalty of PHP {$amount} will apply after the deadline",
+            Rental::PENALTY_PER_MINUTE => "A PHP {$amount} per minute late-return penalty will apply after the deadline",
+            default => "A PHP {$amount} per hour late-return penalty will apply after the deadline",
+        };
+    }
+
+    /**
+     * Resolve the penalty rule that actually applies to a rental, substituting
+     * the legacy global per-hour setting whenever the rental itself has no
+     * saved rule. This is the single place the fallback is decided, so the
+     * amount shown on a bicycle display can never drift from the amount
+     * charged at return.
+     *
+     * @return array{type: string, value: float, isDefaultRate: bool}
+     */
+    public function resolvedPenaltyRule(?Rental $rental): array
+    {
+        $value = $rental?->penaltyValue !== null
+            ? (float) $rental->penaltyValue
+            : (float) SystemSetting::getValue('lateReturnPenaltyPerHour', 20);
+
+        return [
+            'type' => $rental?->penaltyType ?? Rental::PENALTY_PER_HOUR,
+            'value' => round(max($value, 0), 2),
+            'isDefaultRate' => $rental === null || $rental->penaltyValue === null,
+        ];
+    }
+
+    /**
+     * Penalty accrued for a rental as of the given server time, computed from
+     * the administrator-set deadline and the saved penalty rule. Rentals with a
+     * deadline but no saved rule fall back to the global per-hour setting.
+     *
+     * Nothing is ever charged while the deadline is still in the future.
+     */
+    public function calculatePenaltyForRental(Rental $rental, Carbon $asOf): float
+    {
+        $deadline = $rental->returnDeadline;
+
+        if ($deadline === null || $asOf->lte($deadline)) {
+            return 0.0;
+        }
+
+        $minutes = abs((int) $asOf->diffInMinutes($deadline));
+        $rule = $this->resolvedPenaltyRule($rental);
+
+        return match ($rule['type']) {
+            Rental::PENALTY_FIXED => round($rule['value'], 2),
+            Rental::PENALTY_PER_MINUTE => round($minutes * $rule['value'], 2),
+            default => round(max(ceil($minutes / 60), 1) * $rule['value'], 2),
+        };
+    }
+
+    /**
+     * Live countdown and penalty snapshot for a rental, as published to the
+     * bicycle's on-board display.
+     *
+     * The countdown targets the administrator-set return deadline once one
+     * exists, and the expected end time before that, so the rider always sees
+     * the deadline that is actually in force.
+     *
+     * The projected penalty intentionally reuses the same branches
+     * processReturn() charges from: the deadline rule when an administrator set
+     * a deadline, otherwise the legacy expected-end-time surcharge. The figure
+     * a rider watches climb on the LCD is therefore the figure that lands on
+     * the final fee.
+     */
+    public function rentalClockFor(Rental $rental, ?Carbon $asOf = null): array
+    {
+        $asOf = $asOf ? $asOf->copy() : Carbon::now();
+
+        // Compared as unix seconds rather than via Carbon's diff helpers so the
+        // sign is unambiguous regardless of the installed Carbon version.
+        $startTimestamp = $rental->startTime?->getTimestamp() ?? $asOf->getTimestamp();
+        $asOfTimestamp = $asOf->getTimestamp();
+        $deadline = $rental->returnDeadline ?? $rental->expectedEndTime;
+        $deadlineTimestamp = $deadline?->getTimestamp();
+
+        $elapsedSeconds = max(0, $asOfTimestamp - $startTimestamp);
+        $remainingSeconds = $deadlineTimestamp === null
+            ? null
+            : $deadlineTimestamp - $asOfTimestamp;
+
+        $fees = $this->calculateFees(
+            ($rental->startTime ?? $asOf)->toDateTimeString(),
+            $asOf->toDateTimeString(),
+            (float) $rental->ratePerHour
+        );
+
+        if ($rental->returnDeadline !== null) {
+            $penaltyBasis = 'return_deadline';
+            $projectedPenalty = $this->calculatePenaltyForRental($rental, $asOf);
+        } elseif ($rental->expectedEndTime !== null) {
+            $penaltyBasis = 'expected_end_time';
+            $projectedPenalty = $this->calculateOverdueFee(
+                $rental->expectedEndTime,
+                $asOf,
+                $rental->ratePerHour
+            );
+        } else {
+            $penaltyBasis = 'none';
+            $projectedPenalty = 0.0;
+        }
+
+        $window = $deadlineTimestamp === null ? 0 : $deadlineTimestamp - $startTimestamp;
+
+        return [
+            'startTime' => $rental->startTime,
+            'effectiveDeadline' => $deadline,
+            'deadlineBasis' => $deadlineTimestamp === null
+                ? 'none'
+                : ($rental->returnDeadline !== null ? 'return_deadline' : 'expected_end_time'),
+            'elapsedSeconds' => $elapsedSeconds,
+            'remainingSeconds' => $remainingSeconds,
+            'overdueSeconds' => $remainingSeconds === null ? 0 : max(0, -$remainingSeconds),
+            'isOverdue' => $remainingSeconds !== null && $remainingSeconds < 0,
+            'progressPercent' => $window > 0
+                ? (int) min(100, max(0, (int) floor($elapsedSeconds / $window * 100)))
+                : null,
+            'ratePerHour' => (float) $rental->ratePerHour,
+            'projectedBaseFee' => $fees['totalFee'],
+            'penaltyBasis' => $penaltyBasis,
+            'projectedPenalty' => round($projectedPenalty, 2),
+            'projectedTotal' => round($fees['totalFee'] + $projectedPenalty, 2),
+            'rule' => $this->resolvedPenaltyRule($rental),
+        ];
+    }
+
+    /**
      * Phase 2 of the return lifecycle: confirm the return (Process Return).
      *
      * The administrator records the actual return time and the bicycle's
@@ -302,7 +593,7 @@ public function startRental(
      * or routed to Maintenance depending on the inspected condition.
      *
      * Confirming is only allowed once: a rental that is already returned
-     * (or not awaiting return) is rejected, so the same rental can never be
+     * (or not awaiting a return) is rejected, so the same rental can never be
      * returned twice.
      */
     public function processReturn(
@@ -310,7 +601,10 @@ public function startRental(
         User $admin,
         array $input = []
     ): array {
-        if ($rental->status !== Rental::STATUS_AWAITING_RETURN) {
+        if (!in_array($rental->status, [
+            Rental::STATUS_AWAITING_RETURN,
+            Rental::STATUS_OVERDUE_RETURN,
+        ], true)) {
             if ($rental->status === Rental::STATUS_RETURNED) {
                 throw new RentalException('This rental has already been returned.');
             }
@@ -328,19 +622,27 @@ public function startRental(
             Rental::CONDITION_NEEDS_MAINTENANCE,
         ], true) ? $input['condition'] : Rental::CONDITION_GOOD;
 
+        // A late-return penalty only makes sense against an administrator-set
+        // deadline. Rentals that reached awaiting_return without a deadline
+        // (e.g. the rider ended the ride before expiry) keep the legacy
+        // expected-end-time surcharge instead. Penalties are always computed
+        // from server timestamps, so the final amount is fixed at confirm time
+        // and stops accumulating from that moment.
+        $latePenalty = $rental->returnDeadline !== null
+            ? $this->calculatePenaltyForRental($rental, $returnTime)
+            : $this->calculateOverdueFee(
+                $rental->expectedEndTime,
+                $returnTime,
+                $rental->ratePerHour
+            );
+
         $fees = $this->calculateFees(
             $rental->startTime,
             $returnTime->toDateTimeString(),
             $rental->ratePerHour
         );
 
-        $overdueFee = $this->calculateOverdueFee(
-            $rental->expectedEndTime,
-            $returnTime,
-            $rental->ratePerHour
-        );
-
-        $finalFee = round($fees['totalFee'] + $overdueFee, 2);
+        $finalFee = round($fees['totalFee'] + $latePenalty, 2);
 
         return DB::transaction(function () use (
             $rental,
@@ -349,7 +651,7 @@ public function startRental(
             $condition,
             $input,
             $fees,
-            $overdueFee,
+            $latePenalty,
             $finalFee
         ) {
             $rental->update([
@@ -357,7 +659,8 @@ public function startRental(
                 'status' => Rental::STATUS_RETURNED,
                 'totalFee' => $finalFee,
                 'finalFee' => $finalFee,
-                'overdueFee' => $overdueFee,
+                'overdueFee' => $latePenalty,
+                'penaltyAccrued' => $latePenalty,
                 'durationMinutes' => $fees['durationMinutes'],
                 'durationFormatted' => $fees['durationFormatted'],
                 'chargedHours' => $fees['chargedHours'],
@@ -378,10 +681,14 @@ public function startRental(
                 $user->increment('totalSpent', $finalFee);
             }
 
+            $penaltyNotice = $latePenalty > 0
+                ? " A late-return penalty of PHP {$latePenalty} applies."
+                : '';
+
             $this->notificationService->create(
                 $rental->riderId,
                 'Return Confirmed',
-                "Your rental {$rental->rentalId} has been confirmed. Final fee: PHP {$finalFee}.",
+                "Your rental {$rental->rentalId} has been confirmed. Final fee: PHP {$finalFee}.{$penaltyNotice}",
                 'rental_completed'
             );
 
@@ -389,7 +696,8 @@ public function startRental(
                 'rental' => $rental->fresh(),
                 'fees' => [
                     'baseFee' => $fees['totalFee'],
-                    'overdueFee' => $overdueFee,
+                    'overdueFee' => $latePenalty,
+                    'latePenalty' => $latePenalty,
                     'finalFee' => $finalFee,
                     'durationMinutes' => $fees['durationMinutes'],
                     'durationFormatted' => $fees['durationFormatted'],
@@ -402,6 +710,29 @@ public function startRental(
     }
 
     /**
+     * Late-return penalty against an administrator-set return deadline: any
+     * full hour (or partial, rounded up) beyond the deadline, charged at the
+     * configurable late-return penalty rate from System Settings.
+     */
+    public function calculateLateReturnPenalty(?Carbon $returnDeadline, Carbon $returnTime): float
+    {
+        if ($returnDeadline === null) {
+            return 0.0;
+        }
+
+        $rate = (float) SystemSetting::getValue('lateReturnPenaltyPerHour', 20);
+
+        if ($returnTime->lte($returnDeadline)) {
+            return 0.0;
+        }
+
+        $lateMinutes = abs((int) $returnTime->diffInMinutes($returnDeadline));
+        $lateHours = max(ceil($lateMinutes / 60), 1);
+
+        return round($lateHours * max($rate, 0), 2);
+    }
+
+    /**
      * Calculate an overdue surcharge: any full extra hour (or partial, rounded
      * up) beyond the expected end time charged at the hourly rate.
      */
@@ -411,7 +742,7 @@ public function startRental(
             return 0.0;
         }
 
-        $overdueMinutes = (int) $returnTime->diffInMinutes($expectedEndTime);
+        $overdueMinutes = abs((int) $returnTime->diffInMinutes($expectedEndTime));
         $overdueHours = max(ceil($overdueMinutes / 60), 1);
 
         return round($overdueHours * max($ratePerHour, 0), 2);
@@ -582,6 +913,54 @@ public function startRental(
         return $rental->fresh();
     }
 
+    /**
+     * Put a bicycle back into the fleet when its rental is cancelled.
+     *
+     * Single source of truth for "the rental is gone, free the bicycle": the
+     * rider-facing, admin and API cancel paths all call this so they cannot
+     * drift apart. Clears the denormalised currentRider/currentRentalId
+     * pointers the inventory reads, and locks the smart lock because nobody is
+     * authorised to use the bicycle any more.
+     *
+     * A bicycle that is under maintenance stays in maintenance: a cancellation
+     * must not silently return a bike that is out of service to the rentable
+     * fleet.
+     */
+    public function releaseBicycleOnCancel(Rental $rental, User $actor): ?Bicycle
+    {
+        $bicycle = Bicycle::find($rental->bicycleId);
+
+        if (! $bicycle) {
+            return null;
+        }
+
+        // Only release the pointers that still point at this rental, so
+        // cancelling a superseded rental cannot evict a newer renter.
+        $stillHoldsThisRental = $bicycle->currentRentalId === null
+            || in_array(
+                (string) $bicycle->currentRentalId,
+                [(string) $rental->id, (string) $rental->rentalId],
+                true
+            );
+
+        if (! $stillHoldsThisRental) {
+            return $bicycle;
+        }
+
+        $bicycle->update([
+            'status' => $bicycle->status === Bicycle::STATUS_MAINTENANCE
+                ? Bicycle::STATUS_MAINTENANCE
+                : Bicycle::STATUS_AVAILABLE,
+            'currentRider' => null,
+            'currentRentalId' => null,
+            'lockStatus' => Bicycle::LOCK_LOCKED,
+        ]);
+
+        $this->iotService->sendCommand($bicycle->id, 'lock', [], $actor);
+
+        return $bicycle;
+    }
+
     public function cancelRental(Rental $rental, User $user, ?string $reason = null): Rental
     {
         if (!in_array($rental->status, ['active', 'pending'])) {
@@ -594,19 +973,7 @@ public function startRental(
             'cancelledBy' => $user->id,
         ]);
 
-        // Rental cancelled: bicycle becomes Available and the smart lock
-        // is Locked again since nobody is authorized to use it.
-        $bicycle = Bicycle::find($rental->bicycleId);
-        if ($bicycle) {
-            $bicycle->update([
-                'status' => Bicycle::STATUS_AVAILABLE,
-                'currentRider' => null,
-                'currentRentalId' => null,
-                'lockStatus' => Bicycle::LOCK_LOCKED,
-            ]);
-
-            $this->iotService->sendCommand($rental->bicycleId, 'lock', [], $user);
-        }
+        $this->releaseBicycleOnCancel($rental, $user);
 
         $this->notificationService->create(
             $rental->riderId,
@@ -618,16 +985,152 @@ public function startRental(
         return $rental->fresh();
     }
 
-    public function markExpiredRentalsOverdue(): int
-{
-    return Rental::where('status', 'active')
-        ->whereNotNull('expectedEndTime')
-        ->where('expectedEndTime', '<=', Carbon::now())
-        ->update([
-            'status' => 'overdue',
-            'overdueAt' => Carbon::now(),
-        ]);
-}
+    /**
+     * Expire every active rental whose expected end time has passed and
+     * notify administrators. Idempotent by state: only status=active rentals
+     * are considered, so a rental that already transitioned is never
+     * touched and its admin notification is never created twice.
+     *
+     * Comparisons use the application timezone (config('app.timezone')), so
+     * the same authoritative server clock is used by the scheduler command,
+     * the request-time sync, and the tests.
+     */
+    public function expireDueRentals(?Carbon $asOf = null): int
+    {
+        $asOf = $asOf ?? Carbon::now();
+
+        $expired = Rental::with(['bicycle'])
+            ->where('status', Rental::STATUS_ACTIVE)
+            ->whereNotNull('expectedEndTime')
+            ->where('expectedEndTime', '<=', $asOf)
+            ->get();
+
+        if ($expired->isEmpty()) {
+            return 0;
+        }
+
+        $adminIds = User::where('role', User::ROLE_ADMIN)->pluck('id')->all();
+
+        foreach ($expired as $rental) {
+            $rental->update([
+                'status' => Rental::STATUS_EXPIRED,
+                'expiredAt' => $asOf,
+            ]);
+
+            if (!empty($adminIds)) {
+                $this->notificationService->createForUsers(
+                    $adminIds,
+                    'Rental Expired',
+                    "Rental {$rental->rentalId} by {$rental->riderName} for bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}) expired on "
+                        . $rental->expectedEndTime->format('M d, Y g:i A')
+                        . ' and now has status "expired". Set a return deadline to start the return workflow.',
+                    'rental_expired',
+                    ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
+                );
+            }
+        }
+
+        return $expired->count();
+    }
+
+    /**
+     * Mark awaiting-return rentals as overdue_return once their return
+     * deadline has passed, snapshot the accrued penalty, and notify both the
+     * renter and the administrators. Idempotent by state: only
+     * status=awaiting_return rows are considered and each rental notifies
+     * exactly once.
+     */
+    public function markOverdueReturnDeadlines(?Carbon $asOf = null): int
+    {
+        $asOf = $asOf ?? Carbon::now();
+
+        $overdue = Rental::with(['bicycle'])
+            ->where('status', Rental::STATUS_AWAITING_RETURN)
+            ->whereNotNull('returnDeadline')
+            ->where('returnDeadline', '<=', $asOf)
+            ->get();
+
+        if ($overdue->isEmpty()) {
+            return 0;
+        }
+
+        foreach ($overdue as $rental) {
+            $rental->update([
+                'status' => Rental::STATUS_OVERDUE_RETURN,
+                'overdueReturnAt' => $asOf,
+                'penaltyAccrued' => $this->calculatePenaltyForRental($rental, $asOf),
+            ]);
+
+            $penaltyText = $this->penaltyDisplay($rental);
+
+            $this->notificationService->create(
+                $rental->riderId,
+                'Return Deadline Passed',
+                "You missed the return deadline for rental {$rental->rentalId} (bicycle {$rental->bicycleName} #{$rental->bicycleSerial}). "
+                    . 'Rental period over; the return is now overdue. '
+                    . ($penaltyText ? "Penalty applied: {$penaltyText}. " : '')
+                    . 'The penalty keeps accruing until an administrator confirms the return.',
+                'rental_overdue_return',
+                ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
+            );
+        }
+
+        $adminIds = User::where('role', User::ROLE_ADMIN)->pluck('id')->all();
+
+        if (!empty($adminIds)) {
+            $this->notificationService->createForUsers(
+                $adminIds,
+                'Overdue Returns',
+                $overdue->count() . ' rental(s) passed their return deadline and now require confirmation (overdue_return). Verify the return and confirm it to settle any accrued penalty.',
+                'rental_overdue_return'
+            );
+        }
+
+        return $overdue->count();
+    }
+
+    /**
+     * Synchronize the rental lifecycle using the authoritative server clock.
+     * Runs the same idempotent transitions as the scheduled commands so stale
+     * records can never keep showing as "Active" or "Awaiting Return" when a
+     * user requests a relevant page or API endpoint — even if the scheduler
+     * is not running.
+     */
+    public function synchronizeLifecycle(?Carbon $asOf = null): array
+    {
+        return [
+            'expired' => $this->expireDueRentals($asOf),
+            'overdue_return' => $this->markOverdueReturnDeadlines($asOf),
+        ];
+    }
+
+    private function penaltyDisplay(Rental $rental): string
+    {
+        if ($rental->penaltyAccrued !== null && (float) $rental->penaltyAccrued > 0) {
+            return 'PHP ' . number_format((float) $rental->penaltyAccrued, 2) . ' accrued so far';
+        }
+
+        if ($rental->penaltyType === Rental::PENALTY_FIXED) {
+            return 'PHP ' . number_format((float) ($rental->penaltyValue ?? 0), 2) . ' fixed penalty';
+        }
+
+        if ($rental->penaltyValue !== null) {
+            $per = $rental->penaltyType === Rental::PENALTY_PER_MINUTE ? 'minute' : 'hour';
+
+            return 'PHP ' . number_format((float) $rental->penaltyValue, 2) . ' per ' . $per;
+        }
+
+        return '';
+    }
+
+    /**
+     * Bulk-expire due active rentals. Kept as a backward-compatible alias of
+     * expireDueRentals() for existing callers.
+     */
+    public function markExpiredRentals(?Carbon $asOf = null): int
+    {
+        return $this->expireDueRentals($asOf);
+    }
 
     public function calculateFees(string $startTime, ?string $endTime, float $ratePerHour): array
     {

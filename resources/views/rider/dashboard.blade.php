@@ -49,6 +49,21 @@
             <div class="card-pedalya-header"><span><i class="bi bi-play-circle text-primary me-2"></i><strong>Active Rental</strong></span></div>
             <div class="card-pedalya-body" id="activeRentalCard">
                 @if($activeRental)
+@php
+    $isReturnFlow = in_array($activeRental->status, ['expired', 'awaiting_return', 'overdue_return'], true);
+    $penaltyRuleText = null;
+    if (in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true)) {
+        if ($activeRental->penaltyType === 'per_hour') {
+            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' per hour late';
+        } elseif ($activeRental->penaltyType === 'per_minute') {
+            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' per minute late';
+        } elseif ($activeRental->penaltyType === 'fixed') {
+            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' fixed late fee';
+        } else {
+            $penaltyRuleText = '₱' . number_format($lateReturnPenaltyPerHour ?? 20, 2) . ' per hour late';
+        }
+    }
+@endphp
                     <div class="active-rental-card">
                         <div class="row align-items-center">
                             <div class="col-8">
@@ -58,9 +73,33 @@
                                     <span><i class="bi bi-clock text-primary"></i> <strong id="rentalTimer">0:00:00</strong></span>
                                     <span><i class="bi bi-battery-three-quarters text-success"></i> {{ $activeRental->bicycle->batteryLevel ?? 0 }}%</span>
                                 </div>
-                                <div id="rentalWarning" class="mt-1" style="display:none;">
-                                    <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-exclamation-triangle-fill me-1" style="font-size:0.5rem;"></i> Expiring soon</span>
-                                </div>
+                                <div id="rentalWarning" class="mt-1" style="{{ $isReturnFlow ? '' : 'display:none;' }}">
+                                    @if($activeRental->status === 'overdue_return')
+                                        <span class="badge-status" style="background:#FDEBEB;color:#C62828;"><i class="bi bi-exclamation-triangle-fill me-1" style="font-size:0.5rem;"></i> Overdue &mdash; {{ $penaltyRuleText }}</span>
+                                        @if($currentPenalty !== null)
+                                            <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-cash-stack me-1" style="font-size:0.5rem;"></i> Penalty so far: &#8369;{{ number_format($currentPenalty, 2) }}</span>
+                                        @endif
+                                    @elseif($activeRental->status === 'awaiting_return')
+                                        <span class="badge-status" style="background:#E8F5E9;color:#2E7D32;"><i class="bi bi-check2-circle me-1" style="font-size:0.5rem;"></i> Awaiting admin return confirmation</span>
+                                        @if($penaltyRuleText)
+                                            <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-info-circle me-1" style="font-size:0.5rem;"></i> Return by the deadline &mdash; {{ $penaltyRuleText }}</span>
+                                        @endif
+@else
+                                            <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split me-1" style="font-size:0.5rem;"></i> Expired &mdash; an administrator will set your return deadline</span>
+                                        @endif
+                                    </div>
+                                    @if($activeRental->status === 'overdue_return')
+                                    <div style="margin-top:10px;background:#FDEBEB;border:1px solid #F5C6C6;border-radius:8px;padding:10px 12px;font-size:12.5px;">
+                                        <div class="fw-bold" style="color:#C62828;margin-bottom:6px;"><i class="bi bi-exclamation-triangle-fill me-1"></i>Overdue Summary</div>
+                                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;">
+                                            <span style="color:#6b6b6b;">Overdue Time</span><strong>{{ floor(($overdueMinutes ?? 0) / 60) }}h {{ ($overdueMinutes ?? 0) % 60 }}m</strong>
+                                            <span style="color:#6b6b6b;">Penalty Rate</span><strong>{{ $penaltyRuleText }}</strong>
+                                            <span style="color:#6b6b6b;">Current Penalty</span><strong style="color:#C62828;">&#8369;{{ number_format($currentPenalty ?? 0, 2) }}</strong>
+                                            <span style="color:#6b6b6b;">Original Rental Fee</span><strong>&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</strong>
+                                            <span style="color:#6b6b6b;">Total Amount Due</span><strong style="color:#C62828;">&#8369;{{ number_format(($activeRental->totalFee ?? 0) + ($currentPenalty ?? 0), 2) }}</strong>
+                                        </div>
+                                    </div>
+                                    @endif
                             </div>
                             <div class="col-4 text-end">
                                 <div class="countdown-timer">
@@ -68,7 +107,17 @@
                                     <div class="countdown-item"><span class="countdown-value" id="cdMins">0</span><span class="countdown-label">Min</span></div>
                                     <div class="countdown-item"><span class="countdown-value" id="cdSecs">00</span><span class="countdown-label">Sec</span></div>
                                 </div>
-                                <p class="mt-2 mb-0 fw-bold text-primary">₱{{ number_format($activeRental->totalFee ?? 0, 2) }}</p>
+                                @if($activeRental->status === 'expired')
+                                    <p class="mt-2 mb-0 fw-bold" style="color:#E65100;">Waiting for deadline</p>
+                                @else
+                                    <p class="mt-2 mb-0 fw-bold text-primary">&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</p>
+                                @endif
+                                @if($isReturnFlow)
+                                    <form action="{{ route('rider.rentals.return', $activeRental->id) }}" method="POST" class="mt-2">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-pedalya"><i class="bi bi-arrow-return-left me-1"></i>Return Bicycle</button>
+                                    </form>
+                                @endif
                             </div>
                         </div>
                     </div>
@@ -138,39 +187,88 @@
 @section('scripts')
 @if($activeRental)
 @php
-    // Countdown source of truth: the server-computed rental end time.
-    // Falls back to startTime + selected duration if endTime is missing.
-    $endTime = $activeRental->endTime
-        ?? optional($activeRental->startTime)->copy()->addMinutes($activeRental->durationMinutes ?? 60);
+    $isReturnFlow = in_array($activeRental->status, ['expired', 'awaiting_return', 'overdue_return'], true);
+    $countdownIso = null;
+    $overdueReturnFlag = false;
+    if (in_array($activeRental->status, ['active', 'overdue'], true)) {
+        // Same precedence as RentalService::rentalClockFor() so this countdown
+        // can never disagree with the one the on-board LCD is showing.
+        $countdownTarget = $activeRental->endTime
+            ?? $activeRental->returnDeadline
+            ?? $activeRental->expectedEndTime
+            ?? optional($activeRental->startTime)->copy()->addMinutes($activeRental->durationMinutes ?? 60);
+        $countdownIso = optional($countdownTarget)->toIso8601String();
+    } elseif (in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true) && $activeRental->returnDeadline) {
+        $countdownIso = $activeRental->returnDeadline->toIso8601String();
+        $overdueReturnFlag = ($activeRental->status === 'overdue_return');
+    }
     $warningSeconds = ($warningMinutes ?? 5) * 60;
 @endphp
 <script>
     (function() {
-        var endTime = new Date('{{ $endTime->toIso8601String() }}');
+        var target = @json($countdownIso);
         var warningSeconds = {{ $warningSeconds }};
+        var overdueReturn = {{ $overdueReturnFlag ? 'true' : 'false' }};
+        var endTime = target ? new Date(target) : null;
         var expiredShown = false;
 
         function pad(n) { return String(n).padStart(2, '0'); }
 
         function updateTimer() {
+            var warn = document.getElementById('rentalWarning');
+            var els = {
+                timer: document.getElementById('rentalTimer'),
+                h: document.getElementById('cdHours'),
+                m: document.getElementById('cdMins'),
+                s: document.getElementById('cdSecs')
+            };
+
+            // A missing element used to throw a TypeError, which killed the
+            // setInterval below and left the static 0:00:00 markup on screen
+            // with no clue why.
+            if (!els.timer || !els.h || !els.m || !els.s) {
+                if (!updateTimer.warned) {
+                    console.error('[pedalya] rental timer elements missing from the DOM');
+                    updateTimer.warned = true;
+                }
+                return;
+            }
+
+            if (!endTime || isNaN(endTime.getTime())) {
+                // Deliberate, but it used to be silent, so a mis-set deadline
+                // looked identical to a working timer frozen at zero.
+                if (!updateTimer.warned) {
+                    console.warn('[pedalya] rental timer has no valid target, showing 0:00:00. target =', target);
+                    updateTimer.warned = true;
+                }
+                els.timer.textContent = '0:00:00';
+                els.h.textContent = '0';
+                els.m.textContent = '0';
+                els.s.textContent = '00';
+                return;
+            }
             var nowMs = Date.now();
             var remaining = Math.max(0, Math.floor((endTime.getTime() - nowMs) / 1000));
             var h = Math.floor(remaining / 3600);
             var m = Math.floor((remaining % 3600) / 60);
             var s = remaining % 60;
 
-            document.getElementById('rentalTimer').textContent = h + ':' + pad(m) + ':' + pad(s);
-            document.getElementById('cdHours').textContent = h;
-            document.getElementById('cdMins').textContent = m;
-            document.getElementById('cdSecs').textContent = pad(s);
+            els.timer.textContent = h + ':' + pad(m) + ':' + pad(s);
+            els.h.textContent = h;
+            els.m.textContent = m;
+            els.s.textContent = pad(s);
 
-            var warn = document.getElementById('rentalWarning');
             if (warn) {
-                if (remaining > 0 && remaining <= warningSeconds) {
+                if (overdueReturn) {
                     warn.style.display = 'block';
-                    document.getElementById('cdHours').style.color = '#E65100';
-                    document.getElementById('cdMins').style.color = '#E65100';
-                    document.getElementById('cdSecs').style.color = '#E65100';
+                    ['cdHours', 'cdMins', 'cdSecs'].forEach(function(id) {
+                        document.getElementById(id).style.color = '#C62828';
+                    });
+                } else if (remaining > 0 && remaining <= warningSeconds) {
+                    warn.style.display = 'block';
+                    ['cdHours', 'cdMins', 'cdSecs'].forEach(function(id) {
+                        document.getElementById(id).style.color = '#E65100';
+                    });
                 } else {
                     warn.style.display = 'none';
                 }
@@ -178,7 +276,7 @@
 
             if (remaining <= 0 && !expiredShown) {
                 expiredShown = true;
-                document.getElementById('rentalTimer').textContent = '0:00:00';
+                els.timer.textContent = '0:00:00';
             }
         }
         updateTimer();

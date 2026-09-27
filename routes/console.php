@@ -11,6 +11,7 @@ Artisan::command('inspire', function () {
 // IoT / safety automation
 Schedule::command('rentals:check-expiry-warnings')->everyMinute()->withoutOverlapping();
 Schedule::command('rentals:check-overdue')->everyMinute()->withoutOverlapping();
+Schedule::command('rentals:check-return-deadlines')->everyMinute()->withoutOverlapping();
 Schedule::command('rentals:check-grace-locks')
     ->everyMinute()
     ->withoutOverlapping();

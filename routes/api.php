@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\BicycleController as ApiBicycle;
 use App\Http\Controllers\Api\RentalController as ApiRental;
 use App\Http\Controllers\Api\GpsController as ApiGps;
 use App\Http\Controllers\Api\IoTController as ApiIoT;
+use App\Http\Controllers\Api\DeviceRentalController as ApiDevice;
 use App\Http\Controllers\Api\NotificationController as ApiNotification;
 use App\Http\Controllers\Api\AuthController as ApiAuth;
 use App\Http\Controllers\Api\PasswordResetController;
@@ -42,6 +43,19 @@ Route::middleware('device.auth')->group(function () {
     Route::post('/gps/location', [ApiGps::class, 'location']);
 });
 
+// On-board display endpoints (ESP32 + LCD, per-bicycle device key).
+// rental.sync keeps the status the device sees in step with the lifecycle
+// transitions, so a deadline that passes between scheduler runs is reflected
+// on the countdown immediately rather than up to a minute later.
+Route::middleware('bicycle.auth')->group(function () {
+    Route::get('/iot/bicycle/{bicycle}/rental', [ApiDevice::class, 'show'])
+        ->middleware(['rental.sync', 'throttle:120,1']);
+    Route::get('/iot/bicycle/{bicycle}/commands', [ApiDevice::class, 'commands'])
+        ->middleware('throttle:120,1');
+    Route::post('/iot/bicycle/{bicycle}/commands/{command}/ack', [ApiDevice::class, 'acknowledgeCommand'])
+        ->middleware('throttle:120,1');
+});
+
 // Auth-protected API routes (Sanctum bearer tokens)
 Route::middleware(['auth:sanctum'])->group(function () {
     // Auth
@@ -63,11 +77,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/bicycles/{id}/telemetry', [ApiBicycle::class, 'telemetry']);
 
     // Rentals
-    Route::get('/rentals/active', [ApiRental::class, 'active']);
-    Route::get('/rentals', [ApiRental::class, 'index']);
-    Route::get('/rentals/{id}', [ApiRental::class, 'show']);
+    Route::get('/rentals/active', [ApiRental::class, 'active'])->middleware('rental.sync');
+    Route::get('/rentals', [ApiRental::class, 'index'])->middleware('rental.sync');
+    Route::get('/rentals/{id}', [ApiRental::class, 'show'])->middleware('rental.sync');
     Route::post('/rentals', [ApiRental::class, 'store']);
-    Route::put('/rentals/{id}/return', [ApiRental::class, 'returnRental']);
+    Route::put('/rentals/{id}/return', [ApiRental::class, 'returnRental'])->middleware('rental.sync');
     Route::put('/rentals/{id}/approve', [ApiRental::class, 'approve'])->middleware('role:admin');
     Route::put('/rentals/{id}/cancel', [ApiRental::class, 'cancel']);
 

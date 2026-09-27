@@ -1,0 +1,45 @@
+#include <ESP32Servo.h>
+
+Servo lockServo;
+
+#define SERVO_PIN 18
+#define SERVO_MIN_PULSE_US 500
+#define SERVO_MAX_PULSE_US 2400
+
+void setup() {
+    Serial.begin(115200);
+
+    lockServo.setPeriodHertz(50);
+
+    int result = lockServo.attach(
+        SERVO_PIN,
+        SERVO_MIN_PULSE_US,
+        SERVO_MAX_PULSE_US
+    );
+
+    Serial.printf("[SERVO TEST] attach result = %d\n", result);
+
+    delay(1000);
+
+    Serial.println("[SERVO TEST] 0 degrees");
+    lockServo.write(0);
+    delay(3000);
+
+    Serial.println("[SERVO TEST] 90 degrees");
+    lockServo.write(90);
+    delay(3000);
+
+    Serial.println("[SERVO TEST] 180 degrees");
+    lockServo.write(180);
+    delay(3000);
+}
+
+void loop() {
+    Serial.println("[SERVO TEST] 90 degrees");
+    lockServo.write(90);
+    delay(3000);
+
+    Serial.println("[SERVO TEST] 0 degrees");
+    lockServo.write(0);
+    delay(3000);
+}

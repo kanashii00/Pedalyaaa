@@ -637,13 +637,14 @@ class RentalServiceTest extends TestCase
             'paymentStatus' => 'paid',
         ]);
 
-        $count = $service->markExpiredRentalsOverdue();
+        $count = $service->markExpiredRentals();
 
         $this->assertSame(1, $count);
         $this->assertDatabaseHas('rentals', [
             'rentalId' => 'REN-OVRD-001',
-            'status' => Rental::STATUS_OVERDUE,
+            'status' => Rental::STATUS_EXPIRED,
         ]);
+        $this->assertNotNull(Rental::where('rentalId', 'REN-OVRD-001')->first()->expiredAt);
     }
 
     public function test_calculate_fees(): void

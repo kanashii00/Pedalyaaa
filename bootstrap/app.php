@@ -15,7 +15,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'device.auth' => \App\Http\Middleware\DeviceAuth::class,
+            'bicycle.auth' => \App\Http\Middleware\BicycleDeviceAuth::class,
             'role' => \App\Http\Middleware\RoleCheck::class,
+            'rental.sync' => \App\Http\Middleware\SyncRentalLifecycle::class,
         ]);
 
         $middleware->statefulApi();

@@ -534,14 +534,14 @@
                             </td>
                             <td>
                                 <div class="rv-dt">
-                                    <div class="rv-dt__date">{{ $rental->startTime?->format('M d, Y') ?? '&mdash;' }}</div>
+                                    <div class="rv-dt__date">{{ $rental->startTime?->format('M d, Y') ?? '—' }}</div>
                                     <div class="rv-dt__time">{{ $rental->startTime?->format('h:i A') ?? 'Not started' }}</div>
                                 </div>
                             </td>
                             <td>
                                 <div class="rv-dt">
-                                    <div class="rv-dt__date">{{ $rental->endTime?->format('M d, Y') ?? '&mdash;' }}</div>
-                                    <div class="rv-dt__time">{{ $rental->endTime?->format('h:i A') ?? '&mdash;' }}</div>
+                                    <div class="rv-dt__date">{{ $rental->endTime?->format('M d, Y') ?? '—' }}</div>
+                                    <div class="rv-dt__time">{{ $rental->endTime?->format('h:i A') ?? '—' }}</div>
                                 </div>
                             </td>
                             <td>
@@ -652,9 +652,9 @@
                                                     <div class="rv-panel">
                                                         <div class="rv-panel__label"><i class="bi bi-route"></i>Rental Details</div>
                                                         <dl style="margin:0;">
-                                                            <div class="rv-kv"><dt>Start Time</dt><dd>{{ $rental->startTime?->format('M d, Y h:i A') ?? '&mdash;' }}</dd></div>
-                                                            <div class="rv-kv"><dt>End Time</dt><dd>{{ $rental->endTime?->format('M d, Y h:i A') ?? '&mdash;' }}</dd></div>
-                                                            <div class="rv-kv"><dt>Duration</dt><dd>{{ $durLabel ?? '&mdash;' }}</dd></div>
+                                                            <div class="rv-kv"><dt>Start Time</dt><dd>{{ $rental->startTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                            <div class="rv-kv"><dt>End Time</dt><dd>{{ $rental->endTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                            <div class="rv-kv"><dt>Duration</dt><dd>{{ $durLabel ?? '—' }}</dd></div>
                                                             <div class="rv-kv"><dt>Created</dt><dd>{{ $rental->created_at->format('M d, Y h:i A') }}</dd></div>
                                                         </dl>
                                                         @if($rental->notes)
@@ -665,10 +665,10 @@
                                                             <div class="rv-panel" style="margin-top:14px;">
                                                                 <div class="rv-panel__label"><i class="bi bi-arrow-return-left"></i>Return Details</div>
                                                                 <dl style="margin:0;">
-                                                                    <div class="rv-kv"><dt>Returned At</dt><dd>{{ $rental->returnProcessedAt?->format('M d, Y h:i A') ?? '&mdash;' }}</dd></div>
+                                                                    <div class="rv-kv"><dt>Returned At</dt><dd>{{ $rental->returnProcessedAt?->format('M d, Y h:i A') ?? '—' }}</dd></div>
                                                                     <div class="rv-kv"><dt>Condition</dt><dd>{{ ucwords(str_replace('_', ' ', $rental->returnCondition ?? 'Not recorded')) }}</dd></div>
                                                                     <div class="rv-kv"><dt>Base Fee</dt><dd>&#8369;{{ number_format(($rental->totalFee ?? 0) - (float) ($rental->overdueFee ?? 0), 2) }}</dd></div>
-                                                                    <div class="rv-kv"><dt>Overdue Fee</dt><dd>{{ (float) ($rental->overdueFee ?? 0) > 0 ? '&#8369;'.number_format((float) $rental->overdueFee, 2) : '&mdash;' }}</dd></div>
+                                                                    <div class="rv-kv"><dt>Overdue Fee</dt><dd>{{ (float) ($rental->overdueFee ?? 0) > 0 ? '₱'.number_format((float) $rental->overdueFee, 2) : '—' }}</dd></div>
                                                                     <div class="rv-kv"><dt>Final Fee</dt><dd>&#8369;{{ number_format($rental->finalFee ?? $rental->totalFee ?? 0, 2) }}</dd></div>
                                                                     @if($rental->returnInspectedBy)
                                                                         <div class="rv-kv"><dt>Inspected By</dt><dd>User #{{ $rental->returnInspectedBy }}</dd></div>
@@ -689,7 +689,7 @@
                                                                 <div class="user-avatar" style="width:32px;height:32px;font-size:12px;">{{ strtoupper(substr($rental->rider->name ?? 'U', 0, 1)) }}</div>
                                                                 <div style="min-width:0;">
                                                                     <div class="rv-rider__name">{{ $rental->rider->name ?? 'Unknown' }}</div>
-                                                                    <div class="rv-rider__email">{{ $rental->rider->email ?? '&mdash;' }}</div>
+                                                                    <div class="rv-rider__email">{{ $rental->rider->email ?? '—' }}</div>
                                                                 </div>
                                                             </div>
                                                             <div class="rv-party">
@@ -707,7 +707,7 @@
                                                             </div>
                                                             <div class="rv-tile">
                                                                 <div class="rv-tile__label">Duration</div>
-                                                                <div class="rv-tile__value">{{ $durLabel ?? '&mdash;' }}</div>
+                                                                <div class="rv-tile__value">{{ $durLabel ?? '—' }}</div>
                                                             </div>
                                                             <div class="rv-tile rv-tile--total">
                                                                 <div class="rv-tile__label">Total Fee</div>

@@ -54,6 +54,46 @@ class AdminBicycleManagementTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'bicycle_created']);
     }
 
+    public function test_generated_serial_numbers_never_reuse_a_deleted_one(): void
+    {
+        $admin = $this->makeAdmin();
+        $year = date('Y');
+
+        // A gap in the sequence: 00001 and 00003 exist, 00002 was deleted.
+        $this->makeBicycle(['serialNumber' => "PDY-{$year}-00001"]);
+        $this->makeBicycle(['serialNumber' => "PDY-{$year}-00003"]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.bicycles.store'), [
+                'name' => 'After The Gap',
+                'model' => 'City',
+                'hourlyRate' => 15,
+                'currentLat' => 14.6,
+                'currentLng' => 120.99,
+            ])
+            ->assertSessionHasNoErrors();
+
+        $serial = Bicycle::where('name', 'After The Gap')->value('serialNumber');
+
+        $this->assertNotSame(
+            "PDY-{$year}-00003",
+            $serial,
+            'a row-count based sequence would hand back the live 00003 serial'
+        );
+        $this->assertSame(
+            "PDY-{$year}-00004",
+            $serial,
+            'the sequence continues past the highest serial in use'
+        );
+
+        // The serial is the unique key both modules are keyed on.
+        $this->assertSame(
+            1,
+            Bicycle::where('serialNumber', $serial)->count(),
+            'serial numbers must stay unique'
+        );
+    }
+
     public function test_store_validation_fails_without_name(): void
     {
         $admin = $this->makeAdmin();

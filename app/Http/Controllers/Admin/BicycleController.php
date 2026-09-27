@@ -43,7 +43,16 @@ class BicycleController extends Controller
             });
         }
 
-        $bicycles = $query->latest()->paginate(20);
+        // The inventory shows the live renter and rental, so both are eager
+        // loaded: currentRental() is a belongsTo off the denormalised
+        // currentRentalId, which would otherwise be one query per page row.
+        $bicycles = $query
+            ->with([
+                'currentRiderUser:id,name,email,studentId',
+                'currentRental:id,rentalId,status,startTime,expectedEndTime,durationMinutes,durationFormatted',
+            ])
+            ->latest()
+            ->paginate(20);
 
         return response()->view('admin.bicycles', compact('bicycles'));
     }
@@ -105,10 +114,23 @@ class BicycleController extends Controller
     private function generateSerialNumber(): string
     {
         $year = date('Y');
-        $count = Bicycle::where('serialNumber', 'like', "PDY-{$year}-%")->count();
-        $seq = str_pad($count + 1, 5, '0', STR_PAD_LEFT);
+        $prefix = "PDY-{$year}-";
 
-        return "PDY-{$year}-{$seq}";
+        // Derive the next sequence from the highest one currently in use rather
+        // than from the row count: a deleted serial leaves a gap, and a
+        // count-based sequence would hand out a number that is still taken.
+        $highest = Bicycle::where('serialNumber', 'like', $prefix.'%')
+            ->pluck('serialNumber')
+            ->map(fn (string $serial): int => (int) substr($serial, strlen($prefix)))
+            ->filter(fn (int $seq): bool => $seq > 0)
+            ->max() ?? 0;
+
+        do {
+            $seq = str_pad((string) ++$highest, 5, '0', STR_PAD_LEFT);
+            $serial = $prefix.$seq;
+        } while (Bicycle::where('serialNumber', $serial)->exists());
+
+        return $serial;
     }
 
     private function generateQrCode(): string

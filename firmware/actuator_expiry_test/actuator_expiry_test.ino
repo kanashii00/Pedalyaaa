@@ -1,0 +1,48 @@
+#include <ESP32Servo.h>
+
+static constexpr int SERVO_PIN = 18;
+static constexpr int BUZZER_PIN = 19;
+static constexpr int SERVO_RELEASE_ANGLE = 0;
+static constexpr int SERVO_LOCK_ANGLE = 100;
+static constexpr int SERVO_MIN_PULSE_US = 500;
+static constexpr int SERVO_MAX_PULSE_US = 2400;
+static constexpr int BUZZER_FREQUENCY_HZ = 2000;
+
+static Servo lockServo;
+
+static void writeServo(int angle) {
+    Serial.printf("[TEST] SERVO %d degrees\n", angle);
+    lockServo.write(constrain(angle, 0, 180));
+}
+
+void setup() {
+    Serial.begin(115200);
+    delay(300);
+
+    lockServo.setPeriodHertz(50);
+    int attachResult = lockServo.attach(SERVO_PIN, SERVO_MIN_PULSE_US, SERVO_MAX_PULSE_US);
+    Serial.printf("[TEST] servo attached=%s\n", attachResult >= 0 ? "YES" : "NO");
+
+    ledcAttach(BUZZER_PIN, BUZZER_FREQUENCY_HZ, 8);
+    ledcWriteTone(BUZZER_PIN, 0);
+
+    writeServo(SERVO_RELEASE_ANGLE);
+    Serial.println("[TEST] simulated rental active: 5 seconds remaining");
+    delay(5000);
+
+    Serial.println("[TEST] TIMER EXPIRED: rotating 0 -> 100 and enabling buzzer");
+    for (int angle = SERVO_RELEASE_ANGLE; angle <= SERVO_LOCK_ANGLE; angle += 5) {
+        writeServo(angle);
+        delay(50);
+    }
+    writeServo(SERVO_LOCK_ANGLE);
+    ledcWriteTone(BUZZER_PIN, BUZZER_FREQUENCY_HZ);
+    Serial.println("[TEST] LOCK HELD; BUZZER ON");
+}
+
+void loop() {
+    // Keep the lock signal and alarm asserted, just like an expired rental.
+    lockServo.write(SERVO_LOCK_ANGLE);
+    ledcWriteTone(BUZZER_PIN, BUZZER_FREQUENCY_HZ);
+    delay(250);
+}

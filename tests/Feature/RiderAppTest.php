@@ -103,7 +103,7 @@ class RiderAppTest extends TestCase
         $this->post(route('rider.rent.store'), [
             'bicycleId' => $bike->id,
             'paymentMethod' => 'cash',
-            'durationHours' => 2,
+            'durationMinutes' => 120,
         ])->assertRedirect(route('rider.dashboard'));
     }
 
@@ -118,7 +118,7 @@ class RiderAppTest extends TestCase
         $this->post(route('rider.rent.store'), [
             'bicycleId' => $bike->id,
             'paymentMethod' => 'gcash',
-            'durationHours' => 2,
+            'durationMinutes' => 120,
             'paymentReference' => 'REF-123',
         ])->assertRedirect(route('rider.rentals.index'));
     }
@@ -131,7 +131,7 @@ class RiderAppTest extends TestCase
         $this->post(route('rider.rent.store'), [
             'bicycleId' => $bike->id,
             'paymentMethod' => 'gcash',
-            'durationHours' => 2,
+            'durationMinutes' => 120,
         ])->assertSessionHasErrors('paymentReference');
     }
 
@@ -146,7 +146,7 @@ class RiderAppTest extends TestCase
         $this->post(route('rider.rent.store'), [
             'bicycleId' => $bike->id,
             'paymentMethod' => 'cash',
-            'durationHours' => 2,
+            'durationMinutes' => 120,
         ])->assertSessionHasErrors('bicycleId');
     }
 
@@ -161,7 +161,7 @@ class RiderAppTest extends TestCase
         $this->post(route('rider.rent.store'), [
             'bicycleId' => $bike->id,
             'paymentMethod' => 'cash',
-            'durationHours' => 2,
+            'durationMinutes' => 120,
         ])->assertSessionHasErrors('bicycleId');
     }
 
@@ -181,6 +181,7 @@ class RiderAppTest extends TestCase
         $rental = $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => Rental::STATUS_ACTIVE]);
 
         $this->mock(RentalService::class, function ($mock) {
+            $mock->shouldReceive('synchronizeLifecycle')->andReturn(['expired' => 0, 'overdue_return' => 0]);
             $mock->shouldReceive('returnRental')->once();
         });
 

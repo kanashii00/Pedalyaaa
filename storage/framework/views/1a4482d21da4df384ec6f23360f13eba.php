@@ -541,6 +541,7 @@
                         <option value="active" <?php echo e(request('status') === 'active' ? 'selected' : ''); ?>>Active</option>
                         <option value="pending" <?php echo e(request('status') === 'pending' ? 'selected' : ''); ?>>Pending</option>
                         <option value="overdue" <?php echo e(request('status') === 'overdue' ? 'selected' : ''); ?>>Overdue</option>
+                        <option value="expired" <?php echo e(request('status') === 'expired' ? 'selected' : ''); ?>>Expired</option>
                     </select>
                 </div>
             </div>
@@ -562,7 +563,8 @@
                     <select name="bicycle_id" id="rvBike">
                         <option value="">All Bicycles</option>
                         <?php $__currentLoopData = $bicyclesList ?? []; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $b): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                            <option value="<?php echo e($b->id); ?>" <?php echo e(request('bicycle_id') == $b->id ? 'selected' : ''); ?>><?php echo e($b->name); ?></option>
+                            
+                            <option value="<?php echo e($b->id); ?>" <?php echo e(request('bicycle_id') == $b->id ? 'selected' : ''); ?>><?php echo e($b->serialNumber); ?> - <?php echo e($b->name); ?></option>
                         <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
                     </select>
                 </div>
@@ -630,20 +632,31 @@
                                 </div>
                             </td>
                             <td>
-                                <div class="rv-bike__name"><?php echo e($rental->bicycle->name ?? 'Unknown'); ?></div>
-                                <?php if($rental->bicycle?->serialNumber): ?>
-                                    <div class="rv-bike__sub">SN &middot; <?php echo e($rental->bicycle->serialNumber); ?></div>
+                                
+                                <?php if($rental->bicycle): ?>
+                                    <a href="<?php echo e(route('admin.bicycles.show', $rental->bicycle->id)); ?>"
+                                       class="text-decoration-none" title="View <?php echo e($rental->bicycle->serialNumber); ?> in Bicycle Inventory">
+                                        <div class="rv-bike__name"><?php echo e($rental->bicycle->name); ?></div>
+                                        <?php if($rental->bicycle->serialNumber): ?>
+                                            <div class="rv-bike__sub">SN &middot; <?php echo e($rental->bicycle->serialNumber); ?></div>
+                                        <?php endif; ?>
+                                    </a>
+                                <?php else: ?>
+                                    <div class="rv-bike__name"><?php echo e($rental->bicycleName ?? 'Unknown'); ?></div>
+                                    <?php if($rental->bicycleSerial): ?>
+                                        <div class="rv-bike__sub">SN &middot; <?php echo e($rental->bicycleSerial); ?></div>
+                                    <?php endif; ?>
                                 <?php endif; ?>
                             </td>
                             <td>
                                 <div class="rv-dt">
-                                    <div class="rv-dt__date"><?php echo e($rental->startTime?->format('M d, Y') ?? '&mdash;'); ?></div>
+                                    <div class="rv-dt__date"><?php echo e($rental->startTime?->format('M d, Y') ?? '—'); ?></div>
                                     <div class="rv-dt__time"><?php echo e($rental->startTime?->format('h:i A') ?? 'Not started'); ?></div>
                                 </div>
                             </td>
                             <td>
                                 <div class="rv-dt">
-                                    <div class="rv-dt__date"><?php echo e($rental->endTime?->format('M d, Y') ?? '&mdash;'); ?></div>
+                                    <div class="rv-dt__date"><?php echo e($rental->endTime?->format('M d, Y') ?? '—'); ?></div>
                                     <div class="rv-dt__time"><?php echo e($rental->endTime?->format('h:i A') ?? 'In progress'); ?></div>
                                 </div>
                             </td>
@@ -674,6 +687,8 @@
                                     <span class="rv-status rv-status--pending rv-status--dot">Pending</span>
                                 <?php elseif($rental->status === 'overdue'): ?>
                                     <span class="rv-status rv-status--overdue rv-status--dot rv-status--live">Overdue</span>
+                                <?php elseif($rental->status === 'expired'): ?>
+                                    <span class="rv-status rv-status--overdue rv-status--dot rv-status--live">Expired</span>
                                 <?php elseif($rental->status === 'cancelled'): ?>
                                     <span class="rv-status rv-status--cancelled rv-status--dot">Cancelled</span>
                                 <?php else: ?>
@@ -769,6 +784,23 @@
                                             </button>
                                         </form>
                                     <?php endif; ?>
+                                    <?php if(in_array($rental->status, ['expired', 'awaiting_return'])): ?>
+                                        <button type="button" class="rv-btn rv-btn--complete"
+                                                data-deadline-open
+                                                data-rental-id="<?php echo e($rental->id); ?>"
+                                                data-rental-code="<?php echo e($rental->rentalId); ?>"
+                                                data-rider="<?php echo e($rental->rider->name ?? $rental->riderName ?? 'Unknown'); ?>"
+                                                data-bike="<?php echo e($rental->bicycle->name ?? $rental->bicycleName ?? 'Unknown'); ?>"
+                                                data-expected-end="<?php echo e($rental->expectedEndTime?->format('M d, Y g:i A')); ?>"
+                                                data-expired-at="<?php echo e($rental->expiredAt?->format('M d, Y g:i A')); ?>"
+                                                data-status="<?php echo e($rental->status); ?>"
+                                                data-current-deadline="<?php echo e($rental->returnDeadline?->format('Y-m-d\TH:i')); ?>"
+                                                data-penalty-type="<?php echo e($rental->penaltyType); ?>"
+                                                data-penalty-value="<?php echo e($rental->penaltyValue); ?>"
+                                                title="<?php echo e($rental->returnDeadline ? 'Set or change the return deadline & penalty' : 'Set return deadline & penalty'); ?>">
+                                            <i class="bi bi-calendar-plus"></i>
+                                        </button>
+                                    <?php endif; ?>
                                     <?php if(in_array($rental->status, ['active', 'pending', 'overdue'])): ?>
                                         <form action="<?php echo e(route('admin.rentals.cancel', $rental->id)); ?>" method="POST" class="d-inline">
                                             <?php echo csrf_field(); ?>
@@ -819,9 +851,38 @@
                                                     <div class="rv-panel">
                                                         <div class="rv-panel__label"><i class="bi bi-route"></i>Rental Details</div>
                                                         <dl style="margin:0;">
-                                                            <div class="rv-kv"><dt>Start Time</dt><dd><?php echo e($rental->startTime?->format('M d, Y h:i A') ?? '&mdash;'); ?></dd></div>
-                                                            <div class="rv-kv"><dt>End Time</dt><dd><?php echo e($rental->endTime?->format('M d, Y h:i A') ?? '&mdash;'); ?></dd></div>
-                                                            <div class="rv-kv"><dt>Duration</dt><dd><?php echo e($durLabel ?? '&mdash;'); ?></dd></div>
+                                                            <div class="rv-kv"><dt>Start Time</dt><dd><?php echo e($rental->startTime?->format('M d, Y h:i A') ?? '—'); ?></dd></div>
+                                                            <div class="rv-kv"><dt>End Time</dt><dd><?php echo e($rental->endTime?->format('M d, Y h:i A') ?? '—'); ?></dd></div>
+                                                            <div class="rv-kv"><dt>Expected End Time</dt><dd><?php echo e($rental->expectedEndTime?->format('M d, Y h:i A') ?? '—'); ?></dd></div>
+                                                            <?php if($rental->expiredAt): ?>
+                                                                <div class="rv-kv"><dt>Expired At</dt><dd><?php echo e($rental->expiredAt->format('M d, Y h:i A')); ?></dd></div>
+                                                            <?php endif; ?>
+                                                            <?php if($rental->returnDeadline): ?>
+                                                                <div class="rv-kv"><dt>Return Deadline</dt><dd><?php echo e($rental->returnDeadline->format('M d, Y h:i A')); ?></dd></div>
+                                                            <?php endif; ?>
+                                                            <?php if($rental->returnDeadlineSetBy): ?>
+                                                                <div class="rv-kv"><dt>Deadline Set By</dt><dd><?php echo e($rental->returnDeadlineSetBy); ?></dd></div>
+                                                            <?php endif; ?>
+                                                            <?php if($rental->penaltyType): ?>
+                                                                <div class="rv-kv"><dt>Penalty Rule</dt><dd>
+                                                                    <?php if($rental->penaltyType === \App\Models\Rental::PENALTY_FIXED): ?>
+                                                                        Fixed &#8369;<?php echo e(number_format((float) $rental->penaltyValue, 2)); ?>
+
+                                                                    <?php else: ?>
+                                                                        &#8369;<?php echo e(number_format((float) $rental->penaltyValue, 2)); ?>
+
+                                                                        <?php echo e($rental->penaltyType === \App\Models\Rental::PENALTY_PER_MINUTE ? '/minute' : '/hour'); ?>
+
+                                                                    <?php endif; ?>
+                                                                </dd></div>
+                                                            <?php endif; ?>
+                                                            <?php if($rental->penaltyAccrued !== null): ?>
+                                                                <div class="rv-kv"><dt>Penalty Accrued</dt><dd>&#8369;<?php echo e(number_format((float) $rental->penaltyAccrued, 2)); ?></dd></div>
+                                                            <?php endif; ?>
+                                                            <?php if($rental->overdueReturnAt): ?>
+                                                                <div class="rv-kv"><dt>Overdue Return At</dt><dd><?php echo e($rental->overdueReturnAt->format('M d, Y h:i A')); ?></dd></div>
+                                                            <?php endif; ?>
+                                                            <div class="rv-kv"><dt>Duration</dt><dd><?php echo e($durLabel ?? '—'); ?></dd></div>
                                                             <div class="rv-kv"><dt>Created</dt><dd><?php echo e($rental->created_at->format('M d, Y h:i A')); ?></dd></div>
                                                         </dl>
                                                         <?php if($rental->notes): ?>
@@ -837,7 +898,7 @@
                                                                 <div class="user-avatar" style="width:32px;height:32px;font-size:12px;"><?php echo e(strtoupper(substr($rental->rider->name ?? 'U', 0, 1))); ?></div>
                                                                 <div style="min-width:0;">
                                                                     <div class="rv-rider__name"><?php echo e($rental->rider->name ?? 'Unknown'); ?></div>
-                                                                    <div class="rv-rider__email"><?php echo e($rental->rider->email ?? '&mdash;'); ?></div>
+                                                                    <div class="rv-rider__email"><?php echo e($rental->rider->email ?? '—'); ?></div>
                                                                 </div>
                                                             </div>
                                                             <div class="rv-party">
@@ -855,7 +916,7 @@
                                                             </div>
                                                             <div class="rv-tile">
                                                                 <div class="rv-tile__label">Duration</div>
-                                                                <div class="rv-tile__value"><?php echo e($durLabel ?? '&mdash;'); ?></div>
+                                                                <div class="rv-tile__value"><?php echo e($durLabel ?? '—'); ?></div>
                                                             </div>
                                                             <div class="rv-tile rv-tile--total">
                                                                 <div class="rv-tile__label">Total Fee</div>
@@ -1069,6 +1130,93 @@
         </div>
     </div>
 </div>
+
+
+<div class="rv-paid-modal" id="rvDeadlineModal">
+    <div class="rv-paid-modal__backdrop" data-rv-deadline-close></div>
+    <div class="rv-paid-modal__dialog" role="dialog" aria-modal="true" aria-label="Set return deadline">
+        <div class="rv-paid-modal__head">
+            <h3><i class="bi bi-calendar-plus"></i>Set Return Deadline</h3>
+            <button type="button" class="rv-paid-modal__close" data-rv-deadline-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="rv-paid-modal__body">
+            <p style="margin:0 0 14px;font-size:12.5px;color:var(--text-2);">
+                The rental period has ended. Grant the renter until this time to bring the bicycle back. The deadline, penalty rule, and message are saved and the renter is notified immediately.
+            </p>
+            <dl class="rv-paid-modal__list">
+                <div class="rv-paid-modal__kv rv-paid-modal__kv--wide">
+                    <dt>Rental ID</dt>
+                    <dd id="rvDlCode">&mdash;</dd>
+                </div>
+                <div class="rv-paid-modal__kv">
+                    <dt>Rider</dt>
+                    <dd id="rvDlRider">&mdash;</dd>
+                </div>
+                <div class="rv-paid-modal__kv">
+                    <dt>Bicycle</dt>
+                    <dd id="rvDlBike">&mdash;</dd>
+                </div>
+                <div class="rv-paid-modal__kv">
+                    <dt>Original Expiration</dt>
+                    <dd id="rvDlExpired">&mdash;</dd>
+                </div>
+                <div class="rv-paid-modal__kv">
+                    <dt>Current Status</dt>
+                    <dd id="rvDlStatus">&mdash;</dd>
+                </div>
+            </dl>
+
+            <div style="margin-top:14px;">
+                <label for="rvDlMinutes" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Allowed Return Time (minutes)</label>
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                    <input type="number" step="1" min="1" max="1440" id="rvDlMinutes" name="minutes" class="form-control" style="max-width:120px;" value="30" required>
+                    <?php $__currentLoopData = [10 => '10 min', 15 => '15 min', 30 => '30 min', 60 => '60 min']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $mins => $label): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                        <button type="button" class="btn-admin btn-admin--sm" style="padding:4px 10px;"
+                                data-rv-min-chip="<?php echo e($mins); ?>"><?php echo e($label); ?></button>
+                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                </div>
+                <div style="margin-top:6px;font-size:12px;color:var(--text-2);">
+                    Deadline: <strong id="rvDlPreview">&mdash;</strong> <span style="opacity:.75;">(approx. preview; exact deadline is set from the server time)</span>
+                </div>
+            </div>
+
+            <div class="row" style="margin-top:14px;">
+                <div class="col-sm-6">
+                    <label for="rvDlPenaltyType" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Penalty Type</label>
+                    <select id="rvDlPenaltyType" name="penaltyType" class="form-control form-select" style="max-width:100%;">
+                        <option value="per_minute" selected>Per Minute</option>
+                        <option value="per_hour">Per Hour</option>
+                        <option value="fixed">Fixed Amount</option>
+                    </select>
+                </div>
+                <div class="col-sm-6">
+                    <label for="rvDlPenaltyValue" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Penalty Rate (&#8369;)</label>
+                    <input type="number" step="0.01" min="0" id="rvDlPenaltyValue" name="penaltyValue" class="form-control" placeholder="e.g. 10.00" value="10.00" required>
+                    <div style="font-size:11.5px;color:var(--text-2);margin-top:3px;">Default &#8369;10.00 per overdue minute.</div>
+                </div>
+            </div>
+
+            <div style="margin-top:14px;">
+                <label for="rvDlMessage" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Message to Renter <span style="font-weight:400;color:var(--text-2);">(optional)</span></label>
+                <textarea id="rvDlMessage" name="message" class="form-control" rows="2" style="max-width:100%;" maxlength="500" placeholder="e.g. Please return the bicycle at the station before the deadline."></textarea>
+            </div>
+
+            <div class="rv-paid-modal__note">
+                <i class="bi bi-info-circle me-1"></i>The renter is notified with the exact deadline and penalty rule. If the bicycle is not returned before the deadline, the rental becomes Overdue Return and the penalty accrues until you confirm the return in the Returns module.
+            </div>
+        </div>
+        <div class="rv-paid-modal__foot">
+            <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-rv-deadline-close>Cancel</button>
+            <form id="rvDeadlineForm" action="#" method="POST" style="margin:0;">
+                <?php echo csrf_field(); ?>
+                <?php echo method_field('PUT'); ?>
+                <button type="submit" class="btn-admin btn-admin--success btn-admin--sm">
+                    <i class="bi bi-bell-fill me-1"></i>Set Deadline &amp; Notify Renter
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
 <?php $__env->stopSection(); ?>
 
 <?php $__env->startSection('scripts'); ?>
@@ -1245,6 +1393,86 @@
     });
 
     modal.querySelectorAll('[data-rv-paid-close]').forEach(function (node) {
+        node.addEventListener('click', closeModal);
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
+    });
+})();
+
+/* ==================== Set Return Deadline modal ==================== */
+(function () {
+    var modal = document.getElementById('rvDeadlineModal');
+    if (!modal) return;
+
+    var form = document.getElementById('rvDeadlineForm');
+    var minutesInput = document.getElementById('rvDlMinutes');
+
+    function fmtDeadline(date) {
+        var p = function (n) { return String(n).padStart(2, '0'); };
+        var h = date.getHours();
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12; if (h === 0) h = 12;
+        return (date.getMonth() + 1) + '/' + date.getDate() + '/' + date.getFullYear()
+            + ' ' + h + ':' + p(date.getMinutes()) + ' ' + ampm;
+    }
+
+    function updatePreview() {
+        var pr = document.getElementById('rvDlPreview');
+        if (!pr) return;
+        var mins = parseInt(minutesInput ? minutesInput.value : '', 10);
+        if (!mins || mins < 1) { pr.textContent = '—'; return; }
+        var d = new Date(Date.now() + mins * 60000);
+        pr.textContent = fmtDeadline(d);
+    }
+
+    function openModal(btn) {
+        if (form) form.action = "<?php echo e(route('admin.rentals.set-deadline', '__ID__')); ?>".replace('__ID__', btn.getAttribute('data-rental-id'));
+        var set = function (id, val) {
+            var node = document.getElementById(id);
+            if (node) node.textContent = val || '—';
+        };
+        set('rvDlCode', btn.getAttribute('data-rental-code') || ('#' + btn.getAttribute('data-rental-id')));
+        set('rvDlRider', btn.getAttribute('data-rider'));
+        set('rvDlBike', btn.getAttribute('data-bike'));
+        set('rvDlExpired', btn.getAttribute('data-expected-end') || btn.getAttribute('data-expired-at'));
+        var status = btn.getAttribute('data-status');
+        set('rvDlStatus', status ? status.replace(/_/g, ' ').replace(/\w\S*/g, function (t) { return t.charAt(0).toUpperCase() + t.substr(1).toLowerCase(); }) : '—');
+        if (minutesInput) minutesInput.value = 30;
+        var pt = btn.getAttribute('data-penalty-type');
+        if (pt) { var ptNode = document.getElementById('rvDlPenaltyType'); if (ptNode) ptNode.value = pt; }
+        var pv = btn.getAttribute('data-penalty-value');
+        var pvNode = document.getElementById('rvDlPenaltyValue');
+        if (pvNode) pvNode.value = (pv && pv !== '' && pv !== '0') ? pv : '10.00';
+        var msgNode = document.getElementById('rvDlMessage');
+        if (msgNode) msgNode.value = '';
+        if (minutesInput) {
+            minutesInput.removeEventListener('input', updatePreview);
+            minutesInput.addEventListener('input', updatePreview);
+        }
+        updatePreview();
+        modal.classList.add('open');
+    }
+
+    function closeModal() {
+        modal.classList.remove('open');
+    }
+
+    document.querySelectorAll('[data-rv-min-chip]').forEach(function (chip) {
+        chip.addEventListener('click', function () {
+            if (minutesInput) {
+                minutesInput.value = chip.getAttribute('data-rv-min-chip');
+                updatePreview();
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-deadline-open]').forEach(function (btn) {
+        btn.addEventListener('click', function () { openModal(btn); });
+    });
+
+    modal.querySelectorAll('[data-rv-deadline-close]').forEach(function (node) {
         node.addEventListener('click', closeModal);
     });
 

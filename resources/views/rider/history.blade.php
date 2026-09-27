@@ -3,6 +3,67 @@
 @section('title', 'My Rental History')
 
 @section('content')
+@if($activeRental && in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true))
+    @php
+        $penaltyRuleText = null;
+        if ($activeRental->penaltyType === 'per_hour') {
+            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' per hour late';
+        } elseif ($activeRental->penaltyType === 'per_minute') {
+            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' per minute late';
+        } elseif ($activeRental->penaltyType === 'fixed') {
+            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' fixed late fee';
+        } else {
+            $penaltyRuleText = '₱' . number_format($lateReturnPenaltyPerHour ?? 20, 2) . ' per hour late';
+        }
+    @endphp
+    <div class="card-pedalya mb-4" style="border-left:4px solid {{ $activeRental->status === 'overdue_return' ? '#C62828' : '#F57C00' }};">
+        <div class="card-pedalya-body">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="stat-icon" style="background:{{ $activeRental->status === 'overdue_return' ? '#FDEBEB' : '#FFF3E0' }};color:{{ $activeRental->status === 'overdue_return' ? '#C62828' : '#E65100' }};">
+                        <i class="bi {{ $activeRental->status === 'overdue_return' ? 'bi-exclamation-triangle' : 'bi-hourglass-split' }}"></i>
+                    </div>
+                    <div>
+                        <div class="fw-bold" style="color:{{ $activeRental->status === 'overdue_return' ? '#C62828' : '#E65100' }};">
+                            {{ $activeRental->status === 'overdue_return' ? 'Overdue Return' : 'Awaiting Return' }}
+                            &mdash; Bicycle <strong>{{ $activeRental->bicycle->serialNumber ?? 'N/A' }}</strong>
+                        </div>
+                        <div class="text-muted" style="font-size:0.85rem;">
+                            @if($activeRental->status === 'overdue_return')
+                                Deadline passed {{ $activeRental->returnDeadline?->format('M d, g:i A') }} &middot; {{ $penaltyRuleText }}
+                                @if($currentPenalty !== null)
+                                    &middot; Penalty so far: <strong>&#8369;{{ number_format($currentPenalty, 2) }}</strong>
+                                @endif
+                            @else
+                                Return by <strong>{{ $activeRental->returnDeadline?->format('M d, g:i A') ?? '—' }}</strong> (counts down below) &middot; {{ $penaltyRuleText }}
+                            @endif
+                        </div>
+                        @if($activeRental->status === 'overdue_return')
+                            <div style="margin-top:8px;background:#FDEBEB;border:1px solid #F5C6C6;border-radius:8px;padding:8px 12px;font-size:12.5px;max-width:420px;">
+                                <div class="d-flex justify-content-between"><span>Overdue Time</span><strong>{{ floor(($overdueMinutes ?? 0) / 60) }}h {{ ($overdueMinutes ?? 0) % 60 }}m</strong></div>
+                                <div class="d-flex justify-content-between"><span>Penalty Rate</span><strong>{{ $penaltyRuleText }}</strong></div>
+                                <div class="d-flex justify-content-between"><span>Current Penalty</span><strong style="color:#C62828;">&#8369;{{ number_format($currentPenalty ?? 0, 2) }}</strong></div>
+                                <div class="d-flex justify-content-between"><span>Original Rental Fee</span><strong>&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</strong></div>
+                                <div class="d-flex justify-content-between"><span>Total Amount Due</span><strong style="color:#C62828;">&#8369;{{ number_format(($activeRental->totalFee ?? 0) + ($currentPenalty ?? 0), 2) }}</strong></div>
+                            </div>
+                        @endif
+                        <div class="mt-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <strong id="hstCdDisp">--:--:--</strong>
+                                <span class="text-muted" style="font-size:0.8rem;">until {{ $activeRental->status === 'overdue_return' ? 'overdue' : 'return deadline' }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <form action="{{ route('rider.rentals.return', $activeRental->id) }}" method="POST">
+                    @csrf
+                    <button type="submit" class="btn btn-warning"><i class="bi bi-arrow-return-left me-1"></i>Return Bicycle Now</button>
+                </form>
+            </div>
+        </div>
+    </div>
+@endif
+
 <!-- Filters -->
 <div class="card-pedalya mb-4">
     <div class="card-pedalya-body">
@@ -179,6 +240,23 @@
 @endsection
 
 @section('scripts')
+@if($activeRental && in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true) && $activeRental->returnDeadline)
+<script>
+    (function() {
+        var endTime = new Date('{{ $activeRental->returnDeadline->toIso8601String() }}');
+        function tick() {
+            var disp = document.getElementById('hstCdDisp');
+            if (!disp) return;
+            var rem = Math.max(0, Math.floor((endTime.getTime() - Date.now()) / 1000));
+            var h = Math.floor(rem / 3600), m = Math.floor((rem % 3600) / 60), s = rem % 60;
+            var pad = function(n) { return String(n).padStart(2, '0'); };
+            disp.textContent = h + ':' + pad(m) + ':' + pad(s);
+        }
+        tick();
+        setInterval(tick, 1000);
+    })();
+</script>
+@endif
 <script>
     var rentalsData = {!! json_encode($rentals->map(fn($r) => [
         'id' => $r->id,
