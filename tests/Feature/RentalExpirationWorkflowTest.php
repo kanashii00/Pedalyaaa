@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use App\Models\Bicycle;
 use App\Models\Notification;
 use App\Models\Payment;
@@ -147,6 +148,116 @@ class RentalExpirationWorkflowTest extends TestCase
             ->assertSessionHasErrors('minutes');
 
         $this->assertSame(Rental::STATUS_EXPIRED, $rental->fresh()->status);
+    }
+
+    public function test_set_deadline_modal_submits_the_minutes_field_with_the_request(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle();
+
+        $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_EXPIRED,
+            'expiredAt' => now()->subHour(),
+            'expectedEndTime' => now()->subHour(),
+        ]);
+
+        // The minutes input (and the preset chips driving it) must live inside
+        // the deadline form; otherwise nothing is posted and the controller
+        // rejects the request with "Specify the allowed return time ...".
+        foreach ([
+            [route('admin.rentals.index'), 'rvDeadlineForm', 'rvDlMinutes'],
+            [route('admin.rentals.returns'), 'prDeadlineForm', 'prDlMinutes'],
+        ] as [$url, $formId, $inputId]) {
+            $html = $this->actingAs($admin)->get($url)->assertOk()->getContent();
+
+            $this->assertStringContainsString('id="' . $formId . '"', $html);
+            $this->assertStringContainsString('id="' . $inputId . '"', $html);
+            $this->assertStringContainsString('name="minutes"', $html);
+
+            $this->assertTrue(
+                $this->inputIsInsideForm($html, $inputId, $formId),
+                "Expected #{$inputId} to be nested inside #{$formId} on {$url}."
+            );
+        }
+    }
+
+    public function test_set_deadline_route_accepts_every_preset_minutes_value(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle();
+
+        foreach ([10, 15, 30, 60] as $minutes) {
+            $rental = $this->makeRental([
+                'riderId' => $rider->id,
+                'bicycleId' => $bike->id,
+                'status' => Rental::STATUS_EXPIRED,
+                'expiredAt' => now()->subHour(),
+                'expectedEndTime' => now()->subHour(),
+            ]);
+
+            $this->actingAs($admin)
+                ->from(route('admin.rentals.index'))
+                ->put(route('admin.rentals.set-deadline', $rental->id), [
+                    'minutes' => $minutes,
+                    'penaltyType' => Rental::PENALTY_PER_MINUTE,
+                    'penaltyValue' => 10.00,
+                ])
+                ->assertRedirect(route('admin.rentals.index'))
+                ->assertSessionDoesntHaveErrors();
+
+            $fresh = $rental->fresh();
+            $this->assertSame(Rental::STATUS_AWAITING_RETURN, $fresh->status);
+            // Deadline = server time + the submitted minutes.
+            $this->assertTrue(
+                $fresh->returnDeadline->between(now()->addMinutes($minutes - 1), now()->addMinutes($minutes + 1)),
+                "Expected a deadline about {$minutes} minutes out."
+            );
+            $this->assertDatabaseHas('audit_logs', [
+                'action' => 'rental_deadline_set',
+                'userId' => $admin->id,
+            ]);
+            $audit = AuditLog::where('action', 'rental_deadline_set')
+                ->orderByDesc('id')
+                ->first();
+            $this->assertSame($rental->rentalId, $audit->details['rentalId'] ?? null);
+            $this->assertSame($minutes, $audit->details['allowed_minutes'] ?? null);
+        }
+    }
+
+    /**
+     * True when the element carrying $inputId is a descendant of the <form>
+     * carrying $formId in the rendered HTML.
+     */
+    private function inputIsInsideForm(string $html, string $inputId, string $formId): bool
+    {
+        $doc = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $doc->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $xpath = new \DOMXPath($doc);
+
+        $inputs = $xpath->query("//*[@id='" . $inputId . "']");
+        $forms = $xpath->query("//form[@id='" . $formId . "']");
+
+        if ($inputs === false || $forms === false || $inputs->length === 0 || $forms->length === 0) {
+            return false;
+        }
+
+        $form = $forms->item(0);
+
+        for ($node = $inputs->item(0); $node !== null; $node = $node->parentNode) {
+            if ($node === $form) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function test_set_deadline_guard_rejects_non_eligible_statuses(): void

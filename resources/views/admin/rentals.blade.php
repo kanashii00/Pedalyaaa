@@ -1108,13 +1108,16 @@
 </div>
 
 {{-- ===== Set Return Deadline modal ===== --}}
-<div class="rv-paid-modal" id="rvDeadlineModal">
+<div class="rv-paid-modal" id="rvDeadlineModal" data-rv-server-now="{{ now()->toIso8601String() }}">
     <div class="rv-paid-modal__backdrop" data-rv-deadline-close></div>
     <div class="rv-paid-modal__dialog" role="dialog" aria-modal="true" aria-label="Set return deadline">
         <div class="rv-paid-modal__head">
             <h3><i class="bi bi-calendar-plus"></i>Set Return Deadline</h3>
             <button type="button" class="rv-paid-modal__close" data-rv-deadline-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
         </div>
+        <form method="POST" id="rvDeadlineForm" action="#">
+            @csrf
+            @method('PUT')
         <div class="rv-paid-modal__body">
             <p style="margin:0 0 14px;font-size:12.5px;color:var(--text-2);">
                 The rental period has ended. Grant the renter until this time to bring the bicycle back. The deadline, penalty rule, and message are saved and the renter is notified immediately.
@@ -1145,14 +1148,20 @@
             <div style="margin-top:14px;">
                 <label for="rvDlMinutes" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Allowed Return Time (minutes)</label>
                 <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                    <input type="number" step="1" min="1" max="1440" id="rvDlMinutes" name="minutes" class="form-control" style="max-width:120px;" value="30" required>
-                    @foreach([10 => '10 min', 15 => '15 min', 30 => '30 min', 60 => '60 min'] as $mins => $label)
+                    <input type="number" step="1" min="1" max="1440" id="rvDlMinutes" name="minutes"
+                           class="form-control @error('minutes') is-invalid @enderror" style="max-width:120px;"
+                           value="{{ old('minutes', 30) }}" required>
+                    @foreach([10, 15, 30, 60] as $preset)
                         <button type="button" class="btn-admin btn-admin--sm" style="padding:4px 10px;"
-                                data-rv-min-chip="{{ $mins }}">{{ $label }}</button>
+                                data-rv-min-chip="{{ $preset }}">{{ $preset }} min</button>
                     @endforeach
                 </div>
+                @error('minutes')
+                    <div class="invalid-feedback d-block" style="font-size:11.5px;">{{ $message }}</div>
+                @enderror
                 <div style="margin-top:6px;font-size:12px;color:var(--text-2);">
-                    Deadline: <strong id="rvDlPreview">&mdash;</strong> <span style="opacity:.75;">(approx. preview; exact deadline is set from the server time)</span>
+                    Deadline: <strong id="rvDlPreview">&mdash;</strong>
+                    <span style="opacity:.75;">(exact deadline is calculated from the current server time)</span>
                 </div>
             </div>
 
@@ -1183,14 +1192,11 @@
         </div>
         <div class="rv-paid-modal__foot">
             <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-rv-deadline-close>Cancel</button>
-            <form id="rvDeadlineForm" action="#" method="POST" style="margin:0;">
-                @csrf
-                @method('PUT')
-                <button type="submit" class="btn-admin btn-admin--success btn-admin--sm">
-                    <i class="bi bi-bell-fill me-1"></i>Set Deadline &amp; Notify Renter
-                </button>
-            </form>
+            <button type="submit" class="btn-admin btn-admin--success btn-admin--sm">
+                <i class="bi bi-bell-fill me-1"></i>Set Deadline &amp; Notify Renter
+            </button>
         </div>
+        </form>
     </div>
 </div>
 @endsection
@@ -1385,6 +1391,14 @@
     var form = document.getElementById('rvDeadlineForm');
     var minutesInput = document.getElementById('rvDlMinutes');
 
+    // Server clock at render time; the deadline is always server-computed, so
+    // the preview must start from the same base the controller will use.
+    var serverNowMs = (function () {
+        var raw = modal.getAttribute('data-rv-server-now');
+        var parsed = raw ? new Date(raw).getTime() : NaN;
+        return isNaN(parsed) ? Date.now() : parsed;
+    })();
+
     function fmtDeadline(date) {
         var p = function (n) { return String(n).padStart(2, '0'); };
         var h = date.getHours();
@@ -1394,12 +1408,30 @@
             + ' ' + h + ':' + p(date.getMinutes()) + ' ' + ampm;
     }
 
+    // Single source of truth for the minutes value: the field, the preset
+    // chips, the preview and the submitted payload all read it through here.
+    function readMinutes() {
+        if (!minutesInput) return null;
+        var raw = String(minutesInput.value || '').trim();
+        if (raw === '') return null;
+        var mins = parseInt(raw, 10);
+        if (isNaN(mins) || mins < 1) return null;
+        return mins;
+    }
+
+    function applyMinutes(mins) {
+        if (minutesInput) minutesInput.value = String(mins);
+        updatePreview();
+    }
+
     function updatePreview() {
         var pr = document.getElementById('rvDlPreview');
         if (!pr) return;
-        var mins = parseInt(minutesInput ? minutesInput.value : '', 10);
-        if (!mins || mins < 1) { pr.textContent = '—'; return; }
-        var d = new Date(Date.now() + mins * 60000);
+        var mins = readMinutes();
+        if (mins === null) { pr.textContent = '—'; return; }
+        // The controller floors the deadline to the minute, so mirror that.
+        var d = new Date(serverNowMs + mins * 60000);
+        d.setSeconds(0, 0);
         pr.textContent = fmtDeadline(d);
     }
 
@@ -1415,7 +1447,7 @@
         set('rvDlExpired', btn.getAttribute('data-expected-end') || btn.getAttribute('data-expired-at'));
         var status = btn.getAttribute('data-status');
         set('rvDlStatus', status ? status.replace(/_/g, ' ').replace(/\w\S*/g, function (t) { return t.charAt(0).toUpperCase() + t.substr(1).toLowerCase(); }) : '—');
-        if (minutesInput) minutesInput.value = 30;
+        applyMinutes(30);
         var pt = btn.getAttribute('data-penalty-type');
         if (pt) { var ptNode = document.getElementById('rvDlPenaltyType'); if (ptNode) ptNode.value = pt; }
         var pv = btn.getAttribute('data-penalty-value');
@@ -1423,11 +1455,6 @@
         if (pvNode) pvNode.value = (pv && pv !== '' && pv !== '0') ? pv : '10.00';
         var msgNode = document.getElementById('rvDlMessage');
         if (msgNode) msgNode.value = '';
-        if (minutesInput) {
-            minutesInput.removeEventListener('input', updatePreview);
-            minutesInput.addEventListener('input', updatePreview);
-        }
-        updatePreview();
         modal.classList.add('open');
     }
 
@@ -1435,14 +1462,28 @@
         modal.classList.remove('open');
     }
 
+    if (minutesInput) {
+        minutesInput.addEventListener('input', updatePreview);
+        minutesInput.addEventListener('change', function () {
+            var mins = readMinutes();
+            if (mins !== null && minutesInput.value !== String(mins)) applyMinutes(mins);
+        });
+    }
+
     document.querySelectorAll('[data-rv-min-chip]').forEach(function (chip) {
         chip.addEventListener('click', function () {
-            if (minutesInput) {
-                minutesInput.value = chip.getAttribute('data-rv-min-chip');
-                updatePreview();
-            }
+            applyMinutes(parseInt(chip.getAttribute('data-rv-min-chip'), 10));
         });
     });
+
+    if (form) {
+        form.addEventListener('submit', function () {
+            // Send the exact integer the preview was rendered from so the
+            // server computes the deadline from the same number.
+            var mins = readMinutes();
+            if (mins !== null) minutesInput.value = String(mins);
+        });
+    }
 
     document.querySelectorAll('[data-deadline-open]').forEach(function (btn) {
         btn.addEventListener('click', function () { openModal(btn); });
@@ -1455,6 +1496,8 @@
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
     });
+
+    updatePreview();
 })();
 </script>
 @endsection

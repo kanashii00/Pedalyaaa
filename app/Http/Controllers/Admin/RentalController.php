@@ -434,7 +434,16 @@ class RentalController extends Controller
             'message' => ['nullable', 'string', 'max:500'],
         ]);
 
-        if (empty($validated['minutes']) && empty($validated['deadline'])) {
+        // One normalised integer drives the presence check, the deadline math
+        // and the audit trail, so every layer sees the same number.
+        $minutes = isset($validated['minutes']) && $validated['minutes'] !== ''
+            ? (int) $validated['minutes']
+            : null;
+        $explicitDeadline = isset($validated['deadline']) && $validated['deadline'] !== ''
+            ? (string) $validated['deadline']
+            : null;
+
+        if (($minutes === null || $minutes < 1) && $explicitDeadline === null) {
             return back()->withErrors(['minutes' => 'Specify the allowed return time in minutes or an exact deadline.']);
         }
 
@@ -445,9 +454,9 @@ class RentalController extends Controller
 
         // Exact deadline always comes from the server clock: minutes are added
         // to server time; an explicit deadline is only honoured as a fallback.
-        $deadline = !empty($validated['minutes'])
-            ? now()->addMinutes((int) $validated['minutes'])
-            : Carbon::parse($validated['deadline']);
+        $deadline = $minutes !== null
+            ? now()->addMinutes($minutes)
+            : Carbon::parse($explicitDeadline);
 
         $previousDeadline = $rental->returnDeadline;
 
@@ -470,7 +479,7 @@ class RentalController extends Controller
                 'rentalId' => $rental->rentalId,
                 'deadline' => $deadline->toDateTimeString(),
                 'previous_deadline' => $previousDeadline?->toDateTimeString(),
-                'allowed_minutes' => $validated['minutes'] ?? null,
+                'allowed_minutes' => $minutes,
                 'penalty_type' => $penaltyType,
                 'penalty_value' => $penaltyValue,
                 'message' => $validated['message'] ?? null,

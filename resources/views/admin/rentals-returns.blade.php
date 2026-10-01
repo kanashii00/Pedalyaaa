@@ -1057,7 +1057,7 @@
 </div>
 
 {{-- ===== Set Return Deadline modal ===== --}}
-<div class="pr-modal" id="prDeadlineModal">
+<div class="pr-modal" id="prDeadlineModal" data-pr-server-now="{{ now()->toIso8601String() }}">
     <div class="pr-modal__backdrop" data-pr-deadline-close></div>
     <div class="pr-modal__dialog" role="dialog" aria-modal="true" aria-label="Set return deadline">
         <div class="pr-modal__head">
@@ -1079,14 +1079,19 @@
                 <div class="pr-form-field">
                     <label for="prDlMinutes">Allowed Return Time (minutes)</label>
                     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                        <input type="number" step="1" min="1" max="1440" name="minutes" id="prDlMinutes" style="max-width:120px;" value="30" required>
-                        <button type="button" class="btn-admin btn-admin--sm" data-pr-min-chip="10">10 min</button>
-                        <button type="button" class="btn-admin btn-admin--sm" data-pr-min-chip="15">15 min</button>
-                        <button type="button" class="btn-admin btn-admin--sm" data-pr-min-chip="30">30 min</button>
-                        <button type="button" class="btn-admin btn-admin--sm" data-pr-min-chip="60">60 min</button>
+                        <input type="number" step="1" min="1" max="1440" name="minutes" id="prDlMinutes"
+                               class="form-control @error('minutes') is-invalid @enderror" style="max-width:120px;"
+                               value="{{ old('minutes', 30) }}" required>
+                        @foreach([10, 15, 30, 60] as $preset)
+                            <button type="button" class="btn-admin btn-admin--sm" data-pr-min-chip="{{ $preset }}">{{ $preset }} min</button>
+                        @endforeach
                     </div>
+                    @error('minutes')
+                        <div class="invalid-feedback d-block">{{ $message }}</div>
+                    @enderror
                     <div style="margin-top:6px;font-size:12px;color:var(--text-2);">
-                        Deadline: <strong id="prDlPreview">&mdash;</strong> <span style="opacity:.75;">(approx. preview; exact deadline is set from the server time)</span>
+                        Deadline: <strong id="prDlPreview">&mdash;</strong>
+                        <span style="opacity:.75;">(exact deadline is calculated from the current server time)</span>
                     </div>
                 </div>
 
@@ -1346,13 +1351,50 @@ document.addEventListener('DOMContentLoaded', function () {
             const p = n => String(n).padStart(2, '0');
             return (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear() + ' ' + h + ':' + p(d.getMinutes()) + ' ' + ampm;
         };
+        // Server clock at render time; the deadline is always server-computed,
+        // so the preview must start from the same base the controller uses.
+        const dlServerNow = (() => {
+            const raw = dlModal.getAttribute('data-pr-server-now');
+            const parsed = raw ? new Date(raw).getTime() : NaN;
+            return isNaN(parsed) ? Date.now() : parsed;
+        })();
+        // Single source of truth for the minutes value: the field, the preset
+        // chips, the preview and the submitted payload all read it through here.
+        const dlReadMinutes = () => {
+            if (!dlMinutes) return null;
+            const raw = String(dlMinutes.value || '').trim();
+            if (raw === '') return null;
+            const mins = parseInt(raw, 10);
+            return isNaN(mins) || mins < 1 ? null : mins;
+        };
         const updatePreview = () => {
             const pr = document.getElementById('prDlPreview');
             if (!pr) return;
-            const mins = parseInt(dlMinutes ? dlMinutes.value : '', 10);
-            if (!mins || mins < 1) { pr.textContent = '—'; return; }
-            pr.textContent = fmtDl(new Date(Date.now() + mins * 60000));
+            const mins = dlReadMinutes();
+            if (mins === null) { pr.textContent = '—'; return; }
+            // The controller floors the deadline to the minute, so mirror that.
+            const d = new Date(dlServerNow + mins * 60000);
+            d.setSeconds(0, 0);
+            pr.textContent = fmtDl(d);
         };
+        const dlApplyMinutes = mins => { if (dlMinutes) dlMinutes.value = String(mins); updatePreview(); };
+
+        if (dlMinutes) {
+            dlMinutes.addEventListener('input', updatePreview);
+            dlMinutes.addEventListener('change', () => {
+                const mins = dlReadMinutes();
+                if (mins !== null && dlMinutes.value !== String(mins)) dlApplyMinutes(mins);
+            });
+        }
+
+        if (dlForm) {
+            dlForm.addEventListener('submit', () => {
+                // Send the exact integer the preview was rendered from so the
+                // server computes the deadline from the same number.
+                const mins = dlReadMinutes();
+                if (mins !== null) dlMinutes.value = String(mins);
+            });
+        }
 
         document.querySelectorAll('[data-return-deadline-open]').forEach(btn => {
             btn.addEventListener('click', function () {
@@ -1363,29 +1405,26 @@ document.addEventListener('DOMContentLoaded', function () {
                 dlSet('prDlExpired', this.dataset.expectedEnd || this.dataset.expiredAt);
                 const status = this.dataset.status;
                 dlSet('prDlStatus', status ? status.replace(/_/g, ' ').replace(/\w\S*/g, t => t.charAt(0).toUpperCase() + t.substr(1).toLowerCase()) : '');
-                if (dlMinutes) dlMinutes.value = 30;
+                dlApplyMinutes(30);
                 const pt = document.getElementById('prDlPenaltyType');
                 if (pt && this.dataset.penaltyType) pt.value = this.dataset.penaltyType;
                 const pv = document.getElementById('prDlPenaltyValue');
                 if (pv) pv.value = (this.dataset.penaltyValue && this.dataset.penaltyValue !== '0') ? this.dataset.penaltyValue : '10.00';
                 const msg = document.getElementById('prDlMessage');
                 if (msg) msg.value = '';
-                if (dlMinutes) {
-                    dlMinutes.removeEventListener('input', updatePreview);
-                    dlMinutes.addEventListener('input', updatePreview);
-                }
-                updatePreview();
                 dlModal.classList.add('open');
             });
         });
 
         document.querySelectorAll('[data-pr-min-chip]').forEach(chip => {
             chip.addEventListener('click', () => {
-                if (dlMinutes) { dlMinutes.value = chip.getAttribute('data-pr-min-chip'); updatePreview(); }
+                dlApplyMinutes(parseInt(chip.getAttribute('data-pr-min-chip'), 10));
             });
         });
 
         dlModal.querySelectorAll('[data-pr-deadline-close]').forEach(b => b.addEventListener('click', () => dlModal.classList.remove('open')));
+
+        updatePreview();
     }
 
     function closePrModal() { prModal.classList.remove('open'); }
