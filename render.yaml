@@ -1,50 +1,137 @@
+# Render blueprint for Pedalya.
+#
+# Render has no managed MySQL: Postgres and Key Value are the managed
+# datastores, and MySQL has to run as a private service on a persistent disk.
+# That is exactly what `pedalya-mysql` below is.
+#
+# Resources:
+#   pedalya-mysql      private MySQL 8 service + persistent disk
+#   pedalya            the Laravel web service (built from ./Dockerfile)
+#   pedalya-scheduler  the single process that drives routes/console.php
+#
+# No secret is written here. `generateValue` makes Render create one, `sync:
+# false` makes Render prompt for one, and DB_PASSWORD is read back off the
+# database service so the app cannot drift out of sync with MySQL.
+
 services:
+  - type: pserv
+    name: pedalya-mysql
+    runtime: image
+    image:
+      url: mysql:8
+    plan: 1c-2g
+    region: singapore
+    disk:
+      name: pedalya-mysql-data
+      mountPath: /var/lib/mysql
+      sizeGB: 10
+    envVars:
+      - key: MYSQL_DATABASE
+        value: pedalya
+      - key: MYSQL_USER
+        value: pedalya
+      - key: MYSQL_PASSWORD
+        generateValue: true
+      - key: MYSQL_ROOT_PASSWORD
+        generateValue: true
+      # Let the app's user reach MySQL from another container in the private
+      # network. Without this the official image only grants it localhost.
+      - key: MYSQL_ROOT_HOST
+        value: "%"
+
   - type: web
     name: pedalya
-    env: php
-    plan: free
-    buildCommand: composer install --no-dev --optimize-autoloader && php artisan migrate --force && php artisan config:cache && php artisan route:cache
-    startCommand: php artisan serve --host 0.0.0.0 --port 10000
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: 0.5c-512mb
+    region: singapore
+    healthCheckPath: /up
+    autoDeployTrigger: commit
     envVars:
-      - key: APP_KEY
-        value: base64:SkCUGqRvg4uFaBCxs3UtKTBz7XwZjMqNpLvHdEfRsT8=
+      - key: APP_NAME
+        value: Pedalya
       - key: APP_ENV
         value: production
       - key: APP_DEBUG
         value: "false"
+      - key: APP_TIMEZONE
+        value: Asia/Manila
+      - key: APP_KEY
+        generateValue: true
+      # The service's own https://<name>.onrender.com URL. OAuth callbacks and
+      # generated links are built from it, so a wrong value breaks sign-in.
       - key: APP_URL
-        fromService:
-          name: pedalya
-          property: host
+        sync: false
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: LOG_LEVEL
+        value: warning
+      # Everything is database-backed; this workspace has no Redis.
+      - key: SESSION_DRIVER
+        value: database
+      - key: CACHE_STORE
+        value: database
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: DB_CONNECTION
+        value: mysql
       - key: DB_HOST
         fromService:
-          name: mysql
+          name: pedalya-mysql
+          type: pserv
           property: host
-      - key: DB_USER
-        fromService:
-          name: mysql
-          property: username
+      - key: DB_PORT
+        value: "3306"
+      - key: DB_DATABASE
+        value: pedalya
+      - key: DB_USERNAME
+        value: pedalya
       - key: DB_PASSWORD
         fromService:
-          name: mysql
-          property: password
-      - key: DB_NAME
-        fromService:
-          name: mysql
-          property: database
-
-  - type: pserv
-    name: mysql
-    plan: free
-    ipAllowList: []
-    repo: https://github.com/render-examples/mysql
-    envVars:
-      - key: MYSQL_DATABASE
-        value: pedalya
-      - key: MYSQL_ROOT_PASSWORD
+          name: pedalya-mysql
+          type: pserv
+          envVarKey: MYSQL_PASSWORD
+      - key: DEVICE_API_KEY
         generateValue: true
 
-databases:
-  - name: pedalya_db
-    plan: free
-    region: oregon
+  # One process runs the whole schedule. The web service can be scaled to more
+  # instances, so a cron entry per command would run N times over; keeping a
+  # single schedule:run keeps each command's withoutOverlapping() lock honest.
+  - type: cron
+    name: pedalya-scheduler
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    schedule: "* * * * *"
+    plan: 0.5c-512mb
+    region: singapore
+    dockerCommand: php artisan schedule:run --no-interaction
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_TIMEZONE
+        value: Asia/Manila
+      - key: APP_KEY
+        fromService:
+          name: pedalya
+          type: web
+          envVarKey: APP_KEY
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        fromService:
+          name: pedalya-mysql
+          type: pserv
+          property: host
+      - key: DB_PORT
+        value: "3306"
+      - key: DB_DATABASE
+        value: pedalya
+      - key: DB_USERNAME
+        value: pedalya
+      - key: DB_PASSWORD
+        fromService:
+          name: pedalya-mysql
+          type: pserv
+          envVarKey: MYSQL_PASSWORD
