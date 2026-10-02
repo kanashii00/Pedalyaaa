@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: pedalya
+    env: php
+    plan: free
+    buildCommand: composer install --no-dev --optimize-autoloader && php artisan migrate --force && php artisan config:cache && php artisan route:cache
+    startCommand: php artisan serve --host 0.0.0.0 --port 10000
+    envVars:
+      - key: APP_KEY
+        value: base64:SkCUGqRvg4uFaBCxs3UtKTBz7XwZjMqNpLvHdEfRsT8=
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_URL
+        fromService:
+          name: pedalya
+          property: host
+      - key: DB_HOST
+        fromService:
+          name: mysql
+          property: host
+      - key: DB_USER
+        fromService:
+          name: mysql
+          property: username
+      - key: DB_PASSWORD
+        fromService:
+          name: mysql
+          property: password
+      - key: DB_NAME
+        fromService:
+          name: mysql
+          property: database
+
+  - type: pserv
+    name: mysql
+    plan: free
+    ipAllowList: []
+    repo: https://github.com/render-examples/mysql
+    envVars:
+      - key: MYSQL_DATABASE
+        value: pedalya
+      - key: MYSQL_ROOT_PASSWORD
+        generateValue: true
+
+databases:
+  - name: pedalya_db
+    plan: free
+    region: oregon
