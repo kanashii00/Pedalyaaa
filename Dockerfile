@@ -7,7 +7,7 @@
 
 FROM php:8.3-apache
 
-# Dependencies for the extensions Laravel 12 needs on a MySQL database.
+# Dependencies for Laravel and the SQLite demo database.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git \
@@ -15,6 +15,8 @@ RUN apt-get update \
         libpng-dev \
         libonig-dev \
         libxml2-dev \
+        libsqlite3-dev \
+        supervisor \
         unzip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" \
@@ -23,7 +25,8 @@ RUN apt-get update \
         intl \
         opcache \
         pcntl \
-        pdo_mysql \
+        pdo_sqlite \
+        sqlite3 \
         zip \
     && a2enmod rewrite \
     && rm -rf /var/lib/apt/lists/*
@@ -40,6 +43,8 @@ RUN composer install \
         --prefer-dist
 
 COPY . .
+COPY docker/entrypoint.sh /usr/local/bin/pedalya-entrypoint
+COPY docker/supervisord.conf /etc/supervisor/conf.d/pedalya.conf
 
 # .env is never part of the image: Render injects configuration as real
 # environment variables, and a committed file would both shadow them and ship
@@ -51,6 +56,7 @@ RUN rm -f .env
 # their contents are build artefacts and must not be baked into the image.
 RUN composer dump-autoload --optimize --no-dev \
     && php artisan storage:link \
+    && chmod +x /usr/local/bin/pedalya-entrypoint \
     && rm -f storage/logs/*.log storage/framework/cache/data/* \
         storage/framework/sessions/* storage/framework/views/* \
     && chown -R www-data:www-data storage bootstrap/cache \
@@ -80,4 +86,4 @@ ENV APP_ENV=production \
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "php artisan migrate --force --no-interaction && php artisan config:cache && php artisan route:cache && apache2-foreground"]
+CMD ["/usr/local/bin/pedalya-entrypoint"]
