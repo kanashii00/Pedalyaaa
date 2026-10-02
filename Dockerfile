@@ -53,10 +53,11 @@ COPY docker/supervisord.conf /etc/supervisor/conf.d/pedalya.conf
 # whatever secrets were left on a developer machine.
 RUN rm -f .env
 
-# storage/ and bootstrap/cache/ are the only paths Laravel writes to at
-# runtime. They are writable in the repo, so they are not discarded above, but
-# their contents are build artefacts and must not be baked into the image.
-RUN composer dump-autoload --optimize --no-dev \
+# Laravel needs these runtime paths to exist, even when they are empty in the
+# source tree. Their contents are build artefacts and must not be baked in.
+RUN mkdir -p storage/framework/cache/data storage/framework/sessions \
+        storage/framework/views bootstrap/cache \
+    && composer dump-autoload --optimize --no-dev \
     && php artisan storage:link \
     && chmod +x /usr/local/bin/pedalya-entrypoint \
     && rm -f storage/logs/*.log storage/framework/cache/data/* \
