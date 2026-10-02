@@ -28,10 +28,7 @@ RUN apt-get update \
         gd \
         intl \
         mbstring \
-        opcache \
-        pcntl \
         pdo_sqlite \
-        sqlite3 \
         zip \
     && a2enmod rewrite \
     && rm -rf /var/lib/apt/lists/*
