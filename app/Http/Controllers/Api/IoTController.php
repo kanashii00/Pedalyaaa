@@ -180,6 +180,16 @@ class IoTController extends Controller
             $request->user()
         );
 
+        // A bicycle that is not in service has no device to receive this, so
+        // saying "Command queued" would be a lie.
+        if ($deviceCommand === null) {
+            return response()->json([
+                'message' => 'This bicycle is not in service and has no controllable device.',
+                'bicycleId' => $bicycle->id,
+                'inService' => false,
+            ], 409);
+        }
+
         return response()->json([
             'message' => 'Command queued',
             'command' => $deviceCommand,

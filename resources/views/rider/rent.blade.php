@@ -1,4 +1,4 @@
-﻿@extends('layouts.rider')
+@extends('layouts.rider')
 
 @section('title', 'Rent Bicycle')
 
@@ -97,12 +97,56 @@
 </div>
 
 <!-- Bicycle Cards -->
-<h5 class="mb-3"><i class="bi bi-collection me-2"></i>Available Bicycles</h5>
+<h5 class="mb-3"><i class="bi bi-collection me-2"></i>Bicycles Near You</h5>
 <div class="row g-4">
     @forelse($bicycles as $index => $bicycle)
         @php
-            // An empty whitelist means no single-bike restriction is active.
-            $isSelectable = $selectableBicycleIds === [] || isset($selectableBicycleIds[$bicycle->id]);
+            // Three independent gates, and a card is only actionable when all
+            // three pass.
+            //
+            // 1. In service - the unit has controllable hardware. A bicycle
+            //    parked in the inventory has no smart lock, so it can never be
+            //    rented, whatever status it carries.
+            // 2. Live status - re-derived here rather than trusted from the query,
+            //    so a bicycle claimed between the query and this render cannot be
+            //    offered.
+            // 3. Whitelist - the single-bike feature flag.
+            //
+            // availabilityLabel() owns the wording so this card, the admin
+            // inventory and the JSON payload cannot disagree about the same row.
+            [$availabilityLabel, $availableForRent] = $bicycle->availabilityLabel();
+            $whitelisted = $selectableBicycleIds === [] || isset($selectableBicycleIds[$bicycle->id]);
+            $liveAvailable = $bicycle->status === \App\Models\Bicycle::STATUS_AVAILABLE;
+            $inService = $bicycle->isInService();
+            $isSelectable = $inService && $whitelisted && $liveAvailable && $availableForRent;
+
+            // The badge has to agree with the button. availabilityLabel() only
+            // knows about status, so the two gates it does not cover are folded
+            // in here - otherwise a bicycle withheld by the feature flag would be
+            // badged "Available" while offering nothing to click.
+            if ($isSelectable) {
+                $availabilityLabel = 'Available';
+            } elseif (! $inService) {
+                $availabilityLabel = 'Not In Service';
+            } elseif (! $whitelisted) {
+                $availabilityLabel = 'Unavailable';
+            }
+
+            // Rate and battery reach the client as JSON on a data attribute
+            // rather than being interpolated into an inline onclick(). A null
+            // column would render as an empty argument and break the whole
+            // script block, and an unquoted value would render NaN in the cost
+            // estimate.
+            $bikePayload = json_encode([
+                'id' => (int) $bicycle->id,
+                'name' => $bicycle->serialNumber . ' - ' . $bicycle->name,
+                // Coerced so a null column becomes a number the arithmetic in
+                // updateCost() can work with. The rate comes from the same
+                // accessor RentalService bills with, so the estimate shown here
+                // is the amount that actually gets charged.
+                'battery' => (int) ($bicycle->batteryLevel ?? 0),
+                'rate' => $bicycle->rentableHourlyRate(),
+            ], JSON_THROW_ON_ERROR);
         @endphp
         <div class="col-lg-4 col-md-6">
             <div class="bicycle-rental-card fade-in-up {{ $isSelectable ? '' : 'bicycle-card-unavailable' }}" style="animation-delay:{{ $index * 0.1 }}s;">
@@ -113,7 +157,7 @@
                         @if($isSelectable)
                             <span class="badge-status badge-available">Available</span>
                         @else
-                            <span class="badge-status badge-unavailable">Unavailable</span>
+                            <span class="badge-status badge-unavailable">{{ $availabilityLabel }}</span>
                         @endif
                     </div>
                     <p class="text-muted mb-2" style="font-size:0.85rem;">{{ $bicycle->model ?? '' }}</p>
@@ -126,19 +170,24 @@
                             @else
                                 <i class="bi bi-battery-half text-warning"></i>
                             @endif
-                            {{ $bicycle->batteryLevel }}%
+                            {{ (int) ($bicycle->batteryLevel ?? 0) }}%
                         </span>
-                        <span><strong>₱{{ number_format($bicycle->hourlyRate, 0) }}/hr</strong></span>
+                        <span><strong>₱{{ number_format($bicycle->rentableHourlyRate(), 0) }}/hr</strong></span>
                     </div>
                     @if($isSelectable)
                         <button type="button" class="btn btn-pedalya w-100 justify-content-center mt-3"
-                            onclick="selectBicycle('{{ $bicycle->id }}', '{{ $bicycle->serialNumber }} - {{ $bicycle->name }}', {{ $bicycle->batteryLevel }}, {{ $bicycle->hourlyRate }})">
+                            data-bike-payload="{{ $bikePayload }}"
+                            onclick="selectBicycle(this)">
                             <i class="bi bi-key-fill"></i> Select & Rent
                         </button>
                     @else
                         <button type="button" class="btn btn-secondary w-100 justify-content-center mt-3" disabled
                             aria-disabled="true">
-                            <i class="bi bi-slash-circle"></i> Unavailable
+                            <i class="bi bi-slash-circle"></i>
+                            {{ $availabilityLabel }}
+                            @unless($inService)
+                                <span class="visually-hidden">(this bicycle is not in service)</span>
+                            @endunless
                         </button>
                     @endif
                 </div>
@@ -288,13 +337,25 @@
 
 @section('scripts')
 <script>
+    // Rates come from the card's data attribute as a coerced number, so this can
+// never be null/undefined and every cost calculation below stays numeric.
     var currentRate = 25;
 
-    function selectBicycle(id, name, battery, rate) {
+    function selectBicycle(trigger) {
+        var payload;
+        try {
+            payload = JSON.parse(trigger.getAttribute('data-bike-payload'));
+        } catch (err) {
+            return;
+        }
+
+        var rate = parseFloat(payload.rate);
+        if (!isFinite(rate) || isNaN(rate)) rate = 0;
+
         currentRate = rate;
-        document.getElementById('selectedBicycleId').value = id;
-        document.getElementById('modalBikeName').textContent = name;
-        document.getElementById('modalBikeBattery').textContent = battery + '%';
+        document.getElementById('selectedBicycleId').value = payload.id;
+        document.getElementById('modalBikeName').textContent = payload.name;
+        document.getElementById('modalBikeBattery').textContent = payload.battery + '%';
         document.getElementById('modalBikeRate').textContent = '₱' + rate + '/hr';
         togglePaymentMethod('cash');
         updateCost();
@@ -316,18 +377,35 @@
         return Math.max(Math.ceil((parseInt(mins, 10) || 0) / 60), 1);
     }
 
+    // A single finite number, whatever the inputs held. Called from every place
+    // that produces money so a bad duration or rate can never reach the DOM as
+    // "NaN" or "Infinity".
+    function money(amount) {
+        var n = parseFloat(amount);
+        if (!isFinite(n) || isNaN(n)) n = 0;
+        return '₱' + n.toFixed(2);
+    }
+
     function setDuration(mins) {
         document.getElementById('durationMinutesInput').value = mins;
         updateCost();
     }
 
     function updateCost() {
-        var mins = parseInt(document.getElementById('durationMinutesInput').value, 10) || 0;
+        var raw = document.getElementById('durationMinutesInput').value;
+        var mins = parseInt(raw, 10);
+        if (isNaN(mins) || !isFinite(mins) || mins < 1) mins = 1;
+
         document.getElementById('durationDisplay').textContent = formatDuration(mins);
-        var total = chargedHours(mins) * currentRate;
+
+        var rate = parseFloat(currentRate);
+        if (!isFinite(rate) || isNaN(rate)) rate = 0;
+
+        var total = chargedHours(mins) * rate;
+
         document.getElementById('selectedDuration').value = mins;
-        document.getElementById('costDisplay').textContent = '₱' + total.toFixed(2);
-        document.getElementById('gcashAmountDisplay').textContent = '₱' + total.toFixed(2);
+        document.getElementById('costDisplay').textContent = money(total);
+        document.getElementById('gcashAmountDisplay').textContent = money(total);
     }
 
     function togglePaymentMethod(method) {
@@ -357,8 +435,12 @@
 
     function generateGcashQr() {
         var canvas = document.getElementById('gcashQrCanvas');
-        var amount = (chargedHours(document.getElementById('durationMinutesInput').value) * currentRate).toFixed(2);
-        var text = 'gcash://pay?amount=' + amount + '&note=BicycleRental';
+        var mins = parseInt(document.getElementById('durationMinutesInput').value, 10) || 1;
+        var rate = parseFloat(currentRate);
+        if (!isFinite(rate) || isNaN(rate)) rate = 0;
+        var total = chargedHours(mins) * rate;
+        if (!isFinite(total) || isNaN(total)) total = 0;
+        var text = 'gcash://pay?amount=' + total.toFixed(2) + '&note=BicycleRental';
         canvas.width = 180;
         canvas.height = 180;
         var ctx = canvas.getContext('2d');
@@ -421,12 +503,31 @@
         }
     }
 
+    // One rental per submission. The button is disabled on the way out and the
+    // form is flagged, so a double click (or a second Enter while the first
+    // request is still in flight) cannot start two rentals on one bicycle.
+    var rentalSubmitting = false;
+
     document.getElementById('rentalForm').addEventListener('submit', function(e) {
+        var form = e.target;
+
+        if (rentalSubmitting || form.dataset.submitting === '1') {
+            e.preventDefault();
+            return;
+        }
+
+        if (!document.getElementById('selectedBicycleId').value) {
+            e.preventDefault();
+            alert('Please select a bicycle first');
+            return;
+        }
+
         if (!document.getElementById('rentalTerms').checked) {
             e.preventDefault();
             alert('Please accept the terms and conditions');
             return;
         }
+
         var method = document.getElementById('selectedPaymentMethod').value;
         if (method === 'gcash') {
             var ref = document.getElementById('gcashRefInput').value.trim();
@@ -437,6 +538,10 @@
             }
             document.getElementById('selectedPaymentRef').value = ref;
         }
+
+        rentalSubmitting = true;
+        form.dataset.submitting = '1';
+
         var btn = document.getElementById('confirmRentBtn');
         btn.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div> Processing...';
         btn.disabled = true;
@@ -449,7 +554,23 @@
             el.innerHTML = '<div class="d-flex align-items-center justify-content-center h-100 bg-light"><small class="text-muted">Map loading...</small></div>';
             return;
         }
-        var bicycles = {!! json_encode($bicycles->filter(fn($b) => $b->currentLat && $b->currentLng)->map(fn($b) => ['id' => $b->id, 'lat' => (float) $b->currentLat, 'lng' => (float) $b->currentLng, 'name' => $b->serialNumber . ' ' . $b->name, 'battery' => $b->batteryLevel, 'rate' => (float) $b->hourlyRate])) !!};
+        // Only genuinely rentable bicycles reach the map: isRentable() is the same
+        // rule the cards and the server use, so a bicycle parked out of service
+        // can never get a pin a rider could click. Every field is coerced to a
+        // number so the popup and selectBicycle() cannot render NaN. Coordinates
+        // with a zero component are dropped rather than placed off the coast.
+        var bicycles = {!! json_encode($bicycles
+            ->filter(fn($b) => $b->isRentable()
+                && $b->currentLat !== null && $b->currentLng !== null
+                && (float) $b->currentLat !== 0.0 && (float) $b->currentLng !== 0.0)
+            ->map(fn($b) => [
+                'id' => (int) $b->id,
+                'lat' => (float) $b->currentLat,
+                'lng' => (float) $b->currentLng,
+                'name' => $b->serialNumber . ' ' . $b->name,
+                'battery' => (int) ($b->batteryLevel ?? 0),
+                'rate' => $b->rentableHourlyRate(),
+            ])) !!};
         var hasBikes = bicycles.length > 0;
         var map = new maplibregl.Map({
             container: el,
@@ -463,13 +584,27 @@
             var marker = new maplibregl.Marker({ color: '#2E7D32' })
                 .setLngLat([b.lng, b.lat])
                 .setPopup(new maplibregl.Popup({ offset: 25 }).setHTML(
-                    '<div style="padding:6px;font-family:Inter;"><strong>' + b.name + '</strong><br><span style="color:#2E7D32;">Available</span></div>'
+                    // Text is escaped: a serial or name is data, not markup.
+                    '<div style="padding:6px;font-family:Inter;"><strong>' + escapeHtml(b.name) + '</strong>'
+                    + '<br><span style="color:#2E7D32;">Available</span></div>'
                 ))
                 .addTo(map);
             marker.getElement().addEventListener('click', function() {
-                selectBicycle(b.id, b.name, b.battery, b.rate);
+                // Goes through the same payload path as the card button, so the
+                // modal and the cost estimate behave identically.
+                selectBicycle({
+                    getAttribute: function() {
+                        return JSON.stringify(b);
+                    }
+                });
             });
         });
+
+        function escapeHtml(value) {
+            return String(value === null || value === undefined ? '' : value)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
 
         var wrap = document.getElementById('rentMapWrap');
         var maxBtn = document.getElementById('rentMapMaximize');

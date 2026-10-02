@@ -15,6 +15,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class BicycleController extends Controller
 {
@@ -92,15 +93,23 @@ class BicycleController extends Controller
             'model' => $validated['model'] ?? 'Beach Cruiser',
             'description' => $validated['description'] ?? null,
             'hourlyRate' => $validated['hourlyRate'],
-            'status' => Bicycle::STATUS_AVAILABLE,
+            // A newly added unit is parked, not deployed: it has no smart lock
+            // fitted, so it starts out of service and cannot be rented until it
+            // is explicitly provisioned. `available` here would advertise it to
+            // riders with no way to unlock it.
+            'status' => Bicycle::STATUS_OUT_OF_SERVICE,
             'batteryLevel' => 100,
-            'lockStatus' => 'locked',
+            'lockStatus' => Bicycle::LOCK_LOCKED,
             'condition' => 'good',
             'qrCode' => $qrCode,
             'currentLat' => $validated['currentLat'] ?? null,
             'currentLng' => $validated['currentLng'] ?? null,
             'addedBy' => auth()->id(),
         ]);
+
+        // Explicit rather than inherited from the column default, so the intent
+        // survives if that default is ever changed.
+        $bicycle->sendOutOfService();
 
         AuditLog::record('bicycle_created', auth()->id(), ['bicycleId' => $bicycle->id]);
 
@@ -152,7 +161,7 @@ class BicycleController extends Controller
             'serialNumber' => ['sometimes', 'string', 'max:255', "unique:bicycles,serialNumber,{$bicycle->id}"],
             'model' => ['nullable', 'string', 'max:255'],
             'batteryLevel' => ['sometimes', 'integer', 'min:0', 'max:100'],
-            'status' => ['sometimes', 'string', 'in:available,rented,maintenance,removed'],
+            'status' => ['sometimes', Rule::in(Bicycle::STATUSES)],
             'hourlyRate' => ['sometimes', 'numeric', 'min:0'],
             'description' => ['nullable', 'string', 'max:1000'],
             'currentLat' => ['nullable', 'numeric'],
@@ -178,15 +187,26 @@ class BicycleController extends Controller
                     auth()->id(),
                 );
 
-                $validated['lockStatus'] = Bicycle::LOCK_LOCKED;
-
                 AuditLog::record('bicycle_maintenance_auto', auth()->id(), [
                     'bicycleId' => $bicycle->id,
                 ]);
             }
 
-            if ($newStatus === 'available' && $previousStatus === 'maintenance') {
-                $validated['lockStatus'] = Bicycle::LOCK_LOCKED;
+            // Only the in-service unit has a smart lock to secure on the way in,
+            // and only it returns to Available on the way out. A parked bicycle
+            // that has been repaired is still parked: no lock to hand out, so it
+            // stays out of service and keeps the lock state it is recorded in.
+            if ($bicycle->isInService()) {
+                if ($newStatus === 'maintenance') {
+                    $validated['lockStatus'] = Bicycle::LOCK_LOCKED;
+                }
+
+                if ($newStatus === 'available' && $previousStatus === 'maintenance') {
+                    $validated['lockStatus'] = Bicycle::LOCK_LOCKED;
+                }
+            } elseif ($newStatus === 'available' && $previousStatus === 'maintenance') {
+                $validated['status'] = Bicycle::STATUS_OUT_OF_SERVICE;
+                unset($validated['lockStatus']);
             }
         }
 
@@ -275,7 +295,22 @@ class BicycleController extends Controller
             return back()->withErrors(['bicycle' => 'Cannot change lock status while bicycle is rented or in maintenance.']);
         }
 
-        $this->iotService->sendCommand($bicycle->id, $validated['action'], [], auth()->user());
+        // A bicycle that is not in service has no servo or smart lock behind the
+        // dashboard control, so there is nothing to actuate. Say so instead of
+        // queueing a command that could never be acknowledged.
+        if (! $bicycle->isInService()) {
+            return back()->withErrors([
+                'bicycle' => "{$bicycle->serialNumber} is not in service and has no controllable lock.",
+            ]);
+        }
+
+        $command = $this->iotService->sendCommand($bicycle->id, $validated['action'], [], auth()->user());
+
+        if ($command === null) {
+            return back()->withErrors([
+                'bicycle' => "Could not queue the {$validated['action']} command for {$bicycle->serialNumber}.",
+            ]);
+        }
 
         AuditLog::record('bicycle_lock_'.$validated['action'], auth()->id(), [
             'bicycleId' => $bicycle->id,

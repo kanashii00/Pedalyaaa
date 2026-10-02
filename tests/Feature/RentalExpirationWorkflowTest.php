@@ -865,4 +865,64 @@ class RentalExpirationWorkflowTest extends TestCase
         $this->assertSame(1, Payment::where('rentalId', $rental->id)->count());
         $this->assertSame(1, Notification::where('userId', $rider->id)->where('type', 'rental_completed')->count());
     }
+
+    public function test_confirming_a_return_reports_the_state_the_bicycle_is_left_in(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
+
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_AWAITING_RETURN,
+            'startTime' => now()->subHours(2),
+            'returnRequestedAt' => now()->subMinutes(30),
+            'ratePerHour' => 15.00,
+            'paymentStatus' => 'pending',
+        ]);
+
+        // The confirmation is the one moment an admin looks at to decide whether
+        // the bicycle is back in the rentable fleet, so it must describe the
+        // settled row rather than the rented state the page was loaded in.
+        $this->actingAs($admin)
+            ->from(route('admin.rentals.returns'))
+            ->put(route('admin.rentals.process-return', $rental->id), [
+                'condition' => Rental::CONDITION_GOOD,
+            ])
+            ->assertSessionDoesntHaveErrors()
+            ->assertSessionHas('success', fn ($message) => str_contains($message, Bicycle::STATUS_AVAILABLE)
+                && ! str_contains($message, Bicycle::STATUS_RENTED));
+
+        $this->assertSame(
+            Bicycle::STATUS_AVAILABLE,
+            $bike->fresh()->status,
+            'the reported state has to match what the settlement actually did'
+        );
+    }
+
+    public function test_confirming_a_damaged_return_reports_maintenance(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
+
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_AWAITING_RETURN,
+            'startTime' => now()->subHours(2),
+            'returnRequestedAt' => now()->subMinutes(30),
+            'ratePerHour' => 15.00,
+            'paymentStatus' => 'pending',
+        ]);
+
+        $this->actingAs($admin)
+            ->from(route('admin.rentals.returns'))
+            ->put(route('admin.rentals.process-return', $rental->id), [
+                'condition' => Rental::CONDITION_DAMAGED,
+            ])
+            ->assertSessionDoesntHaveErrors()
+            ->assertSessionHas('success', fn ($message) => str_contains($message, Bicycle::STATUS_MAINTENANCE));
+    }
 }

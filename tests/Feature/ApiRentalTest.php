@@ -58,6 +58,87 @@ class ApiRentalTest extends TestCase
         $this->getJson('/api/rentals?status=active')->assertOk();
     }
 
+    public function test_index_filters_accept_every_rental_status(): void
+    {
+        $rider = $this->makeRider();
+        Sanctum::actingAs($rider);
+
+        foreach (Rental::STATUSES as $status) {
+            $this->getJson('/api/rentals?status=' . $status)
+                ->assertOk()
+                ->assertJsonPath('meta.per_page', 20);
+        }
+
+        // A status the enum does not have is still rejected.
+        $this->getJson('/api/rentals?status=not_a_status')->assertStatus(422);
+    }
+
+    public function test_return_is_idempotent_for_a_rental_already_awaiting_confirmation(): void
+    {
+        $rider = $this->makeRider();
+        Sanctum::actingAs($rider);
+
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_AWAITING_RETURN,
+            'returnRequestedAt' => now()->subMinutes(10),
+        ]);
+
+        // Second tap of the Return button. markRideEnded() would have rejected
+        // awaiting_return outright; the endpoint has to treat it as the no-op it
+        // is, and must not claim a return it did not just record.
+        $this->putJson("/api/rentals/{$rental->id}/return")
+            ->assertOk()
+            ->assertJsonPath('message', 'Return request already recorded and awaiting confirmation');
+
+        $this->assertSame(
+            Rental::STATUS_AWAITING_RETURN,
+            $rental->fresh()->status,
+            'the rental stays held until an administrator settles it'
+        );
+    }
+
+    public function test_return_exposes_the_settlement_detail(): void
+    {
+        $admin = $this->makeAdmin();
+        Sanctum::actingAs($admin, ['*']);
+
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_RETURNED,
+            'startTime' => now()->subHours(3),
+            'endTime' => now()->subHour(),
+            'returnDeadline' => now()->subHour(),
+            'overdueReturnAt' => now()->subHour(),
+            'penaltyType' => Rental::PENALTY_PER_HOUR,
+            'penaltyValue' => 20,
+            'penaltyAccrued' => 60,
+            'overdueFee' => 60,
+            'finalFee' => 135,
+            'isOverdue' => true,
+            'returnRequestedAt' => now()->subHour(),
+            'returnProcessedAt' => now(),
+            'returnCondition' => Rental::CONDITION_FAIR,
+            'returnInspectedBy' => $admin->name,
+        ]);
+
+        $this->getJson("/api/rentals/{$rental->id}")
+            ->assertOk()
+            // DECIMAL columns surface as strings, not floats.
+            ->assertJsonPath('data.finalFee', '135.00')
+            ->assertJsonPath('data.overdueFee', '60.00')
+            ->assertJsonPath('data.penaltyAccrued', '60.00')
+            ->assertJsonPath('data.penaltyType', Rental::PENALTY_PER_HOUR)
+            ->assertJsonPath('data.returnCondition', Rental::CONDITION_FAIR)
+            ->assertJsonPath('data.returnInspectedBy', $admin->name)
+            ->assertJsonPath('data.isOverdue', true);
+    }
+
     public function test_show_own_rental_succeeds(): void
     {
         $rider = $this->makeRider();
@@ -129,10 +210,13 @@ class ApiRentalTest extends TestCase
 
         $service = Mockery::mock(RentalService::class);
         $service->shouldReceive('synchronizeLifecycle')->andReturn(['expired' => 0, 'overdue_return' => 0]);
-        $service->shouldReceive('markRideEnded')
+        // The endpoint dispatches through returnRental(), which picks the right
+        // half of the two-phase return for the current status.
+        $service->shouldReceive('returnRental')
             ->once()
             ->andReturn([
-                'rental' => $rental->fresh()->load(['bicycle', 'rider']),
+                'rental'    => $rental->fresh()->load(['bicycle', 'rider']),
+                'requested' => true,
             ]);
         $this->app->instance(RentalService::class, $service);
 

@@ -24,7 +24,12 @@ class IoTService
         $this->deviceCommands = $deviceCommands;
     }
 
-    public function sendCommand(int $bicycleId, string $command, array $params, ?User $user = null): DeviceCommand
+    /**
+     * Queue a command for a bicycle's device, or null when the bicycle is not
+     * in service. See DeviceCommandService::sendCommand() for why that gate
+     * lives there.
+     */
+    public function sendCommand(int $bicycleId, string $command, array $params, ?User $user = null): ?DeviceCommand
     {
         return $this->deviceCommands->sendCommand($bicycleId, $command, $params, $user);
     }
@@ -67,7 +72,7 @@ class IoTService
 
     private function handleHeartbeatForBicycle(Bicycle $bicycle, array $data, Carbon $timestamp): void
     {
-        $bicycle->update($this->buildHeartbeatUpdateData($data, $timestamp));
+        $bicycle->update($this->buildHeartbeatUpdateData($bicycle, $data, $timestamp));
 
         DeviceStatus::create([
             'bicycleId' => $bicycle->id,
@@ -90,7 +95,7 @@ class IoTService
         }
     }
 
-    private function buildHeartbeatUpdateData(array $data, Carbon $timestamp): array
+    private function buildHeartbeatUpdateData(Bicycle $bicycle, array $data, Carbon $timestamp): array
     {
         $updateData = ['lastHeartbeat' => $timestamp];
 
@@ -104,7 +109,12 @@ class IoTService
             $updateData['batteryLevel'] = (int) max(0, min(100, (float) $battery));
         }
 
-        if (array_key_exists('locked', $data)) {
+        // Only a unit with hardware owns its lock state. A parked bicycle has no
+        // servo to move, so a heartbeat claiming "unlocked" (or locked) for it is
+        // noise from a device that should not be reporting at all, and must not
+        // overwrite the recorded physical position. Location and battery are still
+        // accepted - those are harmless even if stale.
+        if (array_key_exists('locked', $data) && $bicycle->isInService()) {
             $updateData['lockStatus'] = $data['locked']
                 ? Bicycle::LOCK_LOCKED
                 : Bicycle::LOCK_UNLOCKED;

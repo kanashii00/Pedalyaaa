@@ -630,6 +630,11 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 .btn-admin--lg { height: 42px; padding: 0 20px; font-size: 14px; }
 .btn-admin--block { width: 100%; justify-content: center; }
 .btn-admin:disabled { opacity: 0.55; cursor: not-allowed; }
+/* Submit lock: once a form is on its way out its controls are disabled, and a
+   slow pulse makes the in-flight state obvious instead of looking broken. */
+.btn-admin.is-loading { opacity: 0.7; cursor: progress; animation: btn-admin-pulse 1.1s ease-in-out infinite; }
+@keyframes btn-admin-pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) { .btn-admin.is-loading { animation: none; } }
 .btn-admin .spinner-border { width: 14px; height: 14px; border-width: 2px; }
 
 /* ============================================================
@@ -757,6 +762,32 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 .admin-table tbody tr.selected:hover { background: color-mix(in srgb, var(--brand-soft) 60%, var(--surface-2) 40%); }
 .admin-table .cell-title { font-weight: 600; color: var(--text-1); }
 .admin-table .cell-sub { font-size: 12px; color: var(--text-3); }
+
+/* Stacked cell: the primary value on top, its supporting facts underneath.
+   Used where a column needs several related lines (bicycle, renter, rental). */
+.cell-stack { display: flex; flex-direction: column; gap: 3px; line-height: 1.35; }
+.cell-stack .cell-sub { display: block; white-space: nowrap; }
+.cell-key { color: var(--brand); font-weight: 600; text-decoration: none; }
+a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand) 75%, var(--text-1) 25%); }
+
+/* Wide tables scroll horizontally inside their card instead of forcing the
+   page wide or squeezing the columns until the badges wrap and misalign. */
+.admin-table-scroll { width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+
+/* Inventory is an 11-column table; without a floor the browser compresses the
+   stacks until they wrap and every column drifts out of line. */
+.admin-table--inventory { min-width: 1570px; }
+.admin-table--inventory .col-name { width: 170px; }
+.admin-table--inventory .col-serial { width: 140px; }
+.admin-table--inventory .col-status { width: 120px; }
+.admin-table--inventory .col-renter { width: 170px; }
+.admin-table--inventory .col-rental { width: 230px; }
+.admin-table--inventory .col-battery { width: 110px; }
+.admin-table--inventory .col-lock { width: 100px; }
+.admin-table--inventory .col-condition { width: 110px; }
+.admin-table--inventory .col-rate { width: 100px; }
+.admin-table--inventory .col-updated { width: 130px; }
+.admin-table--inventory .col-actions { width: 190px; }
 
 /* Actions column: single horizontal row, centered, evenly spaced */
 .actions-row {
@@ -915,6 +946,8 @@ a.admin-pagination__item:hover { background: var(--surface-3); color: var(--text
 .admin-form .form-check-input:checked { background-color: var(--brand); border-color: var(--brand); }
 .admin-form .form-check-label { font-size: 13px; color: var(--text-2); }
 .admin-form .form-required { color: var(--danger); font-weight: 700; }
+/* Secondary explanatory copy under a field or above a form section. */
+.admin-form .form-hint { font-size: 12.5px; color: var(--text-3); margin-bottom: 12px; line-height: 1.5; }
 .admin-form .is-invalid { border-color: var(--danger) !important; }
 .admin-form .invalid-feedback { font-size: 12px; }
 

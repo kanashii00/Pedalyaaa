@@ -8,16 +8,19 @@ use App\Models\Notification;
 use App\Models\Rental;
 use App\Models\User;
 use App\Services\IoTService;
+use App\Services\MaintenanceService;
 use App\Services\NotificationService;
 use App\Services\RentalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Mockery;
+use Tests\Concerns\CreatesTestData;
 use Tests\TestCase;
 
 class RentalControllerGateTest extends TestCase
 {
+    use CreatesTestData;
     use RefreshDatabase;
 
     protected function tearDown(): void
@@ -49,7 +52,7 @@ class RentalControllerGateTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike A',
             'model' => 'City',
             'serialNumber' => 'BIKE-A',
@@ -90,9 +93,10 @@ class RentalControllerGateTest extends TestCase
             ->twice()
             ->andReturn(new DeviceCommand(), new DeviceCommand());
 
-        $rentalService = Mockery::mock(RentalService::class, [
+$rentalService = Mockery::mock(RentalService::class, [
             $this->app->make(NotificationService::class),
             $iotService,
+            $this->app->make(MaintenanceService::class),
         ])->makePartial();
         $rentalService->shouldIgnoreMissing();
 
@@ -138,7 +142,7 @@ class RentalControllerGateTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike B',
             'model' => 'City',
             'serialNumber' => 'BIKE-B',
@@ -179,9 +183,10 @@ class RentalControllerGateTest extends TestCase
             ->twice()
             ->andReturn(new DeviceCommand(), new DeviceCommand());
 
-        $rentalService = Mockery::mock(RentalService::class, [
+$rentalService = Mockery::mock(RentalService::class, [
             $this->app->make(NotificationService::class),
             $iotService,
+            $this->app->make(MaintenanceService::class),
         ])->makePartial();
         $rentalService->shouldIgnoreMissing();
 

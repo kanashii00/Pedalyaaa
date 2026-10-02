@@ -14,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class RentalController extends Controller
 {
@@ -42,7 +43,7 @@ class RentalController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $validated = $request->validate([
-            'status'     => 'nullable|string|in:active,pending,completed,cancelled,overdue',
+            'status'     => ['nullable', 'string', Rule::in(Rental::STATUSES)],
             'rider_id'   => 'nullable|integer|exists:users,id',
             'bicycle_id' => 'nullable|integer|exists:bicycles,id',
             'from'       => 'nullable|date',
@@ -159,17 +160,30 @@ public function store(Request $request): JsonResponse
     private function completeReturn(Rental $rental, User $user, array $validated): JsonResponse
     {
         try {
-            $result = $this->rentalService->markRideEnded(
+            // Dispatch through returnRental() rather than markRideEnded() directly:
+            // a rider who already asked to hand the bicycle back is in
+            // awaiting_return or overdue_return, and markRideEnded rejects those
+            // outright. returnRental() routes each status to the right half of the
+            // two-phase return, so a repeated request is an idempotent no-op here
+            // exactly as it is on the rider web route.
+            $result = $this->rentalService->returnRental(
                 $rental,
                 $user,
                 $validated['return_lat'] ?? null,
                 $validated['return_lng'] ?? null,
-                null,
+                $validated['payment_method'] ?? null,
+                $validated['payment_reference'] ?? null,
                 $validated['notes'] ?? null,
             );
 
+            // "requested" is false when the rider had already asked to hand the bicycle
+            // back, so say so rather than claiming a return was just recorded.
+            $message = ($result['requested'] ?? true) === false
+                ? 'Return request already recorded and awaiting confirmation'
+                : 'Bicycle returned and awaiting confirmation';
+
             return response()->json([
-                'message' => 'Bicycle returned and awaiting confirmation',
+                'message' => $message,
                 'rental'  => new RentalResource($result['rental']->load(['bicycle', 'rider'])),
             ]);
         } catch (RentalException $e) {

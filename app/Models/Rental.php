@@ -33,6 +33,28 @@ class Rental extends Model
      * still owes time on it. A rental outside this set is settled and must
      * never be presented as the bicycle's current, live rental.
      */
+    /**
+     * Every status a rental can hold.
+     *
+     * Filter validation reads from this so a status cannot be added to the enum
+     * and then be unfilterable through the API.
+     */
+    public const STATUSES = [
+        self::STATUS_ACTIVE,
+        self::STATUS_PENDING,
+        self::STATUS_AWAITING_RETURN,
+        self::STATUS_OVERDUE,
+        self::STATUS_EXPIRED,
+        self::STATUS_OVERDUE_RETURN,
+        self::STATUS_RETURNED,
+        self::STATUS_COMPLETED,
+        self::STATUS_CANCELLED,
+    ];
+
+    /**
+     * Statuses of a rental that has not been settled yet: the rider still owes
+     * the bicycle, whether or not they have asked to hand it back.
+     */
     public const LIVE_STATUSES = [
         self::STATUS_ACTIVE,
         self::STATUS_OVERDUE,
@@ -60,6 +82,20 @@ class Rental extends Model
     public const CONDITION_DAMAGED = 'damaged';
 
     public const CONDITION_NEEDS_MAINTENANCE = 'needs_maintenance';
+
+    /**
+     * The inspected conditions the Return / End Ride workflow can record.
+     *
+     * A settlement copies the inspected condition straight onto the bicycle row,
+     * so this doubles as the set of values `bicycles.condition` has to be able
+     * to store. See the condition-alignment migration for the details.
+     */
+    public const CONDITIONS = [
+        self::CONDITION_GOOD,
+        self::CONDITION_FAIR,
+        self::CONDITION_DAMAGED,
+        self::CONDITION_NEEDS_MAINTENANCE,
+    ];
 
     protected $table = 'rentals';
 

@@ -23,7 +23,11 @@ class RentController extends Controller
 
     public function index(): View
     {
-        $bicycles = $this->riderCacheService->availableBicycles();
+        // The whole listable fleet, not just the rentable slice: the page shows
+        // an explicit, disabled card for a bicycle that is out of service so the
+        // fleet a rider sees matches the fleet the admin manages. Which cards get
+        // an enabled button is decided per row by Bicycle::isRentable().
+        $bicycles = $this->riderCacheService->listedFleet();
 
         return view('rider.rent', [
             'bicycles' => $bicycles,
@@ -50,8 +54,8 @@ class RentController extends Controller
      * Whitelist of bicycle ids a rider may pick right now.
      *
      * An empty array means "no restriction", which is what the config returns
-     * when single-bike mode is off. The cached bicycle collection is never
-     * mutated, because availableBicycles() hands back shared cached models.
+     * when single-bike mode is off. This is a feature flag, not availability:
+     * it is intersected with the live bicycle status before a card is offered.
      */
     private function selectableBicycleIds(): array
     {
@@ -89,6 +93,35 @@ class RentController extends Controller
         if ($selectable !== [] && ! isset($selectable[(int) $request->bicycleId])) {
             return back()->withErrors([
                 'bicycleId' => 'That bicycle is not available for rent right now.',
+            ]);
+        }
+
+        // Re-read the bicycle and re-check its status at submit time. The card
+        // the rider clicked was rendered from whatever status held when the
+        // page loaded, and an administrator may have ended a ride (freeing the
+        // bicycle) or pulled it into maintenance since. startRental() also
+        // guards this, but failing here produces a field-level message instead
+        // of a generic 500-equivalent error page.
+        $bicycle = Bicycle::find($request->bicycleId);
+
+        if ($bicycle === null) {
+            return back()->withErrors([
+                'bicycleId' => 'That bicycle no longer exists.',
+            ]);
+        }
+
+        if ($bicycle->status !== Bicycle::STATUS_AVAILABLE) {
+            return back()->withErrors([
+                'bicycleId' => 'That bicycle is not available for rent right now. Please pick another bicycle.',
+            ]);
+        }
+
+        // The last line of defence, and the one the greyed-out cards cannot skip:
+        // a bicycle that is not in service has no lock to open, so it can never
+        // start a rental no matter how the request was crafted.
+        if (! $bicycle->isInService()) {
+            return back()->withErrors([
+                'bicycleId' => 'That bicycle is not in service and cannot be rented.',
             ]);
         }
 

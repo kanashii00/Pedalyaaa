@@ -9,16 +9,19 @@ use App\Models\Payment;
 use App\Models\Rental;
 use App\Models\User;
 use App\Services\IoTService;
+use App\Services\MaintenanceService;
 use App\Services\NotificationService;
 use App\Services\RentalService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Mockery;
+use Tests\Concerns\CreatesTestData;
 use Tests\TestCase;
 
 class RentalServiceTest extends TestCase
 {
+    use CreatesTestData;
     use RefreshDatabase;
 
     protected function tearDown(): void
@@ -40,7 +43,7 @@ class RentalServiceTest extends TestCase
             ->once()
             ->andReturn(new DeviceCommand());
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'Rider One',
@@ -53,7 +56,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike 1',
             'model' => 'City',
             'serialNumber' => 'BIKE-001',
@@ -83,7 +86,7 @@ class RentalServiceTest extends TestCase
         $iotService->shouldReceive('sendCommand')
             ->andReturn(new DeviceCommand());
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'Rider Two',
@@ -96,7 +99,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike 2',
             'model' => 'City',
             'serialNumber' => 'BIKE-002',
@@ -167,7 +170,7 @@ class RentalServiceTest extends TestCase
         $notificationService = Mockery::mock(NotificationService::class);
         $iotService = Mockery::mock(IoTService::class);
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'Unverified',
@@ -180,7 +183,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-UV-001',
@@ -202,7 +205,7 @@ class RentalServiceTest extends TestCase
         $notificationService = Mockery::mock(NotificationService::class);
         $iotService = Mockery::mock(IoTService::class);
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'Has Active',
@@ -215,7 +218,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-ACT-001',
@@ -252,7 +255,7 @@ class RentalServiceTest extends TestCase
         $notificationService = Mockery::mock(NotificationService::class);
         $iotService = Mockery::mock(IoTService::class);
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'User',
@@ -265,7 +268,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-UNA-001',
@@ -287,7 +290,7 @@ class RentalServiceTest extends TestCase
         $notificationService = Mockery::mock(NotificationService::class);
         $iotService = Mockery::mock(IoTService::class);
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'User',
@@ -300,7 +303,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-LOW-001',
@@ -325,7 +328,7 @@ class RentalServiceTest extends TestCase
         $iotService = Mockery::mock(IoTService::class);
         $iotService->shouldReceive('sendCommand')->zeroOrMoreTimes();
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'GCash User',
@@ -338,7 +341,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-GC-001',
@@ -368,7 +371,7 @@ class RentalServiceTest extends TestCase
 
         $iotService = Mockery::mock(IoTService::class);
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'Approve User',
@@ -390,7 +393,7 @@ class RentalServiceTest extends TestCase
             'verified' => true,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-APPR-001',
@@ -429,7 +432,7 @@ class RentalServiceTest extends TestCase
         $notificationService = Mockery::mock(NotificationService::class);
         $iotService = Mockery::mock(IoTService::class);
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'Rider',
@@ -451,7 +454,7 @@ class RentalServiceTest extends TestCase
             'verified' => true,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-APPR-002',
@@ -491,7 +494,7 @@ class RentalServiceTest extends TestCase
         $iotService = Mockery::mock(IoTService::class);
         $iotService->shouldReceive('sendCommand')->once()->andReturn(new DeviceCommand());
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'Cancel User',
@@ -504,7 +507,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-CANC-001',
@@ -545,7 +548,7 @@ class RentalServiceTest extends TestCase
         $notificationService = Mockery::mock(NotificationService::class);
         $iotService = Mockery::mock(IoTService::class);
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'User',
@@ -558,7 +561,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-CANC-002',
@@ -595,7 +598,7 @@ class RentalServiceTest extends TestCase
         $notificationService = Mockery::mock(NotificationService::class);
         $iotService = Mockery::mock(IoTService::class);
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'Overdue User',
@@ -608,7 +611,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-OVRD-001',
@@ -652,7 +655,7 @@ class RentalServiceTest extends TestCase
         $notificationService = Mockery::mock(NotificationService::class);
         $iotService = Mockery::mock(IoTService::class);
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $result = $service->calculateFees(
             now()->subHours(2)->toDateTimeString(),
@@ -673,7 +676,7 @@ class RentalServiceTest extends TestCase
         $notificationService = Mockery::mock(NotificationService::class);
         $iotService = Mockery::mock(IoTService::class);
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $result = $service->calculateFees(
             now()->subHour()->toDateTimeString(),
@@ -692,7 +695,7 @@ class RentalServiceTest extends TestCase
         $iotService = Mockery::mock(IoTService::class);
         $iotService->shouldReceive('sendCommand')->zeroOrMoreTimes()->andReturn(new DeviceCommand());
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'GCash Rider',
@@ -705,7 +708,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-PAY-001',
@@ -744,7 +747,7 @@ class RentalServiceTest extends TestCase
         $notificationService = Mockery::mock(NotificationService::class);
         $iotService = Mockery::mock(IoTService::class);
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'Settle User',
@@ -757,7 +760,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-STL-001',
@@ -797,7 +800,7 @@ class RentalServiceTest extends TestCase
         $iotService = Mockery::mock(IoTService::class);
         $iotService->shouldReceive('sendCommand')->andReturn(new DeviceCommand());
 
-        $service = new RentalService($notificationService, $iotService);
+        $service = new RentalService($notificationService, $iotService, app(MaintenanceService::class));
 
         $user = User::create([
             'name' => 'Overdue Return',
@@ -810,7 +813,7 @@ class RentalServiceTest extends TestCase
             'totalSpent' => 0,
         ]);
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Bike',
             'model' => 'City',
             'serialNumber' => 'BIKE-OVR-001',

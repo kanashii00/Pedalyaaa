@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class BicycleController extends Controller
 {
@@ -64,7 +65,7 @@ class BicycleController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $validated = $request->validate([
-            'status' => 'nullable|string|in:available,rented,maintenance,removed',
+            'status' => ['nullable', 'string', Rule::in(Bicycle::STATUSES)],
             'model' => 'nullable|string',
             'search' => 'nullable|string',
             'per_page' => 'nullable|integer|min:1|max:100',
@@ -181,7 +182,7 @@ class BicycleController extends Controller
             'currentLat' => 'nullable|numeric|between:-90,90',
             'currentLng' => 'nullable|numeric|between:-180,180',
             'batteryLevel' => 'nullable|numeric|between:0,100',
-            'status' => 'nullable|string|in:available,rented,maintenance,removed',
+            'status' => ['nullable', 'string', Rule::in(Bicycle::STATUSES)],
         ]);
 
         $bicycle->update($validated);

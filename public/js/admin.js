@@ -249,19 +249,48 @@
     if (confirmBackdrop) confirmBackdrop.addEventListener('click', closeConfirm);
   }
 
+  /* ---------- Duplicate-submit guard ----------
+     A confirmation dialog can be opened more than once, and a user can click
+     again while a request is still in flight. Both would post the same action
+     twice (double-ending a ride, double-charging a rental, ...), so every form
+     is locked the moment it is submitted and stays locked for the page. */
+  function lockFormForSubmit(form) {
+    if (!form || form.dataset.submitting === '1') return false;
+    form.dataset.submitting = '1';
+    form.querySelectorAll('button[type="submit"], input[type="submit"], button:not([type])').forEach((btn) => {
+      btn.disabled = true;
+      btn.classList.add('is-loading');
+    });
+    return true;
+  }
+  document.addEventListener('submit', (e) => lockFormForSubmit(e.target), true);
+
   /* Confirm on [data-confirm] links/buttons */
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-confirm]');
     if (!el) return;
+    // Already awaiting an answer for this control: ignore the extra click so a
+    // single gesture can never queue two confirmations.
+    if (el.dataset.confirmPending === '1') return;
     e.preventDefault();
     const form = el.closest('form');
+    el.dataset.confirmPending = '1';
     PedalyaConfirm({
       title: el.dataset.confirmTitle || 'Are you sure?',
       message: el.dataset.confirm || 'This action cannot be undone.',
       confirmText: el.dataset.confirmOk || 'Confirm',
       danger: el.dataset.confirmDanger !== 'false',
     }).then(ok => {
-      if (ok) { if (form) form.submit(); else window.location = el.href; }
+      delete el.dataset.confirmPending;
+      if (!ok) return;
+      if (form) {
+        // requestSubmit() (not form.submit()) so the capture-phase guard above
+        // still runs and native constraint validation still applies.
+        if (form.dataset.submitting === '1') return;
+        form.requestSubmit();
+      } else {
+        window.location = el.href;
+      }
     });
   });
 
@@ -279,6 +308,47 @@
     if (close) { const modal = close.closest('.admin-modal'); if (modal) modal.classList.remove('open'); }
     const drawer = e.target.closest('[data-drawer-close]');
     if (drawer) { const d = drawer.closest('.admin-drawer'); if (d) d.classList.remove('open'); }
+  });
+
+  /* ---------- Shared End Ride dialog ----------
+     Opener carries only the rental it acts on; the dialog itself lives once
+     per page. Pointing the form at the rental and filling in the context keeps
+     the markup out of every table row, and reusing one dialog means the action
+     is identical wherever it is offered. */
+  document.addEventListener('click', (e) => {
+    const opener = e.target.closest('[data-end-ride]');
+    if (!opener) return;
+    const modal = document.getElementById('endRideModal');
+    const form = document.getElementById('endRideForm');
+    if (!modal || !form) return;
+
+    const id = opener.dataset.rentalId;
+    if (!id) return;
+    if (!form.dataset.endRideUrlTemplate) {
+      form.dataset.endRideUrlTemplate = form.getAttribute('action') || '';
+    }
+
+    // Reset per-rental state so a second open never shows the previous note.
+    form.dataset.submitting = '';
+    form.removeAttribute('data-submitting');
+    form.querySelectorAll('button[type="submit"]').forEach((b) => {
+      b.disabled = false;
+      b.classList.remove('is-loading');
+    });
+    form.action = form.dataset.endRideUrlTemplate.replace(/__RENTAL_ID__/g, id);
+
+    const set = (elId, value) => { const node = document.getElementById(elId); if (node) node.textContent = value || ''; };
+    set('endRideCode', opener.dataset.rentalCode);
+    set('endRideBike', opener.dataset.bike);
+    set('endRideRider', opener.dataset.rider);
+
+    const condition = document.getElementById('endRideCondition');
+    if (condition) condition.value = 'good';
+    const note = document.getElementById('endRideNote');
+    if (note) note.value = '';
+
+    modal.classList.add('open');
+    if (condition) setTimeout(() => condition.focus(), 40);
   });
 
   /* ---------- Tabs ---------- */

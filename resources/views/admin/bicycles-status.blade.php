@@ -27,6 +27,9 @@
         <x-admin.kpi title="Maintenance" :value="$summary['maintenance']" icon="bi-tools" color="var(--warning)" />
     </div>
     <div class="col-6 col-lg-3">
+        <x-admin.kpi title="Out of Service" :value="$summary['out_of_service']" icon="bi-pause-circle" color="var(--text-3)" />
+    </div>
+    <div class="col-6 col-lg-3">
         <x-admin.kpi title="Locked" :value="$summary['locked']" icon="bi-lock-fill" color="var(--danger)" />
     </div>
     <div class="col-6 col-lg-3">
@@ -53,6 +56,7 @@
                 <option value="available" {{ request('status') === 'available' ? 'selected' : '' }}>Available</option>
                 <option value="rented" {{ request('status') === 'rented' ? 'selected' : '' }}>Rented</option>
                 <option value="maintenance" {{ request('status') === 'maintenance' ? 'selected' : '' }}>Maintenance</option>
+                <option value="{{ \App\Models\Bicycle::STATUS_OUT_OF_SERVICE }}" {{ request('status') === \App\Models\Bicycle::STATUS_OUT_OF_SERVICE ? 'selected' : '' }}>Out of Service</option>
             </select>
             <select name="lock" class="form-select form-select-sm">
                 <option value="">All Locks</option>

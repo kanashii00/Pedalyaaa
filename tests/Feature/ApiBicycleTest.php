@@ -49,6 +49,50 @@ class ApiBicycleTest extends TestCase
         $this->getJson('/api/bicycles?model=City&search=x&per_page=5')->assertOk();
     }
 
+    public function test_index_filter_accepts_every_bicycle_status(): void
+    {
+        $rider = $this->makeRider();
+        Sanctum::actingAs($rider);
+
+        $parked = $this->makeOutOfServiceBicycle([
+            'serialNumber' => 'PDY-002',
+            'status' => Bicycle::STATUS_OUT_OF_SERVICE,
+        ]);
+
+        // out_of_service has to be filterable, otherwise an API client cannot ask
+        // the question "which units are parked" at all.
+        $this->getJson('/api/bicycles?status=' . Bicycle::STATUS_OUT_OF_SERVICE)
+            ->assertOk()
+            ->assertJsonPath('data.0.serialNumber', $parked->serialNumber);
+
+        // `locked` is a lock position, not an operational state.
+        $this->getJson('/api/bicycles?status=locked')->assertStatus(422);
+    }
+
+    public function test_the_resource_reports_whether_a_bicycle_is_in_the_rentable_fleet(): void
+    {
+        $rider = $this->makeRider();
+        Sanctum::actingAs($rider);
+
+        $deployed = $this->makeBicycle(['serialNumber' => 'PDY-001', 'status' => Bicycle::STATUS_AVAILABLE]);
+        $parked = $this->makeOutOfServiceBicycle([
+            'serialNumber' => 'PDY-002',
+            'status' => Bicycle::STATUS_OUT_OF_SERVICE,
+        ]);
+
+        $this->getJson("/api/bicycles/{$deployed->id}")
+            ->assertOk()
+            ->assertJsonPath('data.iotEnabled', true)
+            ->assertJsonPath('data.inService', true)
+            ->assertJsonPath('data.rentable', true);
+
+        $this->getJson("/api/bicycles/{$parked->id}")
+            ->assertOk()
+            ->assertJsonPath('data.iotEnabled', false)
+            ->assertJsonPath('data.inService', false)
+            ->assertJsonPath('data.rentable', false);
+    }
+
     public function test_show_found_and_not_found(): void
     {
         $rider = $this->makeRider();

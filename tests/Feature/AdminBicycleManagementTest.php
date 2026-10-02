@@ -50,7 +50,19 @@ class AdminBicycleManagementTest extends TestCase
             ])
             ->assertRedirect(route('admin.bicycles.index'));
 
-        $this->assertDatabaseHas('bicycles', ['name' => 'New Bike', 'status' => Bicycle::STATUS_AVAILABLE]);
+        // A bicycle added to the inventory is parked, not deployed: it has no
+        // smart lock fitted, so it must come in out of service and must never
+        // be rentable until it is explicitly provisioned.
+        $this->assertDatabaseHas('bicycles', [
+            'name' => 'New Bike',
+            'status' => Bicycle::STATUS_OUT_OF_SERVICE,
+            'iotEnabled' => false,
+        ]);
+
+        $created = Bicycle::where('name', 'New Bike')->firstOrFail();
+
+        $this->assertFalse($created->isInService(), 'a newly added bicycle is not in service');
+        $this->assertFalse($created->isRentable(), 'a newly added bicycle is not rentable');
         $this->assertDatabaseHas('audit_logs', ['action' => 'bicycle_created']);
     }
 

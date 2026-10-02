@@ -3,8 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\Bicycle;
+use App\Models\MaintenanceRecord;
+use App\Models\Payment;
 use App\Models\Rental;
 use App\Models\User;
+use App\Services\MaintenanceService;
 use App\Services\RentalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\CreatesTestData;
@@ -23,6 +26,11 @@ class RentalInventoryLifecycleTest extends TestCase
     use CreatesTestData;
 
     private const SERIAL = 'PDY-042';
+
+    private function maintenanceService(): MaintenanceService
+    {
+        return app(MaintenanceService::class);
+    }
 
     public function test_inventory_surfaces_the_full_live_rental_state(): void
     {
@@ -86,19 +94,83 @@ class RentalInventoryLifecycleTest extends TestCase
 
         $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->getContent();
 
+        // The opener targets the rental by id; the URL itself lives once in the
+        // shared dialog, so an active rental must appear as an opener.
         $this->assertStringContainsString(
-            route('admin.rentals.end-ride', $rental->id),
+            'data-end-ride',
             $html,
             'an in-progress rental offers End Ride'
         );
+        $this->assertStringContainsString(
+            'data-rental-id="' . $rental->id . '"',
+            $html,
+            'the End Ride opener names the rental it acts on'
+        );
         $this->assertStringNotContainsString(
-            route('admin.rentals.process-return', $rental->id),
+            'data-modal-close>Return',
             $html,
             'Return Bicycle is withheld until the ride has ended'
         );
     }
 
-    public function test_returning_a_bicycle_restores_the_inventory_row(): void
+    public function test_inventory_offers_no_view_rental_affordance(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle([
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'serialNumber' => self::SERIAL,
+        ]);
+
+        // A live rental is the worst case: it is what used to add the button and
+        // the dropdown item.
+        app(RentalService::class)->startRental($rider, $bicycle->id, 60, 'cash');
+
+        $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->getContent();
+
+        $this->assertStringNotContainsString(
+            'View Rental',
+            $html,
+            'the inventory no longer offers a View Rental button or dropdown item'
+        );
+    }
+
+    public function test_inventory_row_dialogs_are_rendered_outside_the_table(): void
+    {
+        $admin = $this->makeAdmin();
+        $bicycle = $this->makeBicycle([
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'serialNumber' => self::SERIAL,
+        ]);
+
+        $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->getContent();
+
+        // Browsers foster-parent non-table content written inside <tbody>, which
+        // silently drops the dialogs out of the row layout.
+        $tbodyStart = strpos($html, '<tbody>');
+        $tbodyEnd = strpos($html, '</tbody>');
+        $this->assertIsInt($tbodyStart, 'the inventory renders a table body');
+        $this->assertIsInt($tbodyEnd);
+
+        $body = substr($html, $tbodyStart, $tbodyEnd - $tbodyStart);
+        $this->assertStringNotContainsString(
+            'admin-modal',
+            $body,
+            'no dialog markup may live inside the table body'
+        );
+        $this->assertStringContainsString(
+            'id="endRideModal"',
+            $html,
+            'the End Ride dialog is still rendered on the page'
+        );
+        $this->assertStringContainsString(
+            'name="condition"',
+            $html,
+            'End Ride requires the inspected condition'
+        );
+    }
+
+    public function test_ending_a_ride_restores_the_inventory_row_in_one_step(): void
     {
         $admin = $this->makeAdmin();
         $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
@@ -108,27 +180,27 @@ class RentalInventoryLifecycleTest extends TestCase
         ]);
 
         $rental = app(RentalService::class)->startRental($rider, $bicycle->id, 60, 'cash');
+
         $this->actingAs($admin)
             ->from(route('admin.bicycles.index'))
-            ->put(route('admin.rentals.end-ride', $rental->id))
+            ->put(route('admin.rentals.end-ride', $rental->id), [
+                'condition' => Rental::CONDITION_GOOD,
+                'note' => 'Returned in good shape.',
+            ])
             ->assertSessionHasNoErrors();
-
-        $rental->refresh();
-        $this->assertContains(
-            $rental->status,
-            [Rental::STATUS_EXPIRED, Rental::STATUS_AWAITING_RETURN, Rental::STATUS_OVERDUE_RETURN],
-            'ending the ride must move the rental into the return workflow'
-        );
-
-        $this->actingAs($admin)->put(route('admin.rentals.process-return', $rental->id), [
-            'condition' => Rental::CONDITION_GOOD,
-            'note' => 'Returned in good shape.',
-        ]);
 
         $after = $bicycle->fresh();
         $rental->refresh();
 
-        $this->assertSame(Rental::STATUS_RETURNED, $rental->status);
+        $this->assertSame(Rental::STATUS_RETURNED, $rental->status, 'End Ride settles the rental outright');
+        $this->assertSame(
+            Rental::CONDITION_GOOD,
+            $rental->returnCondition,
+            'the inspected condition is recorded on the rental'
+        );
+        $this->assertSame('Returned in good shape.', $rental->returnNote);
+        $this->assertNotNull($rental->returnProcessedAt, 'the settlement is timestamped');
+        $this->assertSame('paid', $rental->paymentStatus, 'the final fee is settled on the spot');
         $this->assertSame(Bicycle::STATUS_AVAILABLE, $after->status, 'a good return frees the bicycle');
         $this->assertNull($after->currentRider, 'the renter pointer is cleared on return');
         $this->assertNull($after->currentRentalId, 'the rental pointer is cleared on return');
@@ -136,9 +208,14 @@ class RentalInventoryLifecycleTest extends TestCase
 
         $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->getContent();
         $this->assertStringNotContainsString('View Rental', $html, 'a freed bicycle drops its rental actions');
+        $this->assertStringNotContainsString(
+            'data-rental-id="' . $rental->id . '"',
+            $html,
+            'a settled rental is no longer offered an End Ride'
+        );
     }
 
-    public function test_returning_a_damaged_bicycle_routes_it_to_maintenance(): void
+    public function test_ending_a_ride_routes_a_damaged_bicycle_to_maintenance(): void
     {
         $admin = $this->makeAdmin();
         $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
@@ -148,15 +225,14 @@ class RentalInventoryLifecycleTest extends TestCase
         ]);
 
         $rental = app(RentalService::class)->startRental($rider, $bicycle->id, 60, 'cash');
+
         $this->actingAs($admin)
             ->from(route('admin.bicycles.index'))
-            ->put(route('admin.rentals.end-ride', $rental->id))
+            ->put(route('admin.rentals.end-ride', $rental->id), [
+                'condition' => Rental::CONDITION_DAMAGED,
+                'note' => 'Rear wheel is bent.',
+            ])
             ->assertSessionHasNoErrors();
-
-        $this->actingAs($admin)->put(route('admin.rentals.process-return', $rental->id), [
-            'condition' => Rental::CONDITION_DAMAGED,
-            'note' => 'Rear wheel is bent.',
-        ]);
 
         $after = $bicycle->fresh();
 
@@ -167,6 +243,239 @@ class RentalInventoryLifecycleTest extends TestCase
         );
         $this->assertNull($after->currentRider);
         $this->assertNull($after->currentRentalId);
+
+        // A status change on its own is a dead end: nothing appears in the
+        // Maintenance module and the bicycle can be released again with no work
+        // ever having been tracked.
+        $record = MaintenanceRecord::where('bicycleId', $bicycle->id)
+            ->whereIn('status', [MaintenanceRecord::STATUS_SCHEDULED, MaintenanceRecord::STATUS_IN_PROGRESS])
+            ->latest()
+            ->first();
+
+        $this->assertNotNull($record, 'the inspection opens a work order');
+        $this->assertStringContainsString($rental->rentalId, $record->description);
+        $this->assertStringContainsString(Rental::CONDITION_DAMAGED, $record->description);
+        $this->assertSame(
+            $admin->id,
+            $record->createdBy,
+            'the work order is attributed to the administrator who inspected it'
+        );
+        $this->assertFalse(
+            $this->maintenanceService()->canReleaseBicycle($after),
+            'the bicycle stays held until the maintenance is completed'
+        );
+    }
+
+    public function test_a_settled_rental_cannot_be_ended_twice(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle([
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'serialNumber' => self::SERIAL,
+        ]);
+
+        $rental = app(RentalService::class)->startRental($rider, $bicycle->id, 60, 'cash');
+
+        $this->actingAs($admin)
+            ->from(route('admin.bicycles.index'))
+            ->put(route('admin.rentals.end-ride', $rental->id), ['condition' => Rental::CONDITION_GOOD])
+            ->assertSessionHasNoErrors();
+
+        $afterFirst = $rental->fresh();
+        $spendAfterFirst = $rider->fresh()->totalSpent;
+        $paymentsAfterFirst = Payment::where('rental_id', $rental->id)->count();
+
+        // A second click on an already-settled rental must be refused outright.
+        $this->actingAs($admin)
+            ->from(route('admin.bicycles.index'))
+            ->put(route('admin.rentals.end-ride', $rental->id), ['condition' => Rental::CONDITION_GOOD])
+            ->assertSessionHasErrors('rental');
+
+        $this->assertSame(
+            $afterFirst->totalFee,
+            $rental->fresh()->totalFee,
+            'the final fee must not be recalculated'
+        );
+        $this->assertSame(
+            $spendAfterFirst,
+            $rider->fresh()->totalSpent,
+            'the rider is not charged twice'
+        );
+        $this->assertSame(
+            $paymentsAfterFirst,
+            Payment::where('rental_id', $rental->id)->count(),
+            'no duplicate payment is recorded'
+        );
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'rental_ended_by_admin',
+            'details' => json_encode(['rentalId' => $rental->id, 'fee' => $afterFirst->totalFee]),
+        ]);
+    }
+
+    public function test_ending_a_ride_settles_the_final_fee_and_moves_it_to_history(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle([
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'serialNumber' => self::SERIAL,
+        ]);
+
+        $rental = app(RentalService::class)->startRental($rider, $bicycle->id, 60, 'cash');
+
+        $this->actingAs($admin)
+            ->from(route('admin.bicycles.index'))
+            ->put(route('admin.rentals.end-ride', $rental->id), ['condition' => Rental::CONDITION_GOOD])
+            ->assertSessionHasNoErrors();
+
+        $settled = $rental->fresh();
+
+        $this->assertSame(Rental::STATUS_RETURNED, $settled->status);
+        $this->assertGreaterThan(0, (float) $settled->totalFee, 'the final fee is recorded');
+        $this->assertSame((float) $settled->totalFee, (float) $settled->finalFee);
+        $this->assertNotNull($settled->paidAt);
+
+        // The settled rental must no longer sit in the active queue, and it must
+        // show up in history instead. Scope the check to the table because the
+        // success flash legitimately names the rental it just settled.
+        $active = $this->actingAs($admin)
+            ->get(route('admin.rentals.index', ['status' => 'active']))
+            ->getContent();
+        $tableStart = strpos($active, '<tbody');
+        $tableEnd = strpos($active, '</tbody>');
+        $this->assertIsInt($tableStart, 'the active queue renders a table body');
+        $this->assertIsInt($tableEnd);
+        $this->assertStringNotContainsString(
+            $rental->rentalId,
+            substr($active, $tableStart, $tableEnd - $tableStart),
+            'a settled rental leaves the active queue'
+        );
+
+        $history = $this->actingAs($admin)
+            ->get(route('admin.rentals.history'))
+            ->getContent();
+        $this->assertStringContainsString(
+            $rental->rentalId,
+            $history,
+            'a settled rental is retained in history'
+        );
+    }
+
+    public function test_the_inventory_page_renders_its_mark_maintenance_dialog(): void
+    {
+        $admin = $this->makeAdmin();
+        $this->makeBicycle([
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'serialNumber' => self::SERIAL,
+        ]);
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.bicycles.index'))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString(
+            'maintenanceBicycleModal',
+            $html,
+            'the Mark Maintenance dialog is rendered'
+        );
+        $this->assertStringContainsString(
+            'name="bicycleId"',
+            $html,
+            'the dialog names the bicycle it acts on'
+        );
+    }
+
+    public function test_the_inventory_page_loads_when_a_bicycle_is_already_in_maintenance(): void
+    {
+        $admin = $this->makeAdmin();
+        $this->makeBicycle([
+            'status' => Bicycle::STATUS_MAINTENANCE,
+            'serialNumber' => self::SERIAL,
+        ]);
+
+        // This is the exact case that threw. The broken dialog was guarded by
+        // @if($inMaintenanceFor($bike)), so a bicycle already under maintenance
+        // was the only one that evaluated the unregistered route() call and blew
+        // up the whole page.
+        $this->actingAs($admin)
+            ->get(route('admin.bicycles.index'))
+            ->assertOk();
+    }
+
+    public function test_the_mark_maintenance_form_posts_to_the_registered_maintenance_route(): void
+    {
+        $admin = $this->makeAdmin();
+        $bicycle = $this->makeBicycle([
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'serialNumber' => self::SERIAL,
+        ]);
+
+        $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->getContent();
+
+        // Every route() call in the page must resolve to a real route.
+        preg_match_all("/route\('([^']+)'/", $html, $m);
+        foreach (array_unique($m[1]) as $name) {
+            $this->assertTrue(
+                \Illuminate\Support\Facades\Route::has($name),
+                "the inventory page references route [{$name}], which is not registered"
+            );
+        }
+
+        // The form targets the existing maintenance endpoint, which validates
+        // description + type and moves the bicycle to Maintenance.
+        $this->assertStringContainsString(
+            "action=\"" . e(route('admin.maintenance.store')) . '"',
+            $html,
+            'the Mark Maintenance form posts to the maintenance endpoint'
+        );
+
+        // Submitting it does the whole job in one request.
+        $this->actingAs($admin)
+            ->from(route('admin.bicycles.index'))
+            ->post(route('admin.maintenance.store'), [
+                'bicycleId' => $bicycle->id,
+                'type' => 'repair',
+                'severity' => 'high',
+                'description' => 'Rear brake not responding.',
+            ])
+            ->assertRedirect(route('admin.bicycles.index'))
+            ->assertSessionHasNoErrors();
+
+        $after = $bicycle->fresh();
+
+        $this->assertSame(Bicycle::STATUS_MAINTENANCE, $after->status, 'the bicycle is taken out of service');
+        $this->assertSame(Bicycle::LOCK_LOCKED, $after->lockStatus);
+        $this->assertDatabaseHas('maintenance_records', [
+            'bicycleId' => $bicycle->id,
+            'type' => 'repair',
+            'severity' => 'high',
+            'description' => 'Rear brake not responding.',
+        ]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'maintenance_created']);
+    }
+
+    public function test_a_rented_bicycle_is_not_offered_the_maintenance_dialog(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle([
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'serialNumber' => self::SERIAL,
+        ]);
+
+        app(RentalService::class)->startRental($rider, $bicycle->id, 60, 'cash');
+
+        $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->getContent();
+
+        // A rented bicycle comes back through the return workflow first, so the
+        // dialog must not be rendered for it.
+        $this->assertStringNotContainsString(
+            'maintenanceBicycleModal' . $bicycle->id,
+            $html,
+            'a bicycle on a ride must not offer Mark Maintenance'
+        );
     }
 
     public function test_cancelling_a_rental_frees_the_bicycle(): void

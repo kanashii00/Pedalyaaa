@@ -8,10 +8,12 @@ use App\Http\Requests\UpdateSystemSettingsRequest;
 use App\Models\Bicycle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Validator;
+use Tests\Concerns\CreatesTestData;
 use Tests\TestCase;
 
 class RequestValidationTest extends TestCase
 {
+    use CreatesTestData;
     use RefreshDatabase;
 
     private int $testBicycleId;
@@ -20,7 +22,7 @@ class RequestValidationTest extends TestCase
     {
         parent::setUp();
 
-        $bicycle = Bicycle::create([
+        $bicycle = $this->createBicycle([
             'name' => 'Test Bicycle',
             'serialNumber' => 'SN-MAINT-001',
             'status' => Bicycle::STATUS_AVAILABLE,

@@ -13,15 +13,18 @@ use Illuminate\Support\Facades\DB;
 
 class RentalService
 {
-    protected NotificationService $notificationService;
-    protected IoTService $iotService;
+protected NotificationService $notificationService;
+protected IoTService $iotService;
+protected MaintenanceService $maintenanceService;
 
     public function __construct(
         NotificationService $notificationService,
-        IoTService $iotService
+        IoTService $iotService,
+        MaintenanceService $maintenanceService
     ) {
         $this->notificationService = $notificationService;
         $this->iotService = $iotService;
+        $this->maintenanceService = $maintenanceService;
     }
 
 public function startRental(
@@ -54,6 +57,15 @@ public function startRental(
 
         $bicycle = Bicycle::findOrFail($bicycleId);
 
+        // A bicycle parked out of service carries `status = available` but has no
+        // hardware to unlock, so it must never start a rental. Checked before
+        // status so the message names the real reason.
+        if (! $bicycle->isInService()) {
+            throw new RentalException(
+                "Bicycle {$bicycle->serialNumber} is not in service."
+            );
+        }
+
         if ($bicycle->status !== Bicycle::STATUS_AVAILABLE) {
             throw new RentalException(
                 'Bicycle is not available for rental.'
@@ -66,7 +78,9 @@ public function startRental(
             );
         }
 
-        $ratePerHour = $bicycle->hourlyRate ?? 15.00;
+        // Shared with the Rent page's estimate, so the figure the rider was
+        // shown and the figure charged here can never disagree.
+        $ratePerHour = $bicycle->rentableHourlyRate();
 
         $durationHours = $durationMinutes / 60;
         $chargedHours = max((int) ceil($durationHours), 1);
@@ -84,15 +98,45 @@ public function startRental(
         $isGcash = $paymentMethod === 'gcash';
         $rental = DB::transaction(function () use (
             $user,
-            $bicycle,
+            $bicycleId,
             $durationMinutes,
             $paymentMethod,
             $paymentReference,
             $pricing
         ) {
+            // Re-read under a row lock. The availability check above ran outside
+            // the transaction, so two riders submitting the same bicycle
+            // concurrently could both pass it; the lock serialises them and the
+            // second one then sees the status the first already changed.
+            $locked = Bicycle::query()->lockForUpdate()->find($bicycleId);
+
+            if ($locked === null) {
+                throw new RentalException('Bicycle no longer exists.');
+            }
+
+            // Re-checked under the row lock: provisioning can be revoked between
+            // the pre-transaction check and here.
+            if (! $locked->isInService()) {
+                throw new RentalException(
+                    "Bicycle {$locked->serialNumber} is not in service."
+                );
+            }
+
+            if ($locked->status !== Bicycle::STATUS_AVAILABLE) {
+                throw new RentalException(
+                    'That bicycle is no longer available for rent.'
+                );
+            }
+
+            if ($locked->batteryLevel < 20) {
+                throw new RentalException(
+                    'Bicycle battery level is too low to rent.'
+                );
+            }
+
             return $this->persistRental(
                 $user,
-                $bicycle,
+                $locked,
                 $durationMinutes,
                 $paymentMethod,
                 $paymentReference,
@@ -271,9 +315,11 @@ public function startRental(
             ]);
 
             // Bicycle is physically back: secure the smart lock but keep it
-            // held (Rented) until an administrator processes the return.
+            // held (Rented) until an administrator processes the return. A
+            // bicycle that is not in service has no lock to secure, and its
+            // recorded lockStatus is left exactly as it is.
             $bicycle = Bicycle::find($rental->bicycleId);
-            if ($bicycle) {
+            if ($bicycle && $bicycle->isInService()) {
                 $bicycle->update(['lockStatus' => Bicycle::LOCK_LOCKED]);
                 Rental::resolveConnection()->afterCommit(function () use ($bicycle, $rental, $user) {
                     $this->iotService->sendCommand($bicycle->id, 'lock', [
@@ -611,6 +657,67 @@ public function startRental(
             throw new RentalException('Only rentals awaiting return can be processed.');
         }
 
+        return $this->settleRental($rental, $admin, $input);
+    }
+
+    /**
+     * One-step "End Ride": settle an in-progress rental on the spot.
+     *
+     * This is the single-click equivalent of end ride + process return, used
+     * by an administrator who has the bicycle in hand and can inspect it right
+     * away. It reuses the exact settlement core as processReturn(), so the fee
+     * maths, the penalty rule, the bicycle release and the payment record are
+     * identical no matter which entry point settled the rental.
+     *
+     * Consequences of settling here, all in one transaction:
+     *  - the rental leaves Active Rentals and lands in Rental History
+     *    (status "returned"), and the renter is notified of the final fee;
+     *  - the bicycle is released to Available (or routed to Maintenance when
+     *    the inspected condition demands it) with its rental pointers cleared;
+     *  - the applicable penalty is frozen onto finalFee/overdueFee so it
+     *    stops accruing;
+     *  - the payment record is synced and the rider's spend is updated.
+     *
+     * Rejecting anything already settled is what keeps a double submission
+     * (or a second click) from ever double-charging a rental.
+     */
+    public function endRideAndSettle(
+        Rental $rental,
+        User $admin,
+        array $input = []
+    ): array {
+        if (!in_array($rental->status, [
+            Rental::STATUS_ACTIVE,
+            Rental::STATUS_OVERDUE,
+            Rental::STATUS_EXPIRED,
+        ], true)) {
+            if ($rental->status === Rental::STATUS_RETURNED) {
+                throw new RentalException('This ride has already been ended and settled.');
+            }
+            throw new RentalException('Only an active, overdue, or expired ride can be ended.');
+        }
+
+        return $this->settleRental($rental, $admin, $input, $admin);
+    }
+
+    /**
+     * Shared settlement core behind processReturn() and endRideAndSettle().
+     *
+     * The caller decides which statuses may reach this point; everything after
+     * that - return time, inspected condition, penalty basis, fee breakdown,
+     * bicycle release, payment sync and rider notification - is identical.
+     *
+     * $lockActor, when given, also queues a physical lock command for the
+     * bicycle once the transaction commits. The one-step end-ride path needs it
+     * because it never passes through markRideEnded(), which is what normally
+     * secures the lock; the two-step path already locked it in phase 1.
+     */
+    private function settleRental(
+        Rental $rental,
+        User $admin,
+        array $input = [],
+        ?User $lockActor = null
+    ): array {
         $returnTime = isset($input['returnTime']) && $input['returnTime']
             ? Carbon::parse($input['returnTime'])
             : Carbon::now();
@@ -652,11 +759,15 @@ public function startRental(
             $input,
             $fees,
             $latePenalty,
-            $finalFee
+            $finalFee,
+            $lockActor
         ) {
             $rental->update([
                 'endTime' => $returnTime,
                 'status' => Rental::STATUS_RETURNED,
+                // Never overwrite the moment the rider actually asked to
+                // return; only stamp it when nobody got there first.
+                'returnRequestedAt' => $rental->returnRequestedAt ?? $returnTime,
                 'totalFee' => $finalFee,
                 'finalFee' => $finalFee,
                 'overdueFee' => $latePenalty,
@@ -679,6 +790,18 @@ public function startRental(
             $user = User::find($rental->riderId);
             if ($user) {
                 $user->increment('totalSpent', $finalFee);
+            }
+
+            if ($lockActor !== null && $rental->bicycleId) {
+                $bicycle = Bicycle::find($rental->bicycleId);
+                if ($bicycle && $bicycle->isInService()) {
+                    Rental::resolveConnection()->afterCommit(function () use ($bicycle, $rental, $lockActor) {
+                        $this->iotService->sendCommand($bicycle->id, 'lock', [
+                            'reason' => 'rental_settled',
+                            'rentalId' => $rental->id,
+                        ], $lockActor);
+                    });
+                }
             }
 
             $penaltyNotice = $latePenalty > 0
@@ -751,6 +874,17 @@ public function startRental(
     /**
      * Route the bicycle to Available or Maintenance based on the inspected
      * condition, clear the rental references, and re-secure the smart lock.
+     *
+     * A damaged or needs-maintenance inspection opens a maintenance record as
+     * part of the same transaction, so the Maintenance module always has
+     * something to act on for a bicycle that has just been taken out of service.
+     *
+     * A bicycle that is not in service is treated very differently. It never had
+     * a rider and never will, so there is no hardware to unlock, no lock state
+     * to restore, and no business being made Available: the rental pointers are
+     * cleared and the condition recorded, but the parked status and the
+     * recorded lockStatus are both left untouched. Settling a rental must not be
+     * able to drag an out-of-service unit back into the rentable fleet.
      */
     private function settleBicycleAfterReturn(Rental $rental, string $condition, User $admin): void
     {
@@ -764,15 +898,40 @@ public function startRental(
             Rental::CONDITION_NEEDS_MAINTENANCE,
         ], true);
 
-        $bicycle->update([
-            'status' => $routeToMaintenance ? Bicycle::STATUS_MAINTENANCE : Bicycle::STATUS_AVAILABLE,
+        $updates = [
             'currentRider' => null,
             'currentRentalId' => null,
-            'lockStatus' => Bicycle::LOCK_LOCKED,
             'condition' => $condition,
-        ]);
+        ];
+
+        if ($bicycle->isInService()) {
+            $updates['status'] = $routeToMaintenance
+                ? Bicycle::STATUS_MAINTENANCE
+                : Bicycle::STATUS_AVAILABLE;
+            $updates['lockStatus'] = Bicycle::LOCK_LOCKED;
+        } else {
+            // Out of service: a damaged return is still a real finding, so the
+            // bicycle goes to maintenance; otherwise it stays parked exactly as
+            // it was, and its lockStatus is never written.
+            $updates['status'] = $routeToMaintenance
+                ? Bicycle::STATUS_MAINTENANCE
+                : $bicycle->status;
+        }
+
+        $bicycle->update($updates);
 
         if ($routeToMaintenance && $bicycle->wasChanged('status')) {
+            // Open the actual work order rather than only moving the status. A
+            // bicycle sitting in maintenance with no record is a dead end: the
+            // Maintenance module shows nothing to work on, and releasing it
+            // becomes possible with nothing ever having been tracked.
+            $this->maintenanceService->placeBicycleInMaintenance(
+                $bicycle,
+                "Found during the return inspection of rental {$rental->rentalId}: {$condition}. "
+                    . ($rental->returnNote ?: 'No further note recorded.'),
+                $admin->id,
+            );
+
             $this->notificationService->create(
                 $admin->id,
                 'Bicycle Needs Maintenance',
@@ -836,11 +995,20 @@ public function startRental(
             return false;
         }
 
-        $attributes = array_merge([
-            'status' => Bicycle::STATUS_AVAILABLE,
-            'currentRider' => null,
-            'currentRentalId' => null,
-        ], $extraAttributes);
+        // Only the in-service unit is released to Available. For a bicycle that
+        // is not in service the rental pointers are still cleared, but its
+        // status is left alone so a settlement can never promote a parked
+        // bicycle into the rentable fleet.
+        $attributes = array_merge(
+            $bicycle->isInService()
+                ? ['status' => Bicycle::STATUS_AVAILABLE]
+                : ['status' => $bicycle->status],
+            [
+                'currentRider' => null,
+                'currentRentalId' => null,
+            ],
+            $extraAttributes
+        );
 
         $bicycle->fill($attributes);
 
@@ -853,12 +1021,14 @@ public function startRental(
 
         // Lock action control: queue the physical lock command so the
         // ESP32 secures the bicycle (executes after commit).
-        Rental::resolveConnection()->afterCommit(function () use ($bicycle, $rental, $actor) {
-            $this->iotService->sendCommand($bicycle->id, 'lock', [
-                'reason' => 'rental_settled',
-                'rentalId' => $rental->id,
-            ], $actor);
-        });
+        if ($bicycle->isInService()) {
+            Rental::resolveConnection()->afterCommit(function () use ($bicycle, $rental, $actor) {
+                $this->iotService->sendCommand($bicycle->id, 'lock', [
+                    'reason' => 'rental_settled',
+                    'rentalId' => $rental->id,
+                ], $actor);
+            });
+        }
 
         return true;
     }
@@ -924,7 +1094,8 @@ public function startRental(
      *
      * A bicycle that is under maintenance stays in maintenance: a cancellation
      * must not silently return a bike that is out of service to the rentable
-     * fleet.
+     * fleet. Neither does a bicycle that is parked out of service: it has no
+     * hardware to lock and its recorded lockStatus is left untouched.
      */
     public function releaseBicycleOnCancel(Rental $rental, User $actor): ?Bicycle
     {
@@ -947,16 +1118,27 @@ public function startRental(
             return $bicycle;
         }
 
-        $bicycle->update([
+        $inService = $bicycle->isInService();
+
+        $updates = [
             'status' => $bicycle->status === Bicycle::STATUS_MAINTENANCE
                 ? Bicycle::STATUS_MAINTENANCE
-                : Bicycle::STATUS_AVAILABLE,
+                : ($inService ? Bicycle::STATUS_AVAILABLE : $bicycle->status),
             'currentRider' => null,
             'currentRentalId' => null,
-            'lockStatus' => Bicycle::LOCK_LOCKED,
-        ]);
+        ];
 
-        $this->iotService->sendCommand($bicycle->id, 'lock', [], $actor);
+        if ($inService) {
+            $updates['lockStatus'] = Bicycle::LOCK_LOCKED;
+        }
+
+        $bicycle->update($updates);
+
+        // Nobody is authorised to use the bicycle any more, so the in-service
+        // unit is physically secured. There is no command to send otherwise.
+        if ($inService) {
+            $this->iotService->sendCommand($bicycle->id, 'lock', [], $actor);
+        }
 
         return $bicycle;
     }
@@ -1183,13 +1365,21 @@ public function startRental(
 
         $bicycle = Bicycle::find($payment->bicycleId);
         if ($bicycle) {
-            $bicycle->update([
+            $updates = [
                 'status' => Bicycle::STATUS_RENTED,
                 'currentRider' => $payment->userId,
                 'currentRentalId' => $rental->id,
-                'lockStatus' => Bicycle::LOCK_UNLOCKED,
-                'lastLockAction' => now(),
-            ]);
+            ];
+
+            // Only the in-service unit has a lock to open. The recorded
+            // lockStatus of a bicycle parked out of service is physical truth and
+            // must not be rewritten by a payment callback.
+            if ($bicycle->isInService()) {
+                $updates['lockStatus'] = Bicycle::LOCK_UNLOCKED;
+                $updates['lastLockAction'] = now();
+            }
+
+            $bicycle->update($updates);
 
             if ($rider) {
                 $this->iotService->sendCommand($bicycle->id, 'unlock', [], $rider);

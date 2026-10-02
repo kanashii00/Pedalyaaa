@@ -1,4 +1,4 @@
-﻿@extends('layouts.admin')
+@extends('layouts.admin')
 
 @php
     $sectionTitles = [
@@ -16,7 +16,7 @@
     $sectionIcons = ['map' => 'bi-map', 'gps' => 'bi-geo-alt', 'locks' => 'bi-lock', 'devices' => 'bi-cpu'];
 @endphp
 
-@section('title', ($sectionTitles[$section] ?? 'Monitoring') . ' — Pedalya Admin')
+@section('title', ($sectionTitles[$section] ?? 'Monitoring') . ' � Pedalya Admin')
 
 @section('styles')
 <style>
@@ -268,7 +268,7 @@
 <div class="row align-items-center mb-3">
     <div class="col"><h5 class="mb-0">Live Position Feed</h5></div>
     <div class="col-auto">
-        <small class="text-muted">Center: {{ number_format($geofence['centerLat'], 5) }}, {{ number_format($geofence['centerLng'], 5) }} · Radius {{ number_format($geofence['radius'], 0) }}m</small>
+        <small class="text-muted">Center: {{ number_format($geofence['centerLat'], 5) }}, {{ number_format($geofence['centerLng'], 5) }} � Radius {{ number_format($geofence['radius'], 0) }}m</small>
     </div>
 </div>
 <div class="admin-table-wrap">
@@ -309,10 +309,10 @@
                             <span class="dot" style="background: {{ $zoneStyle[0] }};"></span>{{ $zoneStyle[1] }}
                         </span>
                     </td>
-                    <td data-label="Latitude">{{ $bike->currentLat ? number_format((float) $bike->currentLat, 6) : '—' }}</td>
-                    <td data-label="Longitude">{{ $bike->currentLng ? number_format((float) $bike->currentLng, 6) : '—' }}</td>
-                    <td data-label="Speed">{{ $speed !== null ? number_format((float) $speed, 1) . ' km/h' : '—' }}</td>
-                    <td data-label="Distance from center">{{ $bike->zone['distance'] !== null ? number_format($bike->zone['distance'], 0) . ' m' : '—' }}</td>
+                    <td data-label="Latitude">{{ $bike->currentLat ? number_format((float) $bike->currentLat, 6) : '�' }}</td>
+                    <td data-label="Longitude">{{ $bike->currentLng ? number_format((float) $bike->currentLng, 6) : '�' }}</td>
+                    <td data-label="Speed">{{ $speed !== null ? number_format((float) $speed, 1) . ' km/h' : '�' }}</td>
+                    <td data-label="Distance from center">{{ $bike->zone['distance'] !== null ? number_format($bike->zone['distance'], 0) . ' m' : '�' }}</td>
                     <td data-label="Last GPS">{{ $bike->lastGpsUpdate?->diffForHumans() ?? 'Never' }}</td>
                     <td data-label="Last heartbeat">{{ $bike->lastHeartbeat?->diffForHumans() ?? 'Never' }}</td>
                 </tr>
@@ -413,17 +413,17 @@
                         <span class="bike-status-dot {{ $online ? 'online' : 'offline' }}"></span>
                         <span class="fw-semibold ms-2">{{ $bike->name }}</span>
                     </div>
-                    <span class="text-muted small"><i class="bi bi-cpu"></i> {{ $tel?->deviceVersion ?? '—' }}</span>
+                    <span class="text-muted small"><i class="bi bi-cpu"></i> {{ $tel?->deviceVersion ?? '�' }}</span>
                 </div>
 
                 <div class="row g-2 mt-1">
                     <div class="col-6">
                         <small class="text-muted d-block">Battery</small>
-                        <small class="fw-semibold">{{ $battery['pct'] ?? $bike->batteryLevel }}%{{ isset($battery['charging']) && $battery['charging'] ? ' ⚡' : '' }}</small>
+                        <small class="fw-semibold">{{ $battery['pct'] ?? $bike->batteryLevel }}%{{ isset($battery['charging']) && $battery['charging'] ? ' ?' : '' }}</small>
                     </div>
                     <div class="col-6">
                         <small class="text-muted d-block">Uptime</small>
-                        <small class="fw-semibold">{{ $tel?->uptime ? gmdate('H:i:s', $tel->uptime) : '—' }}</small>
+                        <small class="fw-semibold">{{ $tel?->uptime ? gmdate('H:i:s', $tel->uptime) : '�' }}</small>
                     </div>
                     <div class="col-6">
                         <small class="text-muted d-block">Lock</small>
@@ -435,7 +435,7 @@
                     </div>
                     <div class="col-6">
                         <small class="text-muted d-block">RFID</small>
-                        <small class="fw-semibold">{{ $tel?->rfid ? \Illuminate\Support\Str::limit($tel->rfid, 10) : '—' }}</small>
+                        <small class="fw-semibold">{{ $tel?->rfid ? \Illuminate\Support\Str::limit($tel->rfid, 10) : '�' }}</small>
                     </div>
                 </div>
 
@@ -455,7 +455,7 @@
                 @if($tel?->command)
                     <div class="mt-2 p-2 rounded" style="background:#f6f7fb; font-size:11.5px;">
                         <strong>Last command:</strong> {{ $tel->command }}
-                        <span class="text-muted"> → {{ $tel->result ?? ($tel->status ?? 'sent') }}</span>
+                        <span class="text-muted"> ? {{ $tel->result ?? ($tel->status ?? 'sent') }}</span>
                     </div>
                 @endif
             </div>

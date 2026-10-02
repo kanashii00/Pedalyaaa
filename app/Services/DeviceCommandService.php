@@ -7,12 +7,40 @@ use App\Models\DeviceCommand;
 use App\Models\DeviceStatus;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class DeviceCommandService
 {
-    public function sendCommand(int $bicycleId, string $command, array $params, ?User $user = null): DeviceCommand
+    /**
+     * Queue a command for a bicycle's on-board device.
+     *
+     * Returns null when the bicycle is not in service. That gate lives here, at
+     * the only place a DeviceCommand row is ever created, so no caller can
+     * bypass it: a bicycle without hardware must never accumulate a `pending`
+     * command that will sit unacknowledged forever, because
+     * normalizeCommandStatus() would eventually treat some unrelated ack as
+     * proof it executed and rewrite the bicycle's state on the strength of a
+     * lock that was never fitted.
+     *
+     * Callers that ignore the return value are unaffected; callers that report
+     * the outcome to a person (the API, the admin screen) get null and say so.
+     */
+    public function sendCommand(int $bicycleId, string $command, array $params, ?User $user = null): ?DeviceCommand
     {
         $bicycle = Bicycle::find($bicycleId);
+
+        if (! $bicycle) {
+            return null;
+        }
+
+        if (! $bicycle->isInService()) {
+            Log::warning('IoT command suppressed for out-of-service bicycle', [
+                'bicycleId' => $bicycleId,
+                'command' => $command,
+            ]);
+
+            return null;
+        }
 
         $deviceCommand = DeviceCommand::create([
             'bicycleId' => $bicycleId,
@@ -22,17 +50,15 @@ class DeviceCommandService
             'issuedBy' => $user?->id,
         ]);
 
-        if ($bicycle) {
-            DeviceStatus::create([
-                'bicycleId' => $bicycleId,
-                'command' => $command,
-                'params' => $params ?: null,
-                'commandIssuedBy' => $user?->id,
-                'commandIssuedAt' => Carbon::now(),
-                'type' => 'command',
-                'eventTimestamp' => Carbon::now(),
-            ]);
-        }
+        DeviceStatus::create([
+            'bicycleId' => $bicycleId,
+            'command' => $command,
+            'params' => $params ?: null,
+            'commandIssuedBy' => $user?->id,
+            'commandIssuedAt' => Carbon::now(),
+            'type' => 'command',
+            'eventTimestamp' => Carbon::now(),
+        ]);
 
         return $deviceCommand;
     }
@@ -98,13 +124,28 @@ class DeviceCommandService
             return;
         }
 
+        // A bicycle that is not in service has no hardware, so it must never be
+        // promoted to Available here. This rewrite used to fire on every lock
+        // acknowledgement for any bicycle, which is how a parked unit could be
+        // dragged back into the rentable fleet by a stray ack.
+        if (! $bicycle->isInService()) {
+            return;
+        }
+
+        // Maintenance is an operator decision and outranks the lock state, so
+        // acknowledging a lock may never quietly return a serviced bicycle to
+        // the rentable fleet.
+        $status = match (true) {
+            $bicycle->status === Bicycle::STATUS_MAINTENANCE => Bicycle::STATUS_MAINTENANCE,
+            $bicycle->currentRentalId !== null => Bicycle::STATUS_RENTED,
+            default => Bicycle::STATUS_AVAILABLE,
+        };
+
         $bicycle->update([
             'lockStatus' => $command->command === 'unlock'
                 ? Bicycle::LOCK_UNLOCKED
                 : Bicycle::LOCK_LOCKED,
-            'status' => $bicycle->currentRentalId
-                ? Bicycle::STATUS_RENTED
-                : Bicycle::STATUS_AVAILABLE,
+            'status' => $status,
             'lastLockAction' => Carbon::now(),
             'lockActionBy' => $command->issuedBy,
         ]);

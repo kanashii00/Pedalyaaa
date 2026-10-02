@@ -66,6 +66,8 @@ class RentalController extends Controller
 
     public function history(Request $request): Response
     {
+        // A settled rental (status `returned`) must appear in history rather
+        // than in Active Rentals, so the two views partition cleanly on status.
         $query = Rental::with(['bicycle', 'rider'])
             ->whereIn('status', [
                 Rental::STATUS_COMPLETED,
@@ -347,9 +349,19 @@ class RentalController extends Controller
         return null;
     }
 
-    public function endRide(int $id): RedirectResponse
+    public function endRide(Request $request, int $id): RedirectResponse
     {
         $rental = Rental::with(['bicycle', 'rider'])->findOrFail($id);
+
+        $validated = $request->validate([
+            'condition' => ['nullable', Rule::in([
+                Rental::CONDITION_GOOD,
+                Rental::CONDITION_FAIR,
+                Rental::CONDITION_DAMAGED,
+                Rental::CONDITION_NEEDS_MAINTENANCE,
+            ])],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
 
         $endRideError = $this->endRideError($rental);
 
@@ -357,25 +369,48 @@ class RentalController extends Controller
             return back()->withErrors(['rental' => $endRideError]);
         }
 
-        $rider = User::find($rental->riderId);
-
         try {
-            // Records the end time, secures the bicycle's smart lock, and moves
-            // the rental into the "Awaiting Return" state so an administrator
-            // can inspect the bicycle and confirm the return (Process Return).
-            $this->rentalService->markRideEnded($rental, $rider);
+            // Settles in one step: the ride is closed, the inspected condition
+            // is recorded, the final fee and any penalty are frozen, the
+            // bicycle is released to Available (or Maintenance) with its
+            // rental pointers cleared, the payment is synced, and the rental
+            // leaves Active Rentals for Rental History.
+            $result = $this->rentalService->endRideAndSettle($rental, $request->user(), [
+                'condition' => $validated['condition'] ?? Rental::CONDITION_GOOD,
+                'note' => $validated['note'] ?? null,
+            ]);
         } catch (\Throwable $e) {
             return back()->withErrors(['rental' => $e->getMessage()]);
         }
 
+        $fees = $result['fees'] ?? [];
+        $settled = $result['rental'] ?? $rental->fresh();
+        $bicycle = Bicycle::find($rental->bicycleId);
+
         AuditLog::record('rental_ended_by_admin', auth()->id(), [
             'rentalId' => $rental->rentalId,
-            'endTime' => $rental->fresh()->endTime?->toDateTimeString(),
+            'endTime' => $settled->endTime?->toDateTimeString(),
+            'condition' => $fees['condition'] ?? null,
+            'baseFee' => $fees['baseFee'] ?? null,
+            'penalty' => $fees['overdueFee'] ?? 0,
+            'finalFee' => $fees['finalFee'] ?? null,
+            'bicycleStatus' => $bicycle?->status,
         ]);
+
+        $penalty = (float) ($fees['overdueFee'] ?? 0);
+        $penaltyNote = $penalty > 0
+            ? ' (includes a penalty of ₱' . number_format($penalty, 2) . ')'
+            : '';
+
+        $bicycleNote = $bicycle
+            ? ' Bicycle "' . $bicycle->name . '" is now ' . $bicycle->status . '.'
+            : '';
 
         return back()->with(
             'success',
-            'Ride ended and bicycle returned. Confirm the return in the Returns module to settle the final fee.'
+            'Ride ended for rental ' . ($rental->rentalId ?? $rental->id)
+            . ' · Final fee ₱' . number_format((float) ($fees['finalFee'] ?? 0), 2) . $penaltyNote
+            . ' · Moved to Rental History.' . $bicycleNote
         );
     }
 
@@ -385,7 +420,7 @@ class RentalController extends Controller
 
         $validated = $request->validate([
             'return_time' => 'nullable|date',
-            'condition'   => 'nullable|string|in:good,fair,damaged,needs_maintenance',
+            'condition'   => ['nullable', Rule::in(Rental::CONDITIONS)],
             'note'        => 'nullable|string|max:1000',
         ]);
 
@@ -399,18 +434,29 @@ class RentalController extends Controller
             return back()->withErrors(['rental' => $e->getMessage()]);
         }
 
+        $settled = $rental->fresh();
+
         AuditLog::record('rental_return_processed', auth()->id(), [
             'rentalId' => $rental->rentalId,
             'condition' => $validated['condition'] ?? null,
-            'finalFee' => $rental->fresh()->finalFee,
+            'finalFee' => $settled->finalFee,
         ]);
+
+        // Re-read the bicycle instead of trusting $rental->bicycle: that relation
+        // was eager-loaded before the settlement, so it still holds the rented
+        // state and would report a bicycle that has just been released as
+        // "is now rented".
+        $bicycle = Bicycle::find($rental->bicycleId);
+
+        $bicycleNote = $bicycle
+            ? ' Bicycle "' . $bicycle->name . '" is now ' . $bicycle->status . '.'
+            : '';
 
         return back()->with(
             'success',
             'Return confirmed for rental '.($rental->rentalId ?? $rental->id)
-            .' · Final fee ₱'.number_format((float) $rental->fresh()->finalFee, 2)
-            .'. Bicycle "'.($rental->bicycle->name ?? $rental->bicycleId)
-            .'" is now '.($rental->bicycle->status ?? 'settled').'.'
+            .' · Final fee ₱'.number_format((float) $settled->finalFee, 2)
+            .'.'.$bicycleNote
         );
     }
 
@@ -503,8 +549,18 @@ class RentalController extends Controller
 
     private function endRideError(Rental $rental): ?string
     {
-        if (! in_array($rental->status, [Rental::STATUS_ACTIVE, Rental::STATUS_OVERDUE], true)) {
-            return 'Only active or overdue rides can be ended.';
+        if (! in_array($rental->status, [
+            Rental::STATUS_ACTIVE,
+            Rental::STATUS_OVERDUE,
+            Rental::STATUS_EXPIRED,
+        ], true)) {
+            // Distinguish a repeat click from a genuinely invalid request: a
+            // duplicate submission must read as "already done", not as a
+            // generic validation failure.
+            if ($rental->status === Rental::STATUS_RETURNED) {
+                return 'This ride has already been ended and settled.';
+            }
+            return 'Only an active, overdue, or expired ride can be ended.';
         }
 
         if (User::find($rental->riderId) === null) {

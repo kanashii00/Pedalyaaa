@@ -4,6 +4,29 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Fleet service policy
+    |---------------------------------------------------------------------------
+    |
+    | Which physical unit is actually deployed and controllable.
+    |
+    | The inventory holds real bicycles that are parked and not in service. They
+    | have no ESP32, no servo and no smart lock, so their recorded lockStatus is
+    | just the state they happen to be sitting in - there is nothing to command.
+    | Exactly one bicycle is in service: PDY-001 - Beach Cruiser 001.
+    |
+    | Everything that decides rentability or queues a hardware command derives
+    | from bicycles.iotEnabled, which this policy provisions. The serial number
+    | is used rather than the primary key so the policy survives a reseed that
+    | changes ids.
+    |
+    */
+
+    'fleet' => [
+        'in_service_serial' => env('PEDALYA_IN_SERVICE_SERIAL', 'PDY-001'),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | Single-bike display mode
     |---------------------------------------------------------------------------
     |

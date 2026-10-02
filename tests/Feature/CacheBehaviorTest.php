@@ -38,25 +38,47 @@ class CacheBehaviorTest extends TestCase
 
     // ---------------- Cache hit / miss / freshness ----------------
 
-    public function test_rent_page_caches_available_bicycles_and_serves_cache_hit(): void
+    /**
+     * Availability on the Rent page is deliberately never cached.
+     *
+     * Caching it for TTL_AVAILABLE_BICYCLES meant the page could offer a
+     * bicycle that had already been claimed, or hide one an administrator had
+     * just freed. A write made outside the request (bypassing observers here, to
+     * remove any invalidation as a confounder) must be visible immediately.
+     */
+    public function test_rent_page_always_serves_live_bicycle_availability(): void
     {
         $this->riderAuth();
-        $bike = $this->makeBicycle(['name' => 'Cached Bike']);
+        $bike = $this->makeBicycle(['name' => 'Live Bike']);
 
-        $key = CacheRegistry::availableBicyclesKey(false);
+        $this->get(route('rider.rentals.create'))
+            ->assertOk()
+            ->assertSee('Live Bike');
 
-        $this->get(route('rider.rentals.create'))->assertOk();
-        $this->assertTrue(Cache::has($key));
-
-        // Mutate the DB behind the cache's back (bypassing observers) to
-        // prove a subsequent render is served from the cache (a cache hit).
+        // Mutate the DB behind the observers' back: nothing invalidates a cache
+        // entry here because there is no cache entry to invalidate.
         \Illuminate\Support\Facades\DB::table('bicycles')
             ->where('id', $bike->id)
             ->update(['name' => 'Renamed Directly']);
 
-        $response = $this->get(route('rider.rentals.create'))->assertOk();
-        $response->assertSee('Cached Bike');
-        $response->assertDontSee('Renamed Directly');
+        $this->get(route('rider.rentals.create'))
+            ->assertOk()
+            ->assertSee('Renamed Directly');
+
+        // Likewise a status change with no observer event at all.
+        \Illuminate\Support\Facades\DB::table('bicycles')
+            ->where('id', $bike->id)
+            ->update(['status' => Bicycle::STATUS_RENTED]);
+
+        $this->get(route('rider.rentals.create'))
+            ->assertOk()
+            ->assertDontSee('Select & Rent', escape: false)
+            ->assertSee('Rented');
+
+        $this->assertFalse(
+            Cache::has(CacheRegistry::availableBicyclesKey(false)),
+            'the available-bicycle list must not be cached'
+        );
     }
 
     public function test_rent_page_recomputes_when_bicycle_status_changes(): void
@@ -64,13 +86,53 @@ class CacheBehaviorTest extends TestCase
         $this->riderAuth();
         $bike = $this->makeBicycle();
 
-        $this->get(route('rider.rentals.create'))->assertOk();
+        $this->get(route('rider.rentals.create'))
+            ->assertOk()
+            ->assertSee('Select & Rent', escape: false);
 
-        // Marking a bicycle as rented is a catalog change → cache invalidated.
+        // Marking a bicycle as rented must remove it from the list at once.
         $bike->update(['status' => Bicycle::STATUS_RENTED]);
 
-        $response = $this->get(route('rider.rentals.create'))->assertOk();
-        $response->assertSee('No bicycles available');
+        $this->get(route('rider.rentals.create'))
+            ->assertOk()
+            ->assertDontSee('Select & Rent', escape: false)
+            ->assertSee('Rented');
+    }
+
+    /**
+     * A bicycle released by an End Ride must appear for riders on the very next
+     * request - this is the specific hand-off between the two modules.
+     */
+    public function test_ending_a_ride_immediately_frees_the_bicycle_for_riders(): void
+    {
+        $rider = $this->riderAuth();
+        $bicycle = $this->makeBicycle([
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'serialNumber' => 'PDY-LIVE',
+        ]);
+
+        $admin = $this->makeAdmin();
+        $rental = app(\App\Services\RentalService::class)
+            ->startRental($rider, $bicycle->id, 60, 'cash');
+
+        // While rented, the rider does not see their own bicycle as available.
+        // The card is still listed - the page shows the whole fleet and marks
+        // unselectable bicycles rather than hiding them - but it offers no
+        // enabled button.
+        $this->get(route('rider.rentals.create'))
+            ->assertOk()
+            ->assertDontSee('Select & Rent', escape: false)
+            ->assertSee('Rented');
+
+        $this->actingAs($admin)
+            ->put(route('admin.rentals.end-ride', $rental->id), ['condition' => 'good'])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($rider)
+            ->get(route('rider.rentals.create'))
+            ->assertOk()
+            ->assertSee('PDY-LIVE')
+            ->assertSee('Select & Rent', escape: false);
     }
 
     public function test_telemetry_updates_do_not_invalidate_catalog_cache(): void
@@ -78,10 +140,16 @@ class CacheBehaviorTest extends TestCase
         $this->riderAuth();
         $bike = $this->makeBicycle();
 
-        $this->get(route('rider.rentals.create'))->assertOk();
+        // Seed a genuine catalog cache entry via the API surface, which does
+        // cache the per-bicycle catalog.
+        $rider = $this->makeRider();
+        \Laravel\Sanctum\Sanctum::actingAs($rider);
 
+        $key = CacheRegistry::bicycleCatalogKey($bike->id);
+        $this->getJson("/api/bicycles/{$bike->id}")->assertOk();
+
+        $this->assertTrue(Cache::has($key));
         $versionBefore = CacheRegistry::bicyclesVersion();
-        $key = CacheRegistry::availableBicyclesKey(false);
 
         // Simulate frequent IoT/GPS writes: battery, position, lock, heartbeats.
         $bike->update([
@@ -93,7 +161,11 @@ class CacheBehaviorTest extends TestCase
             'lastHeartbeat' => now(),
         ]);
 
-        $this->assertSame($versionBefore, CacheRegistry::bicyclesVersion());
+        $this->assertSame(
+            $versionBefore,
+            CacheRegistry::bicyclesVersion(),
+            'high-frequency telemetry must not invalidate the catalog cache'
+        );
         $this->assertTrue(Cache::has($key));
     }
 
@@ -230,24 +302,30 @@ class CacheBehaviorTest extends TestCase
 
     public function test_catalog_cache_expires_after_ttl_and_is_rebuilt(): void
     {
-        $this->riderAuth();
         $this->makeBicycle();
 
-        $this->get(route('rider.rentals.create'))->assertOk();
+        // The per-bicycle catalog is still cached (it is static data), so the
+        // TTL/expiry contract is asserted against that surface.
+        Sanctum::actingAs($this->makeRider());
 
-        $key = CacheRegistry::availableBicyclesKey(false);
+        $key = CacheRegistry::bicycleCatalogKey(
+            Bicycle::query()->value('id')
+        );
+
+        $this->getJson('/api/bicycles/' . Bicycle::query()->value('id'))->assertOk();
+
         $this->assertTrue(Cache::has($key));
 
         $versionBefore = CacheRegistry::bicyclesVersion();
 
-        // Travel past the 5 minute (300s) TTL.
-        $this->travel(CacheRegistry::TTL_AVAILABLE_BICYCLES + 1)->seconds();
+        // Travel past the 10 minute (600s) catalog TTL.
+        $this->travel(CacheRegistry::TTL_BICYCLE_CATALOG + 1)->seconds();
 
         $this->assertFalse(Cache::has($key), 'Cached catalog should have expired');
         $this->assertSame($versionBefore, CacheRegistry::bicyclesVersion());
 
-        $this->get(route('rider.rentals.create'))->assertOk();
-        $this->assertTrue(Cache::has($key));
+        $this->getJson('/api/bicycles/' . Bicycle::query()->value('id'))->assertOk();
+        $this->assertTrue(Cache::has($key), 'the catalog entry is rebuilt on the next read');
     }
 
     public function test_user_summary_expires_and_recomputes(): void

@@ -41,10 +41,15 @@ class MaintenanceService
             'createdBy' => $createdBy,
         ]);
 
-        $bicycle->update([
-            'status' => Bicycle::STATUS_MAINTENANCE,
-            'lockStatus' => Bicycle::LOCK_LOCKED,
-        ]);
+        // Parking a bicycle in maintenance is valid for every unit, in service or
+        // not. Only the in-service unit has a smart lock to secure; a bicycle
+        // that is already out of service keeps the lock state it is recorded in.
+        $bicycle->update($bicycle->isInService()
+            ? [
+                'status' => Bicycle::STATUS_MAINTENANCE,
+                'lockStatus' => Bicycle::LOCK_LOCKED,
+            ]
+            : ['status' => Bicycle::STATUS_MAINTENANCE]);
 
         return $record;
     }
@@ -78,6 +83,12 @@ class MaintenanceService
      * Only bicycles actually parked in maintenance are released — bikes
      * that are rented, removed or otherwise occupied are left untouched.
      * Idempotent by construction thanks to that guard.
+     *
+     * A bicycle that is not in service is *not* returned to Available when its
+     * maintenance closes. Repairing it does not put a lock on it or put it on
+     * the road, so it goes back to being parked out of service. The
+     * maintenance bookkeeping (last-maintenance date, condition) still applies,
+     * and its recorded lockStatus is never touched.
      */
     public function releaseBicycleForRecord(MaintenanceRecord $record): bool
     {
@@ -92,11 +103,16 @@ class MaintenanceService
         }
 
         $bicycle->update([
-            'status' => Bicycle::STATUS_AVAILABLE,
+            'status' => $bicycle->isInService()
+                ? Bicycle::STATUS_AVAILABLE
+                : Bicycle::STATUS_OUT_OF_SERVICE,
             'lastMaintenanceDate' => Carbon::now(),
             'condition' => 'good',
-            'lockStatus' => Bicycle::LOCK_LOCKED,
         ]);
+
+        if ($bicycle->isInService()) {
+            $bicycle->update(['lockStatus' => Bicycle::LOCK_LOCKED]);
+        }
 
         return true;
     }

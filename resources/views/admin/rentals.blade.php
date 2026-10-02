@@ -775,16 +775,21 @@
                                             </button>
                                         </form>
                                     @endif
-                                    @if(in_array($rental->status, ['active', 'overdue']))
-                                        <form action="{{ route('admin.rentals.end-ride', $rental->id) }}" method="POST" class="d-inline">
-                                            @csrf
-                                            @method('PUT')
-                                            <button type="submit" class="rv-btn rv-btn--complete"
-                                                    data-confirm="End this ride now? The bicycle will be held for inspection and the rental will appear under Returns (Awaiting Return) for you to confirm the return and settle the final fee."
-                                                    title="End ride & start return">
-                                                <i class="bi bi-stop-circle"></i>
-                                            </button>
-                                        </form>
+                                    {{-- End Ride settles in one step: it closes the
+                                         rental, records the fees, and releases the
+                                         bicycle. The opener carries only the rental
+                                         it acts on; the shared dialog further down
+                                         collects the inspected condition. --}}
+                                    @if(in_array($rental->status, ['active', 'overdue', 'expired'], true))
+                                        <button type="button" class="rv-btn rv-btn--complete"
+                                                data-end-ride
+                                                data-rental-id="{{ $rental->id }}"
+                                                data-rental-code="{{ $rental->rentalId }}"
+                                                data-bike="{{ $rental->bicycle->serialNumber ?? $rental->bicycleSerial ?? '' }}{{ isset($rental->bicycle->serialNumber) ? ' - ' . ($rental->bicycle->name ?? '') : '' }}"
+                                                data-rider="{{ $rental->rider->name ?? $rental->riderName ?? 'Unknown' }}"
+                                                title="End ride &amp; settle the final fee">
+                                            <i class="bi bi-stop-circle"></i>
+                                        </button>
                                     @endif
                                     @if(in_array($rental->status, ['expired', 'awaiting_return']))
                                         <button type="button" class="rv-btn rv-btn--complete"
@@ -961,6 +966,55 @@
                 {{ $rentals->withQueryString()->links() }}
             @endif
         </div>
+    </div>
+</div>
+
+{{-- ===== Shared End Ride dialog =====
+     Rendered once for the whole page so no per-row dialog markup is needed.
+     __RENTAL_ID__ is swapped for the clicked rental by admin.js. --}}
+<div class="admin-modal" id="endRideModal">
+    <div class="admin-modal__backdrop" data-modal-close></div>
+    <div class="admin-modal__dialog" role="dialog" aria-modal="true" aria-label="End ride and settle">
+        <form action="{{ route('admin.rentals.end-ride', '__RENTAL_ID__') }}" method="POST" id="endRideForm" data-end-ride-form>
+            @csrf
+            @method('PUT')
+            <div class="admin-modal__head">
+                <h3>End Ride <span id="endRideCode" class="cell-key"></span></h3>
+                <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="admin-modal__body">
+                <div class="admin-form">
+                    <p class="text-muted">
+                        Ending the ride for <strong id="endRideBike"></strong><br>
+                        Rider: <strong id="endRideRider"></strong>
+                    </p>
+                    <p class="form-hint">
+                        This closes the rental, records the fees owed, and sets the bicycle back to
+                        Available (or Maintenance if it came back damaged). The rental moves to history.
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="endRideCondition">Condition on return</label>
+                        <select class="form-select" id="endRideCondition" name="condition" required>
+                            <option value="good">Good &mdash; bicycle returns to Available</option>
+                            <option value="fair">Fair &mdash; bicycle returns to Available</option>
+                            <option value="damaged">Damaged &mdash; routes to Maintenance</option>
+                            <option value="needs_maintenance">Needs maintenance &mdash; routes to Maintenance</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="endRideNote">Note (optional)</label>
+                        <textarea class="form-control" id="endRideNote" name="note" rows="2" maxlength="1000"
+                                  placeholder="Anything the rider reported on return"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="admin-modal__foot">
+                <button type="button" class="btn-admin btn-admin--secondary" data-modal-close>Cancel</button>
+                <button type="submit" class="btn-admin btn-admin--warning">End Ride &amp; Settle</button>
+            </div>
+        </form>
     </div>
 </div>
 

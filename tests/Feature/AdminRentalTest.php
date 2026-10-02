@@ -195,18 +195,48 @@ class AdminRentalTest extends TestCase
         $bike = $this->makeBicycle();
         $rental = $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => Rental::STATUS_ACTIVE]);
 
+        // End Ride is one step: it settles the rental rather than parking it in
+        // the returns queue, so the controller calls endRideAndSettle().
+        // The return value is built lazily so the rental is still 'active' in
+        // the database when the controller runs its own status check.
         $service = Mockery::mock(RentalService::class);
-        $service->shouldReceive('markRideEnded')->once()->andReturn([
-            'rental' => $rental->fresh(),
-        ]);
+        $service->shouldReceive('endRideAndSettle')->once()->andReturnUsing(function () use ($rental) {
+            $rental->forceFill(['status' => Rental::STATUS_RETURNED])->save();
+
+            return [
+                'rental' => $rental->fresh(),
+                'fees' => ['finalFee' => 120.0, 'latePenalty' => 0.0, 'durationFormatted' => '1h 0m'],
+            ];
+        });
         $this->app->instance(RentalService::class, $service);
 
         $this->actingAs($this->admin)
             ->from(route('admin.rentals.index'))
-            ->put(route('admin.rentals.end-ride', $rental->id))
-            ->assertRedirect(route('admin.rentals.index'));
+            ->put(route('admin.rentals.end-ride', $rental->id), ['condition' => Rental::CONDITION_GOOD])
+            ->assertRedirect(route('admin.rentals.index'))
+            ->assertSessionHasNoErrors();
 
+        $this->assertDatabaseHas('rentals', ['id' => $rental->id, 'status' => Rental::STATUS_RETURNED]);
         $this->assertDatabaseHas('audit_logs', ['action' => 'rental_ended_by_admin']);
+    }
+
+    public function test_end_ride_rejects_invalid_condition(): void
+    {
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle();
+        $rental = $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => Rental::STATUS_ACTIVE]);
+
+        $service = Mockery::mock(RentalService::class);
+        $service->shouldNotReceive('endRideAndSettle');
+        $this->app->instance(RentalService::class, $service);
+
+        $this->actingAs($this->admin)
+            ->from(route('admin.rentals.index'))
+            ->put(route('admin.rentals.end-ride', $rental->id), ['condition' => 'destroyed'])
+            ->assertRedirect(route('admin.rentals.index'))
+            ->assertSessionHasErrors('condition');
+
+        $this->assertDatabaseHas('rentals', ['id' => $rental->id, 'status' => Rental::STATUS_ACTIVE]);
     }
 
     public function test_cancel_rental_locks_bicycle(): void
@@ -299,6 +329,70 @@ class AdminRentalTest extends TestCase
             ->assertOk();
     }
 
+    public function test_the_active_queue_offers_end_ride_with_a_shared_dialog(): void
+    {
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle(['serialNumber' => 'PDY-E2']);
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_ACTIVE,
+        ]);
+
+        $html = $this->actingAs($this->admin)->get(route('admin.rentals.index'))->getContent();
+
+        // End Ride is settled in one step here, so the row opens the dialog that
+        // collects the condition instead of posting a bare form.
+        $this->assertStringContainsString(
+            'data-end-ride',
+            $html,
+            'an in-progress rental offers End Ride from the active queue'
+        );
+        $this->assertStringContainsString(
+            'data-rental-id="' . $rental->id . '"',
+            $html,
+            'the opener names the rental it acts on'
+        );
+        $this->assertStringContainsString('id="endRideModal"', $html, 'the shared dialog is rendered once');
+        $this->assertStringContainsString('name="condition"', $html, 'the dialog requires the inspected condition');
+
+        // The URL lives once, in the shared dialog, with a placeholder the script
+        // substitutes - so no per-row form repeats it.
+        $this->assertSame(
+            1,
+            substr_count($html, 'id="endRideForm"'),
+            'there is exactly one End Ride form on the page'
+        );
+    }
+
+    public function test_an_expired_rental_can_still_be_ended_from_the_active_queue(): void
+    {
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle(['serialNumber' => 'PDY-E3']);
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_EXPIRED,
+            'endTime' => now()->subHours(3),
+            'expectedEndTime' => now()->subHours(2),
+        ]);
+
+        $html = $this->actingAs($this->admin)->get(route('admin.rentals.index'))->getContent();
+
+        $this->assertStringContainsString(
+            'data-rental-id="' . $rental->id . '"',
+            $html,
+            'an expired ride is still endable; the rider has it in hand'
+        );
+
+        $this->actingAs($this->admin)
+            ->from(route('admin.rentals.index'))
+            ->put(route('admin.rentals.end-ride', $rental->id), ['condition' => Rental::CONDITION_GOOD])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(Rental::STATUS_RETURNED, $rental->fresh()->status);
+    }
+
     public function test_end_ride_invalid_status_returns_error(): void
     {
         $rider = $this->makeRider();
@@ -318,12 +412,12 @@ class AdminRentalTest extends TestCase
         $rental = $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => Rental::STATUS_ACTIVE]);
 
         $service = Mockery::mock(RentalService::class);
-        $service->shouldReceive('markRideEnded')->once()->andThrow(new \RuntimeException('Service failure'));
+        $service->shouldReceive('endRideAndSettle')->once()->andThrow(new \RuntimeException('Service failure'));
         $this->app->instance(RentalService::class, $service);
 
         $this->actingAs($this->admin)
             ->from(route('admin.rentals.index'))
-            ->put(route('admin.rentals.end-ride', $rental->id))
+            ->put(route('admin.rentals.end-ride', $rental->id), ['condition' => Rental::CONDITION_GOOD])
             ->assertSessionHasErrors('rental');
     }
 

@@ -16,6 +16,12 @@ class BicycleResource extends JsonResource
             'model'              => $this->model,
             'description'        => $this->description,
             'status'             => $this->status,
+            // Whether this unit is part of the rentable fleet at all. Status alone
+            // cannot express that: a parked bicycle is also `available` in older
+            // data, and `out_of_service` is the state that now says it clearly.
+            'iotEnabled'         => (bool) $this->iotEnabled,
+            'inService'          => $this->isInService(),
+            'rentable'           => $this->isRentable(),
             'hourlyRate'         => $this->hourlyRate,
             'currentLat'         => $this->currentLat ? (float) $this->currentLat : null,
             'currentLng'         => $this->currentLng ? (float) $this->currentLng : null,

@@ -96,14 +96,15 @@ class MonitoringController extends Controller
     private function buildStatusSummary($bicycles): array
     {
         $summary = [
-            'total'      => 0,
-            'available'  => 0,
-            'rented'     => 0,
-            'maintenance'=> 0,
-            'locked'     => 0,
-            'unlocked'   => 0,
-            'online'     => 0,
-            'offline'    => 0,
+            'total'         => 0,
+            'available'     => 0,
+            'rented'        => 0,
+            'maintenance'   => 0,
+            'out_of_service'=> 0,
+            'locked'        => 0,
+            'unlocked'      => 0,
+            'online'        => 0,
+            'offline'       => 0,
         ];
 
         $cutoff = now()->subMinutes(5);

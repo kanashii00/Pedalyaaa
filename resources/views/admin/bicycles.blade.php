@@ -12,6 +12,14 @@
 @endsection
 
 @section('content')
+@php
+    // Shared row helpers. The row loop and the dialogs that live below the
+    // table must agree on what a bicycle's live rental is, otherwise a dialog
+    // could be rendered for a rental the table never offered.
+    $inMaintenanceFor = fn ($bike) => $bike->status === 'maintenance';
+    $bicyclesRentalFor = fn ($bike) => $bike->status === 'rented' ? $bike->currentRental : null;
+@endphp
+
 {{-- Bicycles Table --}}
 <div class="admin-table-wrap">
     <div class="admin-table-toolbar">
@@ -25,6 +33,7 @@
                 <option value="available" {{ request('status') === 'available' ? 'selected' : '' }}>Available</option>
                 <option value="rented" {{ request('status') === 'rented' ? 'selected' : '' }}>Rented</option>
                 <option value="maintenance" {{ request('status') === 'maintenance' ? 'selected' : '' }}>Maintenance</option>
+                <option value="{{ \App\Models\Bicycle::STATUS_OUT_OF_SERVICE }}" {{ request('status') === \App\Models\Bicycle::STATUS_OUT_OF_SERVICE ? 'selected' : '' }}>Out of Service</option>
             </select>
             <button type="submit" class="btn-admin btn-admin--secondary btn-admin--sm">
                 <i class="bi bi-funnel me-1"></i>Filter
@@ -32,7 +41,23 @@
         </form>
     </div>
 
-    <table class="admin-table">
+    <div class="admin-table-scroll">
+    <table class="admin-table admin-table--inventory">
+        <colgroup>
+            {{-- Fixed column widths keep every row aligned; the wide ones hold
+                 the rental/renter stacks, the narrow ones hold badges. --}}
+            <col class="col-name">
+            <col class="col-serial">
+            <col class="col-status">
+            <col class="col-renter">
+            <col class="col-rental">
+            <col class="col-battery">
+            <col class="col-lock">
+            <col class="col-condition">
+            <col class="col-rate">
+            <col class="col-updated">
+            <col class="col-actions">
+        </colgroup>
         <thead>
             <tr>
                 <th class="sortable">Name <span class="sort-ind"></span></th>
@@ -53,11 +78,11 @@
                 @php
                     $isLocked = $bike->lockStatus === 'locked';
                     $isRented = $bike->status === 'rented';
-                    $inMaintenance = $bike->status === 'maintenance';
+                    $inMaintenance = $inMaintenanceFor($bike);
 
                     // The one rental holding this bicycle, eager loaded by the
                     // controller off the denormalised currentRentalId.
-                    $rental = $isRented ? $bike->currentRental : null;
+                    $rental = $bicyclesRentalFor($bike);
 
                     // processReturn() only accepts a rental that is already
                     // waiting on (or past) its return deadline.
@@ -78,7 +103,12 @@
                     <td class="cell-title" data-label="Name">{{ $bike->name }}</td>
                     <td data-label="Serial"><code>{{ $bike->serialNumber }}</code></td>
                     <td data-label="Status">
-                        @if($bike->status === 'available')
+                        {{-- A bicycle that is not in service is shown as such regardless
+                             of the status column, because that is the fact that governs
+                             whether it can be rented or commanded at all. --}}
+                        @unless($bike->isInService())
+                            <x-admin.badge type="neutral" label="Not In Service" />
+                        @elseif($bike->status === 'available')
                             <x-admin.badge type="success" label="Available" />
                         @elseif($bike->status === 'rented')
                             <x-admin.badge type="info" label="Rented" />
@@ -86,13 +116,13 @@
                             <x-admin.badge type="warning" label="Maintenance" />
                         @else
                             <x-admin.badge type="neutral" :label="ucfirst($bike->status)" />
-                        @endif
+                        @endunless
                     </td>
                     <td data-label="Current Renter">
                         @if($isRented && $bike->currentRiderUser)
-                            <div class="d-flex flex-column">
-                                <span class="fw-semibold">{{ $bike->currentRiderUser->name }}</span>
-                                <small class="text-muted">
+                            <div class="cell-stack">
+                                <span class="cell-title">{{ $bike->currentRiderUser->name }}</span>
+                                <small class="cell-sub">
                                     {{ $bike->currentRiderUser->studentId ?? $bike->currentRiderUser->email }}
                                 </small>
                             </div>
@@ -102,24 +132,23 @@
                     </td>
                     <td data-label="Current Rental">
                         @if($rental)
-                            <div class="d-flex flex-column">
-                                <a href="{{ route('admin.rentals.show', $rental->id) }}"
-                                   class="text-decoration-none">
+                            <div class="cell-stack">
+                                <a href="{{ route('admin.rentals.show', $rental->id) }}" class="cell-key">
                                     <code>{{ $rental->rentalId }}</code>
                                 </a>
-                                <small class="text-muted">
+                                <small class="cell-sub">
                                     {{ \Illuminate\Support\Str::headline($rental->status) }}
                                 </small>
-                                <small class="text-muted">
+                                <small class="cell-sub">
                                     <i class="bi bi-play-circle"></i>
                                     {{ \Illuminate\Support\Carbon::parse($rental->startTime)->format('M j, g:i A') }}
                                 </small>
-                                <small class="text-muted">
+                                <small class="cell-sub">
                                     <i class="bi bi-flag"></i>
                                     Due
                                     {{ \Illuminate\Support\Carbon::parse($rental->expectedEndTime)->format('M j, g:i A') }}
                                 </small>
-                                <small class="text-muted">
+                                <small class="cell-sub">
                                     <i class="bi bi-hourglass-split"></i>
                                     {{ $rental->durationFormatted ?: ($rental->durationMinutes . ' min') }}
                                 </small>
@@ -138,17 +167,21 @@
                         </div>
                     </td>
                     <td data-label="Lock">
-                        @if($isLocked)
+                        {{-- The recorded lock state of a parked bicycle is just where
+                             it happens to be sitting; there is no device behind it. --}}
+                        @unless($bike->isInService())
+                            <x-admin.badge type="neutral" label="No Device" />
+                        @elseif($isLocked)
                             <x-admin.badge type="danger" label="Locked" />
                         @else
                             <x-admin.badge type="success" label="Unlocked" />
-                        @endif
+                        @endunless
                     </td>
                     <td data-label="Condition">{{ ucfirst($bike->condition ?? 'good') }}</td>
                     <td data-label="Hourly Rate">₱{{ number_format($bike->hourlyRate, 2) }}/hr</td>
                     <td data-label="Last Updated"><small class="text-muted">{{ $bike->updated_at->diffForHumans() }}</small></td>
                     <td data-label="Actions">
-                        <div class="d-flex gap-1">
+                        <div class="actions-row">
                             @if($inMaintenance)
                                 {{-- Under maintenance: all row actions disabled --}}
                                 <button class="btn-admin btn-admin--secondary btn-admin--sm" type="button" disabled
@@ -180,6 +213,16 @@
                                             aria-label="Bicycle in use, lock control unavailable">
                                         <i class="bi bi-bicycle"></i>
                                         <span>In Use</span>
+                                    </button>
+                                @elseif(!$bike->isInService())
+                                    {{-- Parked: no device, so there is nothing to actuate.
+                                         Rendering a button here would only ever queue a
+                                         command that no hardware could acknowledge. --}}
+                                    <button class="btn-admin btn-admin--secondary btn-admin--sm" type="button" disabled
+                                            title="{{ $bike->serialNumber }} is not in service and has no controllable lock"
+                                            aria-label="Lock control unavailable, bicycle not in service">
+                                        <i class="bi bi-plug"></i>
+                                        <span>No Device</span>
                                     </button>
                                 @elseif(!$isLocked)
                                     <form action="{{ route('admin.bicycles.lock', $bike->id) }}" method="POST">
@@ -218,24 +261,19 @@
 
                             {{-- Rental-aware actions. Availability follows the
                                  bicycle's live status, so a row can never offer
-                                 an action the server would reject. --}}
-                            @if($rental)
-                                <a href="{{ route('admin.rentals.show', $rental->id) }}"
-                                   class="btn-admin btn-admin--primary btn-admin--sm" title="View Rental {{ $rental->rentalId }}">
-                                    <i class="bi bi-receipt"></i>
-                                </a>
-                            @endif
-
+                                 an action the server would reject. The opener
+                                 only carries the rental; the dialog itself is
+                                 rendered once below the table. --}}
                             @if($canEndRide)
-                                <form action="{{ route('admin.rentals.end-ride', $rental->id) }}" method="POST">
-                                    @csrf
-                                    @method('PUT')
-                                    <button type="submit" class="btn-admin btn-admin--warning btn-admin--sm"
-                                            title="End Ride - rider is returning the bicycle"
-                                            data-confirm="End the ride for {{ $rental->rentalId }}?">
-                                        <i class="bi bi-stop-circle"></i>
-                                    </button>
-                                </form>
+                                <button type="button" class="btn-admin btn-admin--warning btn-admin--sm"
+                                        title="End Ride - end the ride and settle the rental"
+                                        data-end-ride
+                                        data-rental-id="{{ $rental->id }}"
+                                        data-rental-code="{{ $rental->rentalId }}"
+                                        data-bike="{{ $bike->serialNumber }} - {{ $bike->name }}"
+                                        data-rider="{{ $rental->rider->name ?? $rental->riderName ?? 'Unknown' }}">
+                                    <i class="bi bi-stop-circle"></i>
+                                </button>
                             @endif
 
                             @if($canProcessReturn)
@@ -264,13 +302,6 @@
                                             <i class="bi bi-clock-history me-2"></i>Rental History
                                         </a>
                                     </li>
-                                    @if($rental)
-                                        <li>
-                                            <a class="dropdown-item" href="{{ route('admin.rentals.show', $rental->id) }}">
-                                                <i class="bi bi-receipt me-2"></i>View Rental
-                                            </a>
-                                        </li>
-                                    @endif
                                     <li><hr class="dropdown-divider"></li>
                                     <li>
                                         {{-- A rented bicycle is in use, so it is pulled
@@ -297,187 +328,284 @@
                         </div>
                     </td>
                 </tr>
-
-                {{-- Return Bicycle Modal: the inspected condition decides whether
-                     the bicycle returns to Available or is routed to Maintenance. --}}
-                @if($canProcessReturn)
-                    <div class="admin-modal" id="returnBicycleModal{{ $rental->id }}">
-                        <div class="admin-modal__backdrop" data-modal-close></div>
-                        <div class="admin-modal__dialog">
-                            <form action="{{ route('admin.rentals.process-return', $rental->id) }}" method="POST">
-                                @csrf
-                                @method('PUT')
-                                <div class="admin-modal__head">
-                                    <h3>Return {{ $rental->rentalId }}</h3>
-                                    <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
-                                </div>
-                                <div class="admin-modal__body">
-                                    <div class="admin-form">
-                                        <p class="text-muted">
-                                            Confirm the return of <strong>{{ $bike->serialNumber }} - {{ $bike->name }}</strong>
-                                            and record the condition it came back in.
-                                        </p>
-
-                                        <div class="mb-3">
-                                            <label class="form-label" for="returnCondition{{ $rental->id }}">Condition on return</label>
-                                            <select class="form-select" id="returnCondition{{ $rental->id }}" name="condition">
-                                                <option value="good">Good - returns to Available</option>
-                                                <option value="fair">Fair - returns to Available</option>
-                                                <option value="damaged">Damaged - routes to Maintenance</option>
-                                                <option value="needs_maintenance">Needs maintenance - routes to Maintenance</option>
-                                            </select>
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <label class="form-label" for="returnNote{{ $rental->id }}">Note (optional)</label>
-                                            <textarea class="form-control" id="returnNote{{ $rental->id }}" name="note"
-                                                      rows="2" maxlength="1000"></textarea>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="admin-modal__foot">
-                                    <button type="button" class="btn-admin btn-admin--secondary" data-modal-close>Cancel</button>
-                                    <button type="submit" class="btn-admin btn-admin--success">Confirm Return</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                @endif
-
-                {{-- Mark Maintenance Modal: posts to the existing maintenance
-                     endpoint, which opens a record and moves the bicycle to
-                     maintenance + locked in one step. --}}
-                @if(!$isRented && !$inMaintenance)
-                    <div class="admin-modal" id="maintenanceBicycleModal{{ $bike->id }}">
-                        <div class="admin-modal__backdrop" data-modal-close></div>
-                        <div class="admin-modal__dialog">
-                            <form action="{{ route('admin.maintenance.store') }}" method="POST">
-                                @csrf
-                                <input type="hidden" name="bicycleId" value="{{ $bike->id }}">
-                                <div class="admin-modal__head">
-                                    <h3>Mark {{ $bike->serialNumber }} for Maintenance</h3>
-                                    <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
-                                </div>
-                                <div class="admin-modal__body">
-                                    <div class="admin-form">
-                                        <p class="text-muted">
-                                            <strong>{{ $bike->serialNumber }} - {{ $bike->name }}</strong> will be taken out
-                                            of service: its status becomes Maintenance and the smart lock is locked.
-                                        </p>
-
-                                        <div class="mb-3">
-                                            <label class="form-label" for="maintType{{ $bike->id }}">Issue type</label>
-                                            <select class="form-select" id="maintType{{ $bike->id }}" name="type" required>
-                                                <option value="routine">Routine</option>
-                                                <option value="repair">Repair</option>
-                                                <option value="battery">Battery</option>
-                                                <option value="lock_mechanism">Lock mechanism</option>
-                                                <option value="gps_module">GPS module</option>
-                                                <option value="frame">Frame</option>
-                                                <option value="other">Other</option>
-                                            </select>
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <label class="form-label" for="maintSeverity{{ $bike->id }}">Severity</label>
-                                            <select class="form-select" id="maintSeverity{{ $bike->id }}" name="severity">
-                                                <option value="low">Low</option>
-                                                <option value="medium">Medium</option>
-                                                <option value="high">High</option>
-                                                <option value="critical">Critical</option>
-                                            </select>
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <label class="form-label" for="maintDesc{{ $bike->id }}">Description</label>
-                                            <textarea class="form-control" id="maintDesc{{ $bike->id }}" name="description"
-                                                      rows="3" maxlength="1000" required
-                                                      placeholder="What needs attention on this bicycle?"></textarea>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="admin-modal__foot">
-                                    <button type="button" class="btn-admin btn-admin--secondary" data-modal-close>Cancel</button>
-                                    <button type="submit" class="btn-admin btn-admin--warning">Mark for Maintenance</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                @endif
-
-                {{-- Edit Modal --}}
-                <div class="admin-modal" id="editBicycleModal{{ $bike->id }}">
-                    <div class="admin-modal__backdrop" data-modal-close></div>
-                    <div class="admin-modal__dialog admin-modal__dialog--lg">
-                        <form action="{{ route('admin.bicycles.update', $bike->id) }}" method="POST">
-                            @csrf
-                            @method('PUT')
-                            <div class="admin-modal__head">
-                                <h3>Edit Bicycle - {{ $bike->name }}</h3>
-                                <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
-                            </div>
-                            <div class="admin-modal__body">
-                                <div class="admin-form">
-                                    <div class="row g-3">
-                                        <div class="col-md-6">
-                                            <label class="form-label">Name</label>
-                                            <input type="text" name="name" class="form-control" value="{{ $bike->name }}" required>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label">Model</label>
-                                            <input type="text" name="model" class="form-control" value="{{ $bike->model }}">
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label">Serial Number</label>
-                                            <input type="text" name="serialNumber" class="form-control" value="{{ $bike->serialNumber }}" required>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label">Hourly Rate (₱)</label>
-                                            <input type="number" name="hourlyRate" class="form-control" value="{{ $bike->hourlyRate }}" step="0.01" min="0" required>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label">Latitude</label>
-                                            <input type="number" name="currentLat" class="form-control" value="{{ $bike->currentLat }}" step="any">
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label">Longitude</label>
-                                            <input type="number" name="currentLng" class="form-control" value="{{ $bike->currentLng }}" step="any">
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label">Battery Level (%)</label>
-                                            <input type="number" name="batteryLevel" class="form-control" value="{{ $bike->batteryLevel }}" min="0" max="100">
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label">Status</label>
-                                            <select name="status" class="form-select">
-                                                <option value="available" {{ $bike->status === 'available' ? 'selected' : '' }}>Available</option>
-                                                <option value="rented" {{ $bike->status === 'rented' ? 'selected' : '' }}>Rented</option>
-                                                <option value="maintenance" {{ $bike->status === 'maintenance' ? 'selected' : '' }}>Maintenance</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-12">
-                                            <label class="form-label">Description</label>
-                                            <textarea name="description" class="form-control" rows="3">{{ $bike->description }}</textarea>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="admin-modal__foot">
-                                <button type="button" class="btn-admin btn-admin--secondary" data-modal-close>Cancel</button>
-                                <button type="submit" class="btn-admin btn-admin--primary">Save Changes</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
             @empty
                 <tr>
-                    <td colspan="9">
+                    <td colspan="11">
                         <x-admin.empty-state icon="bi-bicycle" title="No bicycles found" />
                     </td>
                 </tr>
             @endforelse
         </tbody>
     </table>
+    </div>{{-- /.admin-table-scroll --}}
+
+    {{-- Row dialogs live outside the table on purpose. Browsers foster-parent
+         a <div> written directly inside <tbody>, which silently breaks the row
+         layout and leaves orphaned dialogs in the DOM. --}}
+    @foreach ($bicycles as $bike)
+        @php
+            $rental = $bicyclesRentalFor($bike);
+            $canProcessReturnRow = $rental && in_array($rental->status, [
+                \App\Models\Rental::STATUS_AWAITING_RETURN,
+                \App\Models\Rental::STATUS_OVERDUE_RETURN,
+            ], true);
+
+            // Must match the condition the row dropdown uses to offer "Mark
+            // Maintenance" (status-based, not rental-pointer based), so the
+            // dialog only exists for a bicycle that action can be performed on.
+            $canMarkMaintenanceRow = $bike->status !== 'maintenance'
+                && $bike->status !== 'rented';
+        @endphp
+
+        {{-- Edit Bicycle --}}
+        <div class="admin-modal" id="editBicycleModal{{ $bike->id }}">
+            <div class="admin-modal__backdrop" data-modal-close></div>
+            <div class="admin-modal__dialog admin-modal__dialog--lg">
+                <form action="{{ route('admin.bicycles.update', $bike->id) }}" method="POST">
+                    @csrf
+                    @method('PUT')
+                    <div class="admin-modal__head">
+                        <h3>Edit {{ $bike->serialNumber }}</h3>
+                        <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+                    </div>
+                    <div class="admin-modal__body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Name</label>
+                                <input type="text" name="name" class="form-control" value="{{ $bike->name }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Serial Number</label>
+                                <input type="text" name="serialNumber" class="form-control" value="{{ $bike->serialNumber }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Hourly Rate (₱)</label>
+                                <input type="number" name="hourlyRate" class="form-control" value="{{ $bike->hourlyRate }}" step="0.01" min="0" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Latitude</label>
+                                <input type="number" name="currentLat" class="form-control" value="{{ $bike->currentLat }}" step="any">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Longitude</label>
+                                <input type="number" name="currentLng" class="form-control" value="{{ $bike->currentLng }}" step="any">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Battery Level (%)</label>
+                                <input type="number" name="batteryLevel" class="form-control" value="{{ $bike->batteryLevel }}" min="0" max="100">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Status</label>
+                                <select name="status" class="form-select">
+                                    <option value="available" {{ $bike->status === 'available' ? 'selected' : '' }}>Available</option>
+                                    <option value="rented" {{ $bike->status === 'rented' ? 'selected' : '' }}>Rented</option>
+                                    <option value="maintenance" {{ $bike->status === 'maintenance' ? 'selected' : '' }}>Maintenance</option>
+                                    <option value="{{ \App\Models\Bicycle::STATUS_OUT_OF_SERVICE }}" {{ $bike->status === \App\Models\Bicycle::STATUS_OUT_OF_SERVICE ? 'selected' : '' }}>Out of Service</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea name="description" class="form-control" rows="3">{{ $bike->description }}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="admin-modal__foot">
+                        <button type="button" class="btn-admin btn-admin--secondary" data-modal-close>Cancel</button>
+                        <button type="submit" class="btn-admin btn-admin--primary">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {{-- Return Bicycle: the inspected condition decides whether the bicycle
+             returns to Available or is routed to Maintenance. --}}
+        @if ($canProcessReturnRow)
+            <div class="admin-modal" id="returnBicycleModal{{ $rental->id }}">
+                <div class="admin-modal__backdrop" data-modal-close></div>
+                <div class="admin-modal__dialog">
+                    <form action="{{ route('admin.rentals.process-return', $rental->id) }}" method="POST">
+                        @csrf
+                        @method('PUT')
+                        <div class="admin-modal__head">
+                            <h3>Return {{ $rental->rentalId }}</h3>
+                            <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                        <div class="admin-modal__body">
+                            <div class="admin-form">
+                                <p class="text-muted">
+                                    Confirm the return of <strong>{{ $bike->serialNumber }} - {{ $bike->name }}</strong>
+                                    and record the condition it came back in.
+                                </p>
+
+                                <div class="mb-3">
+                                    <label class="form-label" for="returnCondition{{ $rental->id }}">Condition on return</label>
+                                    <select class="form-select" id="returnCondition{{ $rental->id }}" name="condition">
+                                        <option value="good">Good - returns to Available</option>
+                                        <option value="fair">Fair - returns to Available</option>
+                                        <option value="damaged">Damaged - routes to Maintenance</option>
+                                        <option value="needs_maintenance">Needs maintenance - routes to Maintenance</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label" for="returnNote{{ $rental->id }}">Note (optional)</label>
+                                    <textarea class="form-control" id="returnNote{{ $rental->id }}" name="note"
+                                              rows="2" maxlength="1000"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="admin-modal__foot">
+                            <button type="button" class="btn-admin btn-admin--secondary" data-modal-close>Cancel</button>
+                            <button type="submit" class="btn-admin btn-admin--success">Confirm Return</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        @endif
+
+        {{-- Mark Maintenance.
+
+             Posts to admin.maintenance.store, the single existing endpoint that
+             opens a maintenance record and moves the bicycle to Maintenance.
+             It takes the bicycle as a form field rather than a URL parameter,
+             and expects description + type as required, so the dialog mirrors
+             that contract exactly. The modal id matches the id the row dropdown
+             opens ('maintenanceBicycleModal{...}').
+
+             Rendered on the same condition the dropdown offers the action: a
+             bicycle that is neither already under maintenance nor out on a
+             ride. A rented bicycle has to come back through the return
+             workflow first. --}}
+        @if ($canMarkMaintenanceRow)
+            <div class="admin-modal" id="maintenanceBicycleModal{{ $bike->id }}">
+                <div class="admin-modal__backdrop" data-modal-close></div>
+                <div class="admin-modal__dialog">
+                    <form action="{{ route('admin.maintenance.store') }}" method="POST">
+                        @csrf
+                        <div class="admin-modal__head">
+                            <h3>Mark {{ $bike->serialNumber }} Under Maintenance</h3>
+                            <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                        <div class="admin-modal__body">
+                            <div class="admin-form">
+                                <p class="text-muted">
+                                    This opens a maintenance record for
+                                    <strong>{{ $bike->serialNumber }} - {{ $bike->name }}</strong>
+                                    and takes it out of service.
+                                </p>
+
+                                {{-- The bicycle comes from the row that opened this
+                                     dialog, so it is never left to a stale select. --}}
+                                <input type="hidden" name="bicycleId" value="{{ $bike->id }}">
+
+                                <div class="mb-3">
+                                    <label class="form-label" for="maintenanceType{{ $bike->id }}">
+                                        Type <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select @error('type') is-invalid @enderror"
+                                            id="maintenanceType{{ $bike->id }}" name="type" required>
+                                        <option value="">Select Type</option>
+                                        <option value="routine" {{ old('type') === 'routine' ? 'selected' : '' }}>Routine</option>
+                                        <option value="repair" {{ old('type') === 'repair' ? 'selected' : '' }}>Repair</option>
+                                        <option value="battery" {{ old('type') === 'battery' ? 'selected' : '' }}>Battery Service</option>
+                                        <option value="lock_mechanism" {{ old('type') === 'lock_mechanism' ? 'selected' : '' }}>Lock Mechanism</option>
+                                        <option value="gps_module" {{ old('type') === 'gps_module' ? 'selected' : '' }}>GPS Module</option>
+                                        <option value="frame" {{ old('type') === 'frame' ? 'selected' : '' }}>Frame</option>
+                                        <option value="other" {{ old('type') === 'other' ? 'selected' : '' }}>Other</option>
+                                    </select>
+                                    @error('type')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label" for="maintenanceReason{{ $bike->id }}">
+                                        Description <span class="text-danger">*</span>
+                                    </label>
+                                    <textarea class="form-control @error('description') is-invalid @enderror"
+                                              id="maintenanceReason{{ $bike->id }}" name="description"
+                                              rows="2" maxlength="1000" required
+                                              placeholder="e.g. Rear brake not responding">{{ old('description') }}</textarea>
+                                    @error('description')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label" for="maintenanceSeverity{{ $bike->id }}">Severity</label>
+                                    <select class="form-select" id="maintenanceSeverity{{ $bike->id }}" name="severity">
+                                        <option value="low" {{ old('severity') === 'low' ? 'selected' : '' }}>Low</option>
+                                        <option value="medium" {{ old('severity') === 'medium' ? 'selected' : '' }}>Medium</option>
+                                        <option value="high" {{ old('severity') === 'high' ? 'selected' : '' }}>High</option>
+                                        <option value="critical" {{ old('severity') === 'critical' ? 'selected' : '' }}>Critical</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label" for="maintenanceNotes{{ $bike->id }}">Notes (optional)</label>
+                                    <textarea class="form-control" id="maintenanceNotes{{ $bike->id }}" name="notes"
+                                              rows="2" maxlength="1000">{{ old('notes') }}</textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="admin-modal__foot">
+                            <button type="button" class="btn-admin btn-admin--secondary" data-modal-close>Cancel</button>
+                            <button type="submit" class="btn-admin btn-admin--danger">Mark Under Maintenance</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        @endif
+    @endforeach
+
+    {{-- Shared End Ride dialog. One dialog for the whole page keeps the markup
+         out of every row; the opener only carries the rental it acts on. --}}
+    <div class="admin-modal" id="endRideModal">
+        <div class="admin-modal__backdrop" data-modal-close></div>
+        <div class="admin-modal__dialog">
+            {{-- __RENTAL_ID__ is swapped for the clicked rental by admin.js --}}
+            <form action="{{ route('admin.rentals.end-ride', '__RENTAL_ID__') }}" method="POST" id="endRideForm" data-end-ride-form>
+                @csrf
+                @method('PUT')
+                <div class="admin-modal__head">
+                    <h3>End Ride <span id="endRideCode" class="cell-key"></span></h3>
+                    <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+                </div>
+                <div class="admin-modal__body">
+                    <div class="admin-form">
+                        <p class="text-muted">
+                            Ending the ride for <strong id="endRideBike"></strong><br>
+                            Rider: <strong id="endRideRider"></strong>
+                        </p>
+                        <p class="form-hint">
+                            This closes the rental, records the fees owed, and sets the bicycle back to
+                            Available (or Maintenance if it came back damaged). The rental moves to history.
+                        </p>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="endRideCondition">Condition on return</label>
+                            <select class="form-select" id="endRideCondition" name="condition" required>
+                                <option value="good">Good - bicycle returns to Available</option>
+                                <option value="fair">Fair - bicycle returns to Available</option>
+                                <option value="damaged">Damaged - routes to Maintenance</option>
+                                <option value="needs_maintenance">Needs maintenance - routes to Maintenance</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="endRideNote">Note (optional)</label>
+                            <textarea class="form-control" id="endRideNote" name="note" rows="2" maxlength="1000"
+                                      placeholder="Anything the rider reported on return"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="admin-modal__foot">
+                    <button type="button" class="btn-admin btn-admin--secondary" data-modal-close>Cancel</button>
+                    <button type="submit" class="btn-admin btn-admin--warning">End Ride &amp; Settle</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <div class="admin-table-foot">
         <span>Showing {{ method_exists($bicycles, 'total') ? $bicycles->total() : $bicycles->count() }} records</span>

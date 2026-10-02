@@ -192,6 +192,7 @@
                         <option value="available">Available</option>
                         <option value="rented">Rented</option>
                         <option value="maintenance">Maintenance</option>
+                        <option value="{{ \App\Models\Bicycle::STATUS_OUT_OF_SERVICE }}">Out of Service</option>
                         <option value="removed">Removed</option>
                     </select>
                 </div>

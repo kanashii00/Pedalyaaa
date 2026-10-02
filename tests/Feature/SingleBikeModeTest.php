@@ -14,9 +14,10 @@ use Tests\TestCase;
  * Single-bike demo mode.
  *
  * Only the featured bicycle is offered on the rider rent page; the rest of the
- * available fleet stays on screen but greyed out and unselectable. The same
- * limit is re-checked in RentController::store() so a crafted POST cannot rent
- * a greyed-out bicycle.
+ * available fleet stays on screen but greyed out and unselectable. The flag and
+ * the bicycle's live availability are two independent gates - a card is only
+ * actionable when both pass - and the same limit is re-checked in
+ * RentController::store() so a crafted POST cannot rent a greyed-out bicycle.
  */
 class SingleBikeModeTest extends TestCase
 {
@@ -48,12 +49,18 @@ class SingleBikeModeTest extends TestCase
 
         $html = $this->actingAs($rider)->get(route('rider.rentals.create'))->getContent();
 
-        // The featured bike keeps its working button.
-        $this->assertStringContainsString("selectBicycle('1',", $html);
+        // The featured bike keeps its working button. Identity now travels as a
+        // JSON payload on the trigger rather than as inline JS arguments, so the
+        // card is matched on its payload, not on a call signature.
+        $this->assertStringContainsString('&quot;id&quot;:1', $html, 'the featured bicycle offers a rent button');
 
         // Every other bike is rendered but inert.
         for ($id = 2; $id <= 4; $id++) {
-            $this->assertStringNotContainsString("selectBicycle('{$id}',", $html, "bicycle {$id} must not be selectable");
+            $this->assertStringNotContainsString(
+                '&quot;id&quot;:'.$id . ',',
+                $html,
+                "bicycle {$id} must not be selectable"
+            );
         }
 
         $this->assertSame(
@@ -61,7 +68,19 @@ class SingleBikeModeTest extends TestCase
             substr_count($html, 'Select & Rent'),
             'exactly one bicycle may offer the rent button'
         );
-        $this->assertSame(3, substr_count($html, '>Unavailable<'), 'the other three should be marked unavailable');
+        // Counted on the badge markup so each withheld card contributes exactly one
+// hit; the label also appears on its disabled button.
+        $this->assertSame(
+            3,
+            substr_count($html, 'badge-unavailable">Unavailable'),
+            'the other three are withheld by the feature flag'
+        );
+
+        $this->assertSame(
+            0,
+            substr_count($html, 'Not In Service'),
+            'a withheld bicycle is still in service - only the feature flag gates it'
+        );
 
         // Matched on the card markup only: the <style> block always ships the
         // .bicycle-card-unavailable rules, whether or not any card uses them.
@@ -116,7 +135,7 @@ class SingleBikeModeTest extends TestCase
         $html = $this->actingAs($rider)->get(route('rider.rentals.create'))->getContent();
 
         for ($id = 1; $id <= 4; $id++) {
-            $this->assertStringContainsString("selectBicycle('{$id}',", $html);
+            $this->assertStringContainsString('&quot;id&quot;:'.$id . ',', $html);
         }
 
         $this->assertStringNotContainsString('fade-in-up bicycle-card-unavailable', $html);

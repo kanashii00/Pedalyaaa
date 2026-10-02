@@ -22,6 +22,30 @@ class Bicycle extends Model
 
     public const STATUS_REMOVED = 'removed';
 
+    /**
+     * Parked and not in service: present in the inventory, not rentable, and
+     * for a unit without hardware there is no lock to command.
+     *
+     * This says nothing about the lock position - lockStatus remains the
+     * physical truth and may well be `unlocked` for a parked unit.
+     */
+    public const STATUS_OUT_OF_SERVICE = 'out_of_service';
+
+    /**
+     * Every operational state a bicycle can be parked in.
+     *
+     * `locked` is deliberately absent: a lock position is not an operational
+     * state, it lives in lockStatus. Validation and filter lists read from this
+     * so a state cannot be added to the enum and then be unsettable.
+     */
+    public const STATUSES = [
+        self::STATUS_AVAILABLE,
+        self::STATUS_RENTED,
+        self::STATUS_MAINTENANCE,
+        self::STATUS_OUT_OF_SERVICE,
+        self::STATUS_REMOVED,
+    ];
+
     /** Physical smart-lock state (independent of status). */
     public const LOCK_LOCKED = 'locked';
 
@@ -67,6 +91,14 @@ class Bicycle extends Model
         'deviceApiKey',
     ];
 
+    /**
+     * iotEnabled is deliberately absent from $fillable for the same reason:
+     * whether a physical unit is fitted with controllable hardware is a fleet
+     * provisioning fact, not something a request body may assert. It is changed
+     * through provisionForService()/sendOutOfService() (and the fleet reconcile
+     * command), never through an ordinary create/update payload.
+     */
+
     protected function casts(): array
     {
         return [
@@ -81,6 +113,7 @@ class Bicycle extends Model
             'removedAt' => 'datetime',
             'batteryLevel' => 'integer',
             'totalRentals' => 'integer',
+            'iotEnabled' => 'boolean',
             'hourlyRate' => 'decimal:2',
             'currentLat' => 'decimal:7',
             'currentLng' => 'decimal:7',
@@ -140,6 +173,22 @@ class Bicycle extends Model
         return $this->belongsTo(Rental::class, 'currentRentalId');
     }
 
+    /**
+     * Rate a rental is actually billed at.
+     *
+     * The column is NOT NULL, but a row written before that constraint existed
+     * can still carry nothing. The Rent page and RentalService both read the rate
+     * through here, so the estimate a rider is shown can never disagree with the
+     * amount charged, and a missing rate can never reach the page as null or
+     * NaN. A stored 0 is left alone: it is a deliberate value, not a gap.
+     */
+    public function rentableHourlyRate(): float
+    {
+        return $this->hourlyRate !== null
+            ? (float) $this->hourlyRate
+            : (float) config('services.rental.rate_per_hour', 15.00);
+    }
+
     public function scopeAvailable(Builder $query): Builder
     {
         return $query->where('status', self::STATUS_AVAILABLE);
@@ -153,6 +202,105 @@ class Bicycle extends Model
     public function scopeInMaintenance(Builder $query): Builder
     {
         return $query->where('status', self::STATUS_MAINTENANCE);
+    }
+
+    /**
+     * Bicycles fitted with controllable hardware - the only ones that may be
+     * commanded and the only ones that may be rented.
+     */
+    public function scopeInService(Builder $query): Builder
+    {
+        return $query->where('iotEnabled', true);
+    }
+
+    /**
+     * Bicycles parked out of service: no hardware, so nothing to command and
+     * nothing to rent. Their current lockStatus is left exactly as it is.
+     */
+    public function scopeOutOfService(Builder $query): Builder
+    {
+        return $query->where('iotEnabled', false);
+    }
+
+    /**
+     * The renter-facing availability rule, in one place.
+     *
+     * `status = available` alone is not enough: a bicycle sitting in the
+     * inventory out of service also carries that status, and treating it as
+     * rentable would advertise a unit whose lock can never be opened.
+     */
+    public function scopeRentable(Builder $query): Builder
+    {
+        return $query->where('iotEnabled', true)->where('status', self::STATUS_AVAILABLE);
+    }
+
+    /**
+     * Everything the Rent page has to render.
+     *
+     * The page shows an explicit, disabled card for each out-of-service bicycle
+     * rather than hiding it, so the fleet a rider can see always matches the
+     * fleet the admin manages.
+     */
+    public function scopeListable(Builder $query): Builder
+    {
+        return $query->where('status', '!=', self::STATUS_REMOVED);
+    }
+
+    /** Is this bicycle fitted with hardware we can command? */
+    public function isInService(): bool
+    {
+        return (bool) $this->iotEnabled;
+    }
+
+    /** May a rider rent this bicycle right now? */
+    public function isRentable(): bool
+    {
+        return $this->isInService() && $this->status === self::STATUS_AVAILABLE;
+    }
+
+    /**
+     * Single wording for why a bicycle is or is not selectable, shared by the
+     * rider-facing card, the admin inventory and the JSON payload so the three
+     * can never disagree about the same row.
+     *
+     * @return string{0:string,1:bool} [label, rentability]
+     */
+    public function availabilityLabel(): array
+    {
+        if (! $this->isInService()) {
+            return ['Not In Service', false];
+        }
+
+        return match ($this->status) {
+            self::STATUS_AVAILABLE => ['Available', true],
+            self::STATUS_RENTED => ['Rented', false],
+            self::STATUS_MAINTENANCE => ['Maintenance', false],
+            self::STATUS_OUT_OF_SERVICE => ['Unavailable', false],
+            self::STATUS_REMOVED => ['Removed', false],
+            default => ['Unavailable', false],
+        };
+    }
+
+    /**
+     * Mark this bicycle as the live, controllable rental unit.
+     *
+     * Uses forceFill because iotEnabled is kept out of $fillable on purpose.
+     */
+    public function provisionForService(): bool
+    {
+        return $this->forceFill(['iotEnabled' => true])->save();
+    }
+
+    /**
+     * Park this bicycle out of service.
+     *
+     * Deliberately does not touch lockStatus: a unit that is not in service has
+     * no hardware to command, and whatever lock state it is recorded in is the
+     * accurate physical state.
+     */
+    public function sendOutOfService(): bool
+    {
+        return $this->forceFill(['iotEnabled' => false])->save();
     }
 
     /**

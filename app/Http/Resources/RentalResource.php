@@ -38,6 +38,23 @@ class RentalResource extends JsonResource
             'cancelReason'      => $this->cancelReason,
             'approvedBy'        => $this->approvedBy,
             'approvedAt'        => $this->approvedAt,
+            // Return workflow: what was asked for, when, what the inspection
+            // found, and what it settled for. Without these an API client cannot
+            // tell a pending return from a settled one, nor reconcile the amount
+            // it was charged against the bicycle condition it left behind.
+            'returnDeadline'    => $this->returnDeadline,
+            'overdueReturnAt'   => $this->overdueReturnAt,
+            'penaltyType'       => $this->penaltyType,
+            'penaltyValue'      => $this->penaltyValue,
+            'penaltyAccrued'    => $this->penaltyAccrued,
+            'overdueFee'        => $this->overdueFee,
+            'finalFee'          => $this->finalFee,
+            'returnRequestedAt' => $this->returnRequestedAt,
+            'returnCondition'   => $this->returnCondition,
+            'returnInspectedBy' => $this->returnInspectedBy,
+            'returnProcessedAt' => $this->returnProcessedAt,
+            'returnNote'        => $this->returnNote,
+            'isOverdue'         => (bool) $this->isOverdue,
             'bicycle'           => new BicycleResource($this->whenLoaded('bicycle')),
             'rider'             => new UserResource($this->whenLoaded('rider')),
             'created_at'        => $this->created_at,

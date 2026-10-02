@@ -98,10 +98,16 @@ class MaintenanceController extends Controller
         ]);
 
         if ($bicycle && $bicycle->status !== Bicycle::STATUS_MAINTENANCE) {
-            $bicycle->update([
-                'status' => Bicycle::STATUS_MAINTENANCE,
-                'lockStatus' => Bicycle::LOCK_LOCKED,
-            ]);
+            // Maintenance itself applies to every bicycle, in service or not. Only
+            // the in-service unit has a smart lock to secure as part of it; a
+            // parked bicycle keeps the lock state it is recorded in, because that
+            // is the physical truth and there is no device to change it.
+            $bicycle->update($bicycle->isInService()
+                ? [
+                    'status' => Bicycle::STATUS_MAINTENANCE,
+                    'lockStatus' => Bicycle::LOCK_LOCKED,
+                ]
+                : ['status' => Bicycle::STATUS_MAINTENANCE]);
         }
 
         AuditLog::record('maintenance_created', auth()->id(), [

@@ -39,25 +39,73 @@ trait CreatesTestData
         ], $overrides));
     }
 
-    protected function makeBicycle(array $overrides = []): Bicycle
-    {
-        $serial = 'BIKE-' . strtoupper(substr(uniqid(), -6));
+/**
+ * Test bicycles are provisioned as in service by default.
+ *
+ * iotEnabled is deliberately kept out of Bicycle::$fillable, so it is applied
+ * through the model method. Defaulting it to true keeps these fixtures
+ * representative of the deployed unit (PDY-001) - the production policy where
+ * everything else is parked is exercised explicitly by FleetServicePolicyTest
+ * via `['iotEnabled' => false]` overrides.
+ */
+protected function makeBicycle(array $overrides = []): Bicycle
+{
+    $serial = 'BIKE-' . strtoupper(substr(uniqid(), -6));
 
-        return Bicycle::create(array_merge([
-            'name' => 'Test Bike',
-            'model' => 'City',
-            'serialNumber' => $serial,
-            'qrCode' => 'QR-' . $serial,
-            'status' => Bicycle::STATUS_AVAILABLE,
-            'hourlyRate' => 15.00,
-            'batteryLevel' => 90,
-            'lockStatus' => Bicycle::LOCK_LOCKED,
-            'currentLat' => 14.5995,
-            'currentLng' => 120.9842,
-            'condition' => 'good',
-            'totalRentals' => 0,
-        ], $overrides));
+    $bicycle = Bicycle::create(array_merge([
+        'name' => 'Test Bike',
+        'model' => 'City',
+        'serialNumber' => $serial,
+        'qrCode' => 'QR-' . $serial,
+        'status' => Bicycle::STATUS_AVAILABLE,
+        'hourlyRate' => 15.00,
+        'batteryLevel' => 90,
+        'lockStatus' => Bicycle::LOCK_LOCKED,
+        'currentLat' => 14.5995,
+        'currentLng' => 120.9842,
+        'condition' => 'good',
+        'totalRentals' => 0,
+    ], $overrides));
+
+    if ($overrides['iotEnabled'] ?? true) {
+        $bicycle->provisionForService();
     }
+
+    return $bicycle->refresh();
+}
+
+/**
+ * Create a bicycle from an explicit attribute set, provisioned as in service
+ * unless the caller says otherwise.
+ *
+ * iotEnabled is deliberately kept out of Bicycle::$fillable so it can never be
+ * mass-assigned, which means a plain Bicycle::create() yields an out-of-service
+ * bicycle. Tests that build their own rows use this instead of reaching for the
+ * constructor directly.
+ */
+protected function createBicycle(array $attributes = []): Bicycle
+{
+    $bicycle = Bicycle::create($attributes);
+
+    if ($attributes['iotEnabled'] ?? true) {
+        $bicycle->provisionForService();
+    }
+
+    return $bicycle->refresh();
+}
+
+/**
+ * A bicycle parked out of service: physically present, no controllable
+ * hardware. Its recorded lockStatus is intentional and must survive every
+ * status transition untouched.
+ */
+protected function makeOutOfServiceBicycle(array $overrides = []): Bicycle
+{
+    return $this->makeBicycle(array_merge([
+        'status' => Bicycle::STATUS_OUT_OF_SERVICE,
+        'iotEnabled' => false,
+    ], $overrides));
+}
 
     protected function makeRental(array $overrides = []): Rental
     {
