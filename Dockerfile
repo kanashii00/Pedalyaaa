@@ -18,6 +18,7 @@ RUN apt-get update \
         libonig-dev \
         libxml2-dev \
         libsqlite3-dev \
+        libicu-dev \
         pkg-config \
         supervisor \
         unzip \
@@ -26,6 +27,7 @@ RUN apt-get update \
         bcmath \
         gd \
         intl \
+        mbstring \
         opcache \
         pcntl \
         pdo_sqlite \
