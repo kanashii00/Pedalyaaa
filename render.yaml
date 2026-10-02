@@ -35,6 +35,6 @@ services:
       - key: DB_CONNECTION
         value: sqlite
       - key: DB_DATABASE
-        value: /tmp/pedalya.sqlite
+        value: /var/www/html/storage/pedalya.sqlite
       - key: DEVICE_API_KEY
         generateValue: true
