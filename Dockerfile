@@ -13,9 +13,12 @@ RUN apt-get update \
         git \
         libzip-dev \
         libpng-dev \
+        libjpeg62-turbo-dev \
+        libfreetype6-dev \
         libonig-dev \
         libxml2-dev \
         libsqlite3-dev \
+        pkg-config \
         supervisor \
         unzip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
