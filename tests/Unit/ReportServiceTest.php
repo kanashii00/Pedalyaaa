@@ -84,6 +84,10 @@ class ReportServiceTest extends TestCase
         $this->assertSame(0, $stats['bicycles']['available']);
         $this->assertSame(1, $stats['bicycles']['rented']);
         $this->assertSame(1, $stats['bicycles']['lowBattery']);
+        $this->assertSame(1, $stats['battery']['low']);
+        $this->assertSame(0, $stats['battery']['mid']);
+        $this->assertSame(0, $stats['battery']['good']);
+        $this->assertSame(0, $stats['battery']['full']);
         $this->assertSame(1, $stats['rentals']['todayTotal']);
         $this->assertSame(1, $stats['rentals']['totalCompleted']);
         $this->assertSame(50.0, $stats['revenue']['today']);

@@ -8,6 +8,7 @@ use App\Models\MaintenanceRecord;
 use App\Models\Rental;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class ReportService
 {
@@ -146,12 +147,14 @@ public function getDashboardStats(): array
 
     private function bicycleCounts(): ?object
     {
+        $batteryLevel = DB::connection()->getQueryGrammar()->wrap('batteryLevel');
+
         return Bicycle::selectRaw('
             COUNT(*) as total,
             SUM(CASE WHEN status = \'available\' THEN 1 ELSE 0 END) as available_count,
             SUM(CASE WHEN status = \'rented\' THEN 1 ELSE 0 END) as rented_count,
             SUM(CASE WHEN status = \'maintenance\' THEN 1 ELSE 0 END) as maintenance_count,
-            SUM(CASE WHEN batteryLevel < 20 THEN 1 ELSE 0 END) as low_battery_count
+            SUM(CASE WHEN '.$batteryLevel.' < 20 THEN 1 ELSE 0 END) as low_battery_count
         ')->first();
     }
 
@@ -175,11 +178,13 @@ public function getDashboardStats(): array
 
     private function batteryDistribution(): ?object
     {
+        $batteryLevel = DB::connection()->getQueryGrammar()->wrap('batteryLevel');
+
         return Bicycle::selectRaw('
-            SUM(CASE WHEN batteryLevel <= 20 THEN 1 ELSE 0 END) as low,
-            SUM(CASE WHEN batteryLevel > 20 AND batteryLevel <= 50 THEN 1 ELSE 0 END) as mid,
-            SUM(CASE WHEN batteryLevel > 50 AND batteryLevel <= 80 THEN 1 ELSE 0 END) as good,
-            SUM(CASE WHEN batteryLevel > 80 THEN 1 ELSE 0 END) as full
+            SUM(CASE WHEN '.$batteryLevel.' <= 20 THEN 1 ELSE 0 END) as low,
+            SUM(CASE WHEN '.$batteryLevel.' > 20 AND '.$batteryLevel.' <= 50 THEN 1 ELSE 0 END) as mid,
+            SUM(CASE WHEN '.$batteryLevel.' > 50 AND '.$batteryLevel.' <= 80 THEN 1 ELSE 0 END) as good,
+            SUM(CASE WHEN '.$batteryLevel.' > 80 THEN 1 ELSE 0 END) as full
         ')->first();
     }
 
