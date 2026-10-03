@@ -159,7 +159,7 @@
             @endif</span>
         </small>
         <div class="ms-auto d-flex gap-2">
-            <button class="btn-admin btn-admin--ghost btn-admin--sm" id="centerMapBtn" title="Center on geofence">
+            <button class="btn-admin btn-admin--ghost btn-admin--sm" id="centerMapBtn" title="Center on bicycle GPS location" disabled>
                 <i class="bi bi-crosshair"></i>
             </button>
             <button class="btn-admin btn-admin--ghost btn-admin--sm" id="refreshMapBtn" title="Refresh positions">
@@ -176,6 +176,7 @@
         <div><span class="dot" style="background:#f39c12;"></span>Near Boundary <span class="legend-count" data-count="near">0</span></div>
         <div><span class="dot" style="background:#e74c3c;"></span>Outside Zone <span class="legend-count" data-count="outside">0</span></div>
         <div><span class="dot" style="background:#27ae60;"></span>Geofence Boundary</div>
+        <div><i class="bi bi-bicycle"></i> Bicycle GPS marker</div>
     </div>
 </x-admin.card>
 @endif
@@ -276,9 +277,11 @@
         <thead>
             <tr>
                 <th>Bicycle</th>
-                <th>Zone</th>
+                <th>GPS Fix</th>
                 <th>Latitude</th>
                 <th>Longitude</th>
+                <th>Accuracy / HDOP</th>
+                <th>Zone</th>
                 <th>Speed</th>
                 <th>Distance from center</th>
                 <th>Last GPS</th>
@@ -295,29 +298,52 @@
                         'safe' => ['#2ecc71', 'Inside Zone'],
                         default => ['#95a5a6', 'No GPS'],
                     };
-                    $speed = $bike->latestGpsLog?->speed;
+                    $gps = $bike->gps_data;
                 @endphp
-                <tr>
+                <tr data-gps-bike-id="{{ $bike->id }}">
                     <td data-label="Bicycle">
                         <div class="d-flex align-items-center gap-2">
                             <span class="bike-status-dot {{ ($bike->lastHeartbeat?->diffInMinutes(now()) ?? 999) <= 5 ? 'online' : 'offline' }}"></span>
-                            <span class="fw-semibold">{{ $bike->name }}</span>
+                            <div>
+                                <span class="fw-semibold">{{ $bike->name }}</span>
+                                <small class="text-muted d-block">Bicycle #{{ $bike->id }}</small>
+                            </div>
                         </div>
                     </td>
-                    <td data-label="Zone">
+                    <td data-label="GPS Fix" data-gps-field="status">
+                        @if($gps['status'] === 'fix')
+                            GPS FIX AVAILABLE
+                        @elseif($gps['status'] === 'last_known')
+                            GPS FIX NOT AVAILABLE - LAST KNOWN LOCATION
+                        @else
+                            GPS FIX NOT AVAILABLE
+                        @endif
+                    </td>
+                    <td data-label="Latitude" data-gps-field="latitude">{{ $gps['latitude'] !== null ? number_format($gps['latitude'], 7) : 'N/A' }}</td>
+                    <td data-label="Longitude" data-gps-field="longitude">{{ $gps['longitude'] !== null ? number_format($gps['longitude'], 7) : 'N/A' }}</td>
+                    <td data-label="Accuracy / HDOP" data-gps-field="accuracy">
+                        @if($gps['accuracy'] !== null) {{ number_format($gps['accuracy'], 1) }} m accuracy @endif
+                        @if($gps['hdop'] !== null){{ $gps['accuracy'] !== null ? ' · ' : '' }}HDOP {{ number_format($gps['hdop'], 2) }}@endif
+                        @if($gps['accuracy'] === null && $gps['hdop'] === null)N/A @endif
+                    </td>
+                    <td data-label="Zone" data-gps-field="zone">
                         <span class="zone-pill" style="background: {{ $zoneStyle[0] }}22; color: {{ $zoneStyle[0] }};">
                             <span class="dot" style="background: {{ $zoneStyle[0] }};"></span>{{ $zoneStyle[1] }}
                         </span>
                     </td>
-                    <td data-label="Latitude">{{ $bike->currentLat ? number_format((float) $bike->currentLat, 6) : '�' }}</td>
-                    <td data-label="Longitude">{{ $bike->currentLng ? number_format((float) $bike->currentLng, 6) : '�' }}</td>
-                    <td data-label="Speed">{{ $speed !== null ? number_format((float) $speed, 1) . ' km/h' : '�' }}</td>
-                    <td data-label="Distance from center">{{ $bike->zone['distance'] !== null ? number_format($bike->zone['distance'], 0) . ' m' : '�' }}</td>
-                    <td data-label="Last GPS">{{ $bike->lastGpsUpdate?->diffForHumans() ?? 'Never' }}</td>
+                    <td data-label="Speed" data-gps-field="speed">{{ $gps['speed'] !== null ? number_format($gps['speed'], 1) . ' km/h' : 'N/A' }}</td>
+                    <td data-label="Distance from center" data-gps-field="distance">{{ $bike->zone['distance'] !== null ? number_format($bike->zone['distance'], 0) . ' m' : 'N/A' }}</td>
+                    <td data-label="Last GPS" data-gps-field="updated-at">
+                        @if($gps['updated_at'])
+                            <time datetime="{{ $gps['updated_at'] }}" title="{{ $gps['updated_at'] }}">{{ $bike->latestGpsLog->created_at->diffForHumans() }}</time>
+                        @else
+                            Never
+                        @endif
+                    </td>
                     <td data-label="Last heartbeat">{{ $bike->lastHeartbeat?->diffForHumans() ?? 'Never' }}</td>
                 </tr>
             @empty
-                <tr><td colspan="8"><x-admin.empty-state icon="bi-bicycle" title="No bicycles to monitor"/></td></tr>
+                <tr><td colspan="10"><x-admin.empty-state icon="bi-bicycle" title="No bicycles to monitor"/></td></tr>
             @endforelse
         </tbody>
     </table>
@@ -475,8 +501,14 @@
     $bicycleLocations = collect($bicycles)->map(fn($b) => [
         'id' => $b->id,
         'name' => $b->name,
-        'lat' => $b->currentLat !== null ? (float) $b->currentLat : null,
-        'lng' => $b->currentLng !== null ? (float) $b->currentLng : null,
+        'lat' => $b->gps_data['latitude'],
+        'lng' => $b->gps_data['longitude'],
+        'gps_status' => $b->gps_data['status'],
+        'last_gps_update' => $b->gps_data['updated_at'],
+        'gps_accuracy' => $b->gps_data['accuracy'],
+        'gps_hdop' => $b->gps_data['hdop'],
+        'gps_satellites' => $b->gps_data['satellites'],
+        'gps_speed' => $b->gps_data['speed'],
         'status' => $b->status,
         'battery' => $b->batteryLevel,
         'locked' => $b->lockStatus === 'locked',
@@ -491,6 +523,63 @@
     var geofence = {!! json_encode($geofence) !!};
     var bicycles = {!! $bicycleLocations->toJson() !!};
 
+    function updateGpsFeed(data) {
+        (data.bicycles || []).forEach(function (bike) {
+            var row = document.querySelector('[data-gps-bike-id="' + bike.id + '"]');
+            if (!row) return;
+
+            var status = bike.gps_status === 'fix'
+                ? 'GPS FIX AVAILABLE'
+                : (bike.gps_status === 'last_known'
+                    ? 'GPS FIX NOT AVAILABLE - LAST KNOWN LOCATION'
+                    : 'GPS FIX NOT AVAILABLE');
+            var fields = {
+                status: status,
+                latitude: bike.current_lat !== null && bike.current_lat !== undefined && Number.isFinite(Number(bike.current_lat)) ? Number(bike.current_lat).toFixed(7) : 'N/A',
+                longitude: bike.current_lng !== null && bike.current_lng !== undefined && Number.isFinite(Number(bike.current_lng)) ? Number(bike.current_lng).toFixed(7) : 'N/A',
+                accuracy: [
+                    bike.gps_accuracy !== null && bike.gps_accuracy !== undefined ? Number(bike.gps_accuracy).toFixed(1) + ' m accuracy' : null,
+                    bike.gps_hdop !== null && bike.gps_hdop !== undefined ? 'HDOP ' + Number(bike.gps_hdop).toFixed(2) : null
+                ].filter(Boolean).join(' · ') || 'N/A',
+                speed: bike.gps_speed !== null && bike.gps_speed !== undefined ? Number(bike.gps_speed).toFixed(1) + ' km/h' : 'N/A',
+                zone: bike.zone_level === 'breach' || bike.zone_level === 'outside'
+                    ? 'Outside Zone'
+                    : (bike.zone_level === 'warning' || bike.zone_level === 'approaching'
+                        ? 'Near Boundary'
+                        : (bike.gps_status === 'fix' ? 'Inside Zone' : 'No GPS')),
+                distance: bike.zone_distance !== null && bike.zone_distance !== undefined
+                    ? Math.round(Number(bike.zone_distance)) + ' m'
+                    : 'N/A',
+                'updated-at': bike.last_gps_update
+                    ? new Date(bike.last_gps_update).toLocaleString()
+                    : 'Never'
+            };
+
+            Object.keys(fields).forEach(function (field) {
+                var cell = row.querySelector('[data-gps-field="' + field + '"]');
+                if (!cell) return;
+                if (field === 'zone') {
+                    var colors = {
+                        'Outside Zone': '#e74c3c',
+                        'Near Boundary': '#f39c12',
+                        'Inside Zone': '#2ecc71',
+                        'No GPS': '#95a5a6'
+                    };
+                    var color = colors[fields.zone];
+                    cell.innerHTML = '<span class="zone-pill" style="background:' + color + '22;color:' + color + ';">' +
+                        '<span class="dot" style="background:' + color + ';"></span>' + fields.zone + '</span>';
+                } else {
+                    cell.textContent = fields[field];
+                }
+            });
+
+            var updatedCell = row.querySelector('[data-gps-field="updated-at"]');
+            if (updatedCell && bike.last_gps_update) {
+                updatedCell.title = bike.last_gps_update;
+            }
+        });
+    }
+
     window.PedalyaGeoLibre.init({
         container: 'monitoringMap',
         geofence: geofence,
@@ -498,13 +587,18 @@
         liveUrl: {!! json_encode(route('admin.monitoring.live')) !!},
         pollMs: 15000,
         zoom: 15,
+        gpsZoom: 17,
+        centerOnGps: true,
         pitch: 55,
         bearing: -15,
         readout: { radius: 'geofenceRadiusText', alertBadge: 'geofenceAlertBadge' },
         buttons: { center: 'centerMapBtn', refresh: 'refreshMapBtn', fullscreen: 'fullscreenMapBtn' },
         legendCounts: true,
         bikeCardSelector: '.bike-monitor-card',
-        fleetCount: 'fleetCount'
+        fleetCount: 'fleetCount',
+        onLive: function (data) {
+            updateGpsFeed(data);
+        }
     });
 })();
 </script>

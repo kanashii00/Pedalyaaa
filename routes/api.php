@@ -48,6 +48,8 @@ Route::middleware('device.auth')->group(function () {
 // transitions, so a deadline that passes between scheduler runs is reflected
 // on the countdown immediately rather than up to a minute later.
 Route::middleware('bicycle.auth')->group(function () {
+    Route::post('/iot/bicycle/{bicycle}/gps', [ApiGps::class, 'bicycleLocation'])
+        ->middleware('throttle:120,1');
     Route::get('/iot/bicycle/{bicycle}/rental', [ApiDevice::class, 'show'])
         ->middleware(['rental.sync', 'throttle:120,1']);
     Route::get('/iot/bicycle/{bicycle}/commands', [ApiDevice::class, 'commands'])

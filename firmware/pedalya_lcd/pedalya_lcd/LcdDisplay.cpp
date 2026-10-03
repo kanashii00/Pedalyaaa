@@ -124,9 +124,27 @@ void LcdDisplay::showNoServer(const String& reason) {
     row(1, reason.c_str());
 }
 
+void LcdDisplay::showKeyRejected(const String& reason) {
+    // Deliberately not "NO SERVER": the server answered, it refused this unit.
+    // Saying otherwise sends whoever is holding the bike looking at the WiFi.
+    row(0, "SERVER REJECTED");
+    row(1, "CHECK DEVICE KEY");
+    (void)reason;
+}
+
 void LcdDisplay::showMessage(const String& line1, const String& line2) {
     row(0, line1.c_str());
     row(1, line2.c_str());
+}
+
+void LcdDisplay::showMessageFor(uint32_t durationMs, const String& line1, const String& line2) {
+    messageUntilMs_ = millis() + durationMs;
+    showMessage(line1, line2);
+}
+
+bool LcdDisplay::messageActive() const {
+    // Unsigned arithmetic on purpose: it stays correct across the millis() wrap.
+    return messageUntilMs_ > 0 && (int32_t)(millis() - messageUntilMs_) < 0;
 }
 
 void LcdDisplay::showExpiryWarning(const RentalState& state) {
@@ -139,6 +157,40 @@ void LcdDisplay::showExpiryWarning(const RentalState& state) {
 void LcdDisplay::showExpired() {
     row(0, "RENTAL EXPIRED");
     row(1, "LOCK ENGAGED");
+}
+
+void LcdDisplay::showExpiredPhase(uint32_t secondsSinceExpiry, float penalty) {
+    if (secondsSinceExpiry < 3) {
+        showExpired();
+        return;
+    }
+
+    if (secondsSinceExpiry <= RETURN_GRACE_SECONDS) {
+        // Counts down to zero, so it never alternates: the whole point of this
+        // screen is one number the rider can watch fall. The bound is inclusive
+        // because the timer also treats exactly RETURN_GRACE_SECONDS as still
+        // free, so the display changes to OVERDUE on the exact second the first
+        // peso becomes payable.
+        const uint32_t graceLeft = RETURN_GRACE_SECONDS - secondsSinceExpiry;
+        row(0, "RETURN BICYCLE");
+        rowf(1, "RETURN IN %02lu:%02lu", (unsigned long)(graceLeft / 60),
+             (unsigned long)(graceLeft % 60));
+        return;
+    }
+
+    row(0, "RETURN BICYCLE");
+
+    if (((secondsSinceExpiry / 2) % 2) == 0) {
+        // Counted from the end of the grace, not from expiry, so the screen does
+        // not jump from "RETURN IN 00:00" straight to "OVERDUE 05:01" on the
+        // first penalised second. The rider is one second late, not five minutes.
+        const uint32_t lateSeconds = secondsSinceExpiry - RETURN_GRACE_SECONDS;
+        rowf(1, "OVERDUE %02lu:%02lu", (unsigned long)(lateSeconds / 60),
+             (unsigned long)(lateSeconds % 60));
+        return;
+    }
+
+    rowf(1, "PENALTY P%.0f", penalty);
 }
 
 void LcdDisplay::showRental(const RentalState& state) {

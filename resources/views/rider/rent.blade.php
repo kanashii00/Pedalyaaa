@@ -92,8 +92,13 @@
 @section('content')
 <!-- Map -->
 <div class="card-pedalya mb-4">
-    <div class="card-pedalya-header"><span><i class="bi bi-geo-alt-fill text-primary me-2"></i><strong>Available Bicycles Near You</strong></span><span class="d-flex align-items-center gap-2"><span class="text-muted" style="font-size:0.85rem;">Click a marker to see details</span><button type="button" id="rentMapMaximize" aria-label="Fullscreen map"><i class="bi bi-arrows-fullscreen"></i><span>Fullscreen</span></button></span></div>
+    <div class="card-pedalya-header"><span><i class="bi bi-geo-alt-fill text-primary me-2"></i><strong>Riding Area &amp; Available Bicycles</strong></span><span class="d-flex align-items-center gap-2"><span class="text-muted" style="font-size:0.85rem;">Click a marker to see details</span><button type="button" id="rentMapMaximize" aria-label="Fullscreen map"><i class="bi bi-arrows-fullscreen"></i><span>Fullscreen</span></button></span></div>
     <div class="rent-map-wrap" id="rentMapWrap"><div id="rentMap" style="width:100%;height:100%;"></div></div>
+    <div class="card-pedalya-body">
+        <p class="text-muted mb-0" style="font-size:0.82rem;">
+            <i class="bi bi-info-circle me-1"></i>The shaded green area is where you are allowed to ride. Once your ride starts, your dashboard map shows this same area with a live indicator for whether you are inside it, near the boundary, or outside it.
+        </p>
+    </div>
 </div>
 
 <!-- Bicycle Cards -->
@@ -572,21 +577,52 @@
                 'rate' => $b->rentableHourlyRate(),
             ])) !!};
         var hasBikes = bicycles.length > 0;
+        // The operator's configured geofence: used as the fallback map centre and
+        // as the coordinate source for the shaded operating area below.
+        var geofence = @json($geofence);
         var map = new maplibregl.Map({
             container: el,
             style: 'https://tiles.openfreemap.org/styles/liberty',
-            center: hasBikes ? [bicycles[0].lng, bicycles[0].lat] : [125.6470, 7.0990],
-            zoom: 15
+            center: hasBikes ? [bicycles[0].lng, bicycles[0].lat] : [geofence.centerLng, geofence.centerLat],
+            zoom: 15,
+            pitch: 55,
+            bearing: -15
         });
         map.addControl(new maplibregl.NavigationControl(), 'top-right');
         map.addControl(new maplibregl.FullscreenControl(), 'top-right');
+        map.addControl(new maplibregl.GeolocateControl({
+            positionOptions: { enableHighAccuracy: true },
+            trackUserLocation: false,
+            showUserHeading: true
+        }), 'top-right');
+
+        // The operating area, drawn from the operator's geofence using geometry
+        // resolved server-side. The polygon arrives pre-built so the shaded region
+        // on this map is byte-for-byte the shape the server measures a bicycle
+        // against, and no boundary maths is duplicated in the browser.
+        var boundary = @json($geofenceGeoJson);
+        if (boundary) {
+            map.addSource('rental-geofence', { type: 'geojson', data: boundary });
+            map.addLayer({
+                id: 'rental-geofence-fill',
+                type: 'fill',
+                source: 'rental-geofence',
+                paint: { 'fill-color': '#27ae60', 'fill-opacity': 0.12 }
+            });
+            map.addLayer({
+                id: 'rental-geofence-line',
+                type: 'line',
+                source: 'rental-geofence',
+                paint: { 'line-color': '#1e8449', 'line-width': 3, 'line-dasharray': [0, 2, 2, 2] }
+            });
+        }
         bicycles.forEach(function(b) {
-            var marker = new maplibregl.Marker({ color: '#2E7D32' })
+            var marker = new maplibregl.Marker({ color: '#2ecc71', pitchAlignment: 'auto', rotationAlignment: 'auto' })
                 .setLngLat([b.lng, b.lat])
                 .setPopup(new maplibregl.Popup({ offset: 25 }).setHTML(
                     // Text is escaped: a serial or name is data, not markup.
                     '<div style="padding:6px;font-family:Inter;"><strong>' + escapeHtml(b.name) + '</strong>'
-                    + '<br><span style="color:#2E7D32;">Available</span></div>'
+                    + '<br><span style="color:#2ecc71;">Available</span></div>'
                 ))
                 .addTo(map);
             marker.getElement().addEventListener('click', function() {

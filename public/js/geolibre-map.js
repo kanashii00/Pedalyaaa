@@ -6,12 +6,12 @@
    Detection. Renders the saved geofence boundary + warning
    threshold band + every live bicycle pin coloured strictly by
    geofence position (green=inside, orange=near, red=outside),
-   using real GPS coordinates and the same client-side geofence
-   math that mirrors GeofenceService::checkPoint.
+   using recorded GPS fixes and the same client-side geofence math
+   that mirrors GeofenceService::checkPoint.
 
    No hardcoded or duplicate map data: the geofence config and
-   bicycle positions are provided by the caller from the same
-   source of truth (GeofenceService + Bicycle.currentLat/Lng).
+   latest GPS readings are provided by the caller from
+   GeofenceService + gps_logs.
 
    Usage:
      window.PedalyaGeoLibre.init({
@@ -23,12 +23,16 @@
        alertUrl: null,              // optional theft-alerts live url
        readout: { radius: 'geofenceRadiusText', alertBadge: 'geofenceAlertBadge' },
        buttons: { center: 'centerMapBtn', refresh: 'refreshMapBtn', fullscreen: 'fullscreenMapBtn' },
+       centerOnGps: false,           // center on a fresh GPS fix rather than the geofence
        legendCounts: true,
        bikeCardSelector: '.bike-monitor-card',
        fleetCount: 'fleetCount',
        alertBicycles: null,         // optional object: bikeId -> alert meta
+       broadcast: true,             // set false to never join the admin channels
+       onLive: null,                // optional callback(data) after every live poll
        onAlertsChange: null         // optional callback(alerts)
      });
+
    ============================================================ */
 (function (global) {
     'use strict';
@@ -221,10 +225,22 @@
             case 'breach':
             case 'outside':
                 return zoneColor['breach'];
+            case 'no-gps':
+            case 'unknown':
+                return zoneColor['unknown'];
             case 'safe':
             default:
                 return bike.zone ? zoneColor['safe'] : zoneColor['unknown'];
         }
+    }
+
+    function hasValidCoordinates(lat, lng) {
+        if (lat === null || lat === undefined || lng === null || lng === undefined) return false;
+        var latitude = Number(lat);
+        var longitude = Number(lng);
+        return Number.isFinite(latitude) && Number.isFinite(longitude)
+            && latitude >= -90 && latitude <= 90
+            && longitude >= -180 && longitude <= 180;
     }
 
     function haversineMeters(lat1, lng1, lat2, lng2) {
@@ -335,10 +351,15 @@
     }
 
     function normalizeZone(bike, ctx) {
-        if (bike.lat && bike.lng && ctx.geofence && ctx.geofence.centerLat !== undefined
+        if ((bike.gps_status === undefined || bike.gps_status === 'fix')
+                && hasValidCoordinates(bike.lat, bike.lng)
+                && ctx.geofence && ctx.geofence.centerLat !== undefined
                 && ctx.geofence.centerLat !== null && ctx.geofence.centerLng !== undefined) {
             var res = clientZoneFor(ctx.geofence, bike.lat, bike.lng);
             return { zone: res.zone, distance: res.distance };
+        }
+        if (bike.gps_status === 'last_known' || bike.gps_status === 'unavailable') {
+            return { zone: 'no-gps', distance: null };
         }
         return { zone: bike.zone || 'unknown', distance: bike.distance };
     }
@@ -360,17 +381,27 @@
             geofence: options.geofence || null,
             map: null,
             markers: {},
-            cycling: null
+            cycling: null,
+            centerButton: null
         };
 
         var gf = ctx.geofence;
+        var initialGpsBicycle = (options.bicycles || [])
+            .filter(function (bike) {
+                return bike.gps_status === 'fix' && hasValidCoordinates(bike.lat, bike.lng);
+            })
+            .sort(function (a, b) {
+                return new Date(b.last_gps_update || 0).getTime() - new Date(a.last_gps_update || 0).getTime();
+            })[0];
         var map = new global.maplibregl.Map({
             container: container,
             style: 'https://tiles.openfreemap.org/styles/liberty',
-            center: gf && gf.centerLng !== undefined && gf.centerLat !== undefined
-                ? [gf.centerLng, gf.centerLat]
-                : options.defaultCenter || [125.6470, 7.0990],
-            zoom: options.zoom || 15,
+            center: initialGpsBicycle
+                ? [Number(initialGpsBicycle.lng), Number(initialGpsBicycle.lat)]
+                : gf && gf.centerLng !== undefined && gf.centerLat !== undefined
+                    ? [gf.centerLng, gf.centerLat]
+                    : options.defaultCenter || [125.6470, 7.0990],
+            zoom: initialGpsBicycle ? (options.gpsZoom || 17) : (options.zoom || 15),
             pitch: options.pitch || 55,
             bearing: options.bearing || -15,
             attributionControl: true
@@ -381,9 +412,14 @@
         map.addControl(new global.maplibregl.FullscreenControl(), 'top-right');
         ctx.map = map;
 
-        function addMarker(bike) {
-            if (!bike.lat || !bike.lng) return;
-            var color = markerColor(bike);
+        function gpsLabel(bike) {
+            if (bike.gps_status === 'fix') return 'GPS FIX AVAILABLE';
+            if (bike.gps_status === 'last_known') return 'GPS FIX NOT AVAILABLE - LAST KNOWN LOCATION';
+            if (bike.gps_status === 'unavailable') return 'GPS FIX NOT AVAILABLE';
+            return null;
+        }
+
+        function popupHtml(bike) {
             var dist = bike.distance !== null && bike.distance !== undefined
                 ? '<br><small>Distance: ' + Math.round(bike.distance) + ' m</small>' : '';
             var zoneLabel = bike.zone ? zoneLabelText(bike.zone) : 'Unknown';
@@ -391,20 +427,54 @@
             var alertHtml = alert
                 ? '<br><small style="color:#e74c3c;font-weight:700;">&#9888; Theft alert' + (alert.status ? ' (' + alert.status + ')' : '') + '</small>'
                 : '';
+            var gpsStatus = gpsLabel(bike);
+            var gpsHtml = gpsStatus
+                ? '<br><small>' + gpsStatus + '</small>' +
+                    '<br><small>Latitude: ' + Number(bike.lat).toFixed(7) + '</small>' +
+                    '<br><small>Longitude: ' + Number(bike.lng).toFixed(7) + '</small>' +
+                    '<br><small>Last GPS update: ' + (bike.last_gps_update ? new Date(bike.last_gps_update).toLocaleString() : 'N/A') + '</small>' +
+                    '<br><small>Accuracy: ' + (bike.gps_accuracy !== null && bike.gps_accuracy !== undefined ? Number(bike.gps_accuracy).toFixed(1) + ' m' : 'N/A') + '</small>' +
+                    '<br><small>HDOP: ' + (bike.gps_hdop !== null && bike.gps_hdop !== undefined ? Number(bike.gps_hdop).toFixed(2) : 'N/A') + '</small>'
+                : '';
+
+            return '<strong>' + bike.name + (bike.id !== undefined ? ' (#' + bike.id + ')' : '') + '</strong><br>' +
+                '<small>Status: ' + bike.status + '</small><br>' +
+                '<small>Zone: ' + zoneLabel + '</small><br>' +
+                '<small>Battery: ' + bike.battery + '%</small><br>' +
+                '<small>Lock: ' + (bike.locked ? 'Locked' : 'Unlocked') + '</small>' + dist +
+                gpsHtml + alertHtml +
+                '<br><small>Last heartbeat: ' + (bike.heartbeat ? new Date(bike.heartbeat).toLocaleString() : 'Never') + '</small>';
+        }
+
+        function currentFix() {
+            var ids = Object.keys(ctx.markers).sort(function (a, b) { return Number(a) - Number(b); });
+            var bikes = ids.map(function (id) { return ctx.markers[id].bike; })
+                .filter(function (bike) {
+                    return bike.gps_status === 'fix' && hasValidCoordinates(bike.lat, bike.lng);
+                });
+            bikes.sort(function (a, b) {
+                return new Date(b.last_gps_update || 0).getTime() - new Date(a.last_gps_update || 0).getTime();
+            });
+            return bikes[0] || null;
+        }
+
+        function updateCenterButton() {
+            if (options.centerOnGps && ctx.centerButton) {
+                ctx.centerButton.disabled = !currentFix();
+            }
+        }
+
+        function addMarker(bike) {
+            if (!hasValidCoordinates(bike.lat, bike.lng)) return;
+            var color = markerColor(bike);
             var marker = new global.maplibregl.Marker({ color: color, pitchAlignment: 'auto', rotationAlignment: 'auto' })
-                .setLngLat([bike.lng, bike.lat])
-                .setPopup(new global.maplibregl.Popup({ offset: 30 }).setHTML(
-                    '<strong>' + bike.name + '</strong><br>' +
-                    '<small>Status: ' + bike.status + '</small><br>' +
-                    '<small>Zone: ' + zoneLabel + '</small><br>' +
-                    '<small>Battery: ' + bike.battery + '%</small><br>' +
-                    '<small>Lock: ' + (bike.locked ? 'Locked' : 'Unlocked') + '</small>' + dist +
-                    alertHtml +
-                    '<br><small>Last heartbeat: ' + (bike.heartbeat ? new Date(bike.heartbeat).toLocaleString() : 'Never') + '</small>'
-                ))
+                .setLngLat([Number(bike.lng), Number(bike.lat)])
+                .setPopup(new global.maplibregl.Popup({ offset: 30 }).setHTML(popupHtml(bike)))
                 .addTo(map);
 
             ctx.markers[bike.id] = { marker: marker, bike: bike };
+            var markerElement = marker.getElement();
+            if (markerElement && bike.gps_status === 'last_known') markerElement.style.opacity = '0.55';
         }
 
         function syncFleetStatus(bike) {
@@ -419,7 +489,7 @@
                 pill.innerHTML = '<span class="dot" style="background:' + meta.bg + ';"></span>' + meta.label;
             }
             var gpsCells = card.querySelectorAll('small.fw-semibold');
-            if (bike.lat && bike.lng && gpsCells.length > 1) {
+            if (hasValidCoordinates(bike.lat, bike.lng) && gpsCells.length > 1) {
                 var gps = null;
                 gpsCells.forEach(function (s) {
                     if (!gps && /^-?\d{1,3}\.\d+/.test(s.textContent || '')) gps = s;
@@ -445,7 +515,7 @@
         }
 
         function updateMarker(bike) {
-            if (!bike.lat || !bike.lng) {
+            if (!hasValidCoordinates(bike.lat, bike.lng)) {
                 if (ctx.markers[bike.id]) {
                     ctx.markers[bike.id].marker.remove();
                     delete ctx.markers[bike.id];
@@ -456,8 +526,11 @@
                     syncFleetStatus(bike);
                     updateLegendCounts();
                 }
+                updateCenterButton();
                 return;
             }
+            bike.lat = Number(bike.lat);
+            bike.lng = Number(bike.lng);
             var norm = normalizeZone(bike, ctx);
             bike.zone = norm.zone;
             if (bike.distance === null || bike.distance === undefined) bike.distance = norm.distance;
@@ -465,12 +538,15 @@
             var isBreach = bike.zone === 'breach' || bike.zone === 'outside';
             var color = markerColor(bike);
             if (ctx.markers[bike.id]) {
-                ctx.markers[bike.id].marker.setLngLat([bike.lng, bike.lat]);
-                ctx.markers[bike.id].marker.setColor(color);
-                var markerEl = ctx.markers[bike.id].marker.getElement();
+                var existing = ctx.markers[bike.id].marker;
+                existing.setLngLat([bike.lng, bike.lat]);
+                existing.setColor(color);
+                if (existing.getPopup()) existing.getPopup().setHTML(popupHtml(bike));
+                var markerEl = existing.getElement();
                 if (markerEl) {
                     if (isBreach) markerEl.classList.add('marker-breach');
                     else markerEl.classList.remove('marker-breach');
+                    markerEl.style.opacity = bike.gps_status === 'last_known' ? '0.55' : '1';
                 }
                 ctx.markers[bike.id].bike = bike;
             } else {
@@ -482,6 +558,7 @@
             }
             syncFleetStatus(bike);
             updateLegendCounts();
+            updateCenterButton();
         }
 
         function applyLive(data) {
@@ -493,8 +570,14 @@
                 updateMarker({
                     id: bike.id,
                     name: bike.name,
-                    lat: bike.current_lat !== undefined ? parseFloat(bike.current_lat) : bike.currentLat,
-                    lng: bike.current_lng !== undefined ? parseFloat(bike.current_lng) : bike.currentLng,
+                    lat: bike.current_lat !== undefined ? bike.current_lat : bike.currentLat,
+                    lng: bike.current_lng !== undefined ? bike.current_lng : bike.currentLng,
+                    gps_status: bike.gps_status,
+                    last_gps_update: bike.last_gps_update,
+                    gps_accuracy: bike.gps_accuracy,
+                    gps_hdop: bike.gps_hdop,
+                    gps_satellites: bike.gps_satellites,
+                    gps_speed: bike.gps_speed,
                     status: bike.status,
                     battery: bike.battery_level !== undefined ? bike.battery_level : bike.batteryLevel,
                     locked: bike.lock_status === 'locked' || bike.lockStatus === 'locked',
@@ -512,19 +595,34 @@
             if (options.onAlertsChange && data.alerts) {
                 options.onAlertsChange(data);
             }
+            if (typeof options.onLive === 'function') {
+                options.onLive(data);
+            }
         }
 
         function fetchLive() {
             var url = options.liveUrl;
-            if (!url) return;
-            global.fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
-                .then(function (r) { return r.json(); })
-                .then(applyLive)
-                .catch(function () {});
+            if (!url) return Promise.resolve(null);
+            return global.fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+                .then(function (r) {
+                    if (!r.ok) throw new Error('GPS monitoring request failed with status ' + r.status);
+                    return r.json();
+                })
+                .then(function (data) {
+                    applyLive(data);
+                    return data;
+                })
+                .catch(function (error) {
+                    console.error('Unable to refresh bicycle GPS positions.', error);
+                    return null;
+                });
         }
 
         function startPolling() {
-            if (ctx.cycling) return;
+            // No live source means no polling: a map initialised without a
+            // liveUrl is a static view and should not keep hitting the network.
+            if (ctx.cycling || !options.liveUrl) return;
+            fetchLive();
             ctx.cycling = setInterval(fetchLive, options.pollMs || 15000);
         }
 
@@ -535,7 +633,26 @@
             });
 
             var centerBtn = el(options.buttons && options.buttons.center);
-            if (centerBtn && ctx.geofence) {
+            ctx.centerButton = centerBtn;
+            updateCenterButton();
+            if (centerBtn && options.centerOnGps) {
+                centerBtn.addEventListener('click', function () {
+                    fetchLive().then(function (data) {
+                        if (!data) return;
+                        var bike = currentFix();
+                        if (!bike) return;
+                        map.flyTo({
+                            center: [bike.lng, bike.lat],
+                            zoom: options.gpsZoom || 17,
+                            pitch: options.pitch || 55,
+                            bearing: options.bearing || -15,
+                            duration: 1000
+                        });
+                        var tracked = ctx.markers[bike.id];
+                        if (tracked) tracked.marker.togglePopup();
+                    });
+                });
+            } else if (centerBtn && ctx.geofence) {
                 centerBtn.addEventListener('click', function () {
                     map.flyTo({
                         center: [ctx.geofence.centerLng, ctx.geofence.centerLat],
@@ -559,24 +676,32 @@
             }
 
             // WebSocket live updates (fallback to polling)
-            var broadcastOn = global.Pedalya && global.Pedalya.broadcastEnabled && global.Echo;
+            //
+            // The geofence-alerts channel is an admin feed: it carries a breach
+            // event for every bicycle in the fleet, not just the viewer's own.
+            // A rider-facing map must opt out with `broadcast: false`, otherwise
+            // it would render other riders' bicycles and their coordinates.
+            var broadcastOn = options.broadcast !== false &&
+                global.Pedalya && global.Pedalya.broadcastEnabled && global.Echo;
             if (broadcastOn) {
                 global.Echo.private('geofence-alerts').listen('GeofenceAlert', function (e) {
                     var bike = e && e.bicycle ? e.bicycle : null;
                     if (!bike) return;
                     var zone = bike.zone || e.level || 'unknown';
-                    updateMarker({
-                        id: bike.id,
-                        name: bike.name,
-                        lat: bike.lat !== undefined ? parseFloat(bike.lat) : bike.latitude,
-                        lng: bike.lng !== undefined ? parseFloat(bike.lng) : bike.longitude,
-                        status: bike.status,
-                        battery: bike.battery !== undefined ? bike.battery : bike.battery_level,
-                        locked: bike.locked === true || bike.lockStatus === 'locked',
-                        heartbeat: bike.updated_at || bike.last_heartbeat,
-                        zone: zone,
-                        distance: bike.zone_distance !== undefined ? parseFloat(bike.zone_distance) : (bike.distance !== undefined ? parseFloat(bike.distance) : null)
-                    });
+                    if (!options.centerOnGps) {
+                        updateMarker({
+                            id: bike.id,
+                            name: bike.name,
+                            lat: bike.lat !== undefined ? parseFloat(bike.lat) : bike.latitude,
+                            lng: bike.lng !== undefined ? parseFloat(bike.lng) : bike.longitude,
+                            status: bike.status,
+                            battery: bike.battery !== undefined ? bike.battery : bike.battery_level,
+                            locked: bike.locked === true || bike.lockStatus === 'locked',
+                            heartbeat: bike.updated_at || bike.last_heartbeat,
+                            zone: zone,
+                            distance: bike.zone_distance !== undefined ? parseFloat(bike.zone_distance) : (bike.distance !== undefined ? parseFloat(bike.distance) : null)
+                        });
+                    }
                     if (options.onBreachEvent) options.onBreachEvent(bike, zone);
                 });
 
@@ -586,7 +711,7 @@
                     renderGeofence(map, ctx.geofence, options);
                     Object.keys(ctx.markers).forEach(function (id) {
                         var mk = ctx.markers[id];
-                        if (mk && mk.bike && mk.bike.lat && mk.bike.lng) updateMarker(mk.bike);
+                        if (mk && mk.bike && hasValidCoordinates(mk.bike.lat, mk.bike.lng)) updateMarker(mk.bike);
                     });
                 });
 
@@ -603,11 +728,18 @@
                             battery: b.battery !== undefined ? b.battery : b.battery_level,
                             locked: b.locked === true || b.lockStatus === 'locked',
                             heartbeat: b.updated_at || b.last_heartbeat,
+                            gps_status: 'fix',
+                            last_gps_update: b.lastGpsUpdate || new Date().toISOString(),
+                            gps_accuracy: b.accuracy,
+                            gps_hdop: b.hdop,
+                            gps_satellites: b.satellites,
+                            gps_speed: b.speed,
                             zone: b.zone || 'unknown',
                             distance: b.zone_distance !== undefined ? parseFloat(b.zone_distance) : null
                         });
                     });
                 });
+                if (options.onLive) startPolling();
             } else {
                 startPolling();
             }
@@ -620,8 +752,14 @@
         return {
             id: bike.id,
             name: bike.name,
-            lat: bike.lat !== undefined ? parseFloat(bike.lat) : bike.currentLat,
-            lng: bike.lng !== undefined ? parseFloat(bike.lng) : bike.currentLng,
+            lat: bike.lat !== undefined ? bike.lat : bike.currentLat,
+            lng: bike.lng !== undefined ? bike.lng : bike.currentLng,
+            gps_status: bike.gps_status,
+            last_gps_update: bike.last_gps_update,
+            gps_accuracy: bike.gps_accuracy,
+            gps_hdop: bike.gps_hdop,
+            gps_satellites: bike.gps_satellites,
+            gps_speed: bike.gps_speed,
             status: bike.status,
             battery: bike.battery !== undefined ? bike.battery : bike.batteryLevel,
             locked: bike.locked === true || bike.lockStatus === 'locked',

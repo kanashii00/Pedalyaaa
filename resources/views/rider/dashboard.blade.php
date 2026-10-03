@@ -177,14 +177,73 @@
     </div>
 </div>
 
-<!-- Map -->
+<!-- Operating Area -->
+@php
+    // Zone wording and colour are defined once here so the badge, the readout and
+    // the legend can never end up describing the same state differently.
+    $zoneTone = function (?string $level): array {
+        return match ($level) {
+            'safe' => ['label' => 'Inside riding area', 'icon' => 'bi-check-circle-fill', 'color' => '#2E7D32'],
+            'warning', 'approaching' => ['label' => 'Near the boundary', 'icon' => 'bi-exclamation-triangle-fill', 'color' => '#F57C00'],
+            'breach', 'outside' => ['label' => 'Outside riding area', 'icon' => 'bi-x-octagon-fill', 'color' => '#C62828'],
+            default => ['label' => 'Waiting for GPS signal', 'icon' => 'bi-hourglass-split', 'color' => '#78909C'],
+        };
+    };
+    // With a live rental the map holds exactly one bicycle - the one being ridden -
+    // so this is the rider's own bike. Without one it is the available catalogue.
+    $ownBike = $activeRental ? ($mapBicycles[0] ?? null) : null;
+    $zone = $zoneTone($ownBike['zone'] ?? null);
+    $initialDistance = $ownBike['distanceToBoundary'] ?? null;
+@endphp
 <div class="card-pedalya mt-4">
-    <div class="card-pedalya-header"><span><i class="bi bi-geo-alt-fill text-primary me-2"></i><strong>Nearby Available Bicycles</strong></span></div>
-    <div style="height:300px;"><div id="riderMap" style="width:100%;height:100%;"></div></div>
+    <div class="card-pedalya-header d-flex justify-content-between align-items-center">
+        <span>
+            <i class="bi bi-geo-alt-fill text-primary me-2"></i>
+            <strong>{{ $activeRental ? 'Your Riding Area' : 'Riding Area' }}</strong>
+        </span>
+        @if($activeRental)
+        <span class="d-flex align-items-center gap-2">
+            <span id="zoneBadge" class="badge rounded-pill px-3 py-2" style="background:{{ $zone['color'] }};font-size:0.78rem;">
+                <i class="bi {{ $zone['icon'] }} me-1"></i><span id="zoneBadgeText">{{ $zone['label'] }}</span>
+            </span>
+            <button type="button" id="centerMapBtn" class="btn btn-sm btn-outline-secondary" title="Center on my bicycle">
+                <i class="bi bi-crosshair me-1"></i> Center
+            </button>
+        </span>
+        @endif
+    </div>
+    <div style="height:{{ $activeRental ? '380px' : '300px' }};"><div id="riderMap" style="width:100%;height:100%;"></div></div>
+    @if($activeRental)
+    <div class="card-pedalya-body border-top">
+        <div class="row g-3">
+            <div class="col-sm-4">
+                <div class="text-muted" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em;">Your bicycle</div>
+                <strong id="zoneBikeName">{{ $ownBike['name'] ?? '—' }}</strong>
+            </div>
+            <div class="col-sm-4">
+                <div class="text-muted" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em;">Position</div>
+                <strong id="zoneStatusText">{{ $zone['label'] }}</strong>
+            </div>
+            <div class="col-sm-4">
+                <div class="text-muted" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em;">Distance to boundary</div>
+                <strong id="zoneDistanceText">{{ $initialDistance !== null ? number_format((float) $initialDistance, 0) . ' m' : '—' }}</strong>
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-3 mt-3" style="font-size:0.8rem;">
+            <span class="d-inline-flex align-items-center gap-2"><span style="width:12px;height:12px;border-radius:50%;background:#2ecc71;display:inline-block;"></span> Inside riding area</span>
+            <span class="d-inline-flex align-items-center gap-2"><span style="width:12px;height:12px;border-radius:50%;background:#f39c12;display:inline-block;"></span> Near the boundary</span>
+            <span class="d-inline-flex align-items-center gap-2"><span style="width:12px;height:12px;border-radius:50%;background:#e74c3c;display:inline-block;"></span> Outside riding area</span>
+        </div>
+        <p class="text-muted mt-2 mb-0" style="font-size:0.78rem;">
+            <i class="bi bi-info-circle me-1"></i>Please ride inside the shaded area. The boundary is set by the operator and updates automatically, so always follow the shaded region on this map.
+        </p>
+    </div>
+    @endif
 </div>
 @endsection
 
 @section('scripts')
+<script src="{{ asset('js/geolibre-map.js') }}"></script>
 @if($activeRental)
 @php
     $isReturnFlow = in_array($activeRental->status, ['expired', 'awaiting_return', 'overdue_return'], true);
@@ -293,34 +352,93 @@
             el.innerHTML = '<div class="d-flex align-items-center justify-content-center h-100 bg-light"><small class="text-muted">Map loading...</small></div>';
             return;
         }
-        var bicycles = {!! json_encode($bicycles->filter(fn($b) => $b->currentLat && $b->currentLng)->map(fn($b) => ['lat' => (float) $b->currentLat, 'lng' => (float) $b->currentLng, 'name' => $b->serialNumber . ' - ' . $b->name, 'status' => $b->status])) !!};
-        var map = new maplibregl.Map({
-            container: el,
-            style: 'https://tiles.openfreemap.org/styles/liberty',
-            center: [125.6470, 7.0990],
-            zoom: 14,
-            attributionControl: true
-        });
-        map.addControl(new maplibregl.NavigationControl(), 'top-right');
-        var markers = [];
-        bicycles.forEach(function(b) {
-            var color = b.status === 'available' ? '#2E7D32' : (b.status === 'rented' ? '#F57C00' : '#D32F2F');
-            var marker = new maplibregl.Marker({ color: color })
-                .setLngLat([b.lng, b.lat])
-                .setPopup(new maplibregl.Popup({ offset: 25 }).setHTML(
-                    '<div style="padding:6px;font-family:Inter;"><strong>' + b.name + '</strong><br><span style="color:#2E7D32;text-transform:capitalize;">' + b.status + '</span></div>'
-                ))
-                .addTo(map);
-            markers.push([b.lng, b.lat]);
-        });
-        if (markers.length > 1) {
-            map.fitBounds(markers.reduce(function(b, c) {
-                b.extend(c);
-                return b;
-            }, new maplibregl.LngLatBounds(markers[0], markers[0])), { padding: 60 });
-        } else if (markers.length === 1) {
-            map.setCenter(markers[0]);
+
+        var hasActiveRental = {{ $activeRental ? 'true' : 'false' }};
+
+        // Mirrors the server-side zoneTone() above and the colours the shared map
+        // module uses for markers, so badge, readout and pin always agree.
+        function zoneTone(level) {
+            if (level === 'safe') {
+                return { label: 'Inside riding area', icon: 'bi-check-circle-fill', color: '#2E7D32' };
+            }
+            if (level === 'warning' || level === 'approaching') {
+                return { label: 'Near the boundary', icon: 'bi-exclamation-triangle-fill', color: '#F57C00' };
+            }
+            if (level === 'breach' || level === 'outside') {
+                return { label: 'Outside riding area', icon: 'bi-x-octagon-fill', color: '#C62828' };
+            }
+            return { label: 'Waiting for GPS signal', icon: 'bi-hourglass-split', color: '#78909C' };
         }
+
+        function formatDistance(metres) {
+            if (metres === null || metres === undefined || metres === '' || isNaN(metres)) return '—';
+            var m = Number(metres);
+            if (m >= 1000) return (m / 1000).toFixed(2) + ' km';
+            return Math.round(m) + ' m';
+        }
+
+        function setText(id, value) {
+            var node = document.getElementById(id);
+            if (node) node.textContent = value;
+        }
+
+        // Accepts either the server-rendered seed shape (zone / distanceToBoundary)
+        // or the live payload shape (zone_level / distance_to_boundary).
+        function applyZone(bicycle) {
+            if (!bicycle) {
+                var none = zoneTone(null);
+                setText('zoneBadgeText', none.label);
+                setText('zoneStatusText', none.label);
+                setText('zoneBikeName', 'No active rental');
+                setText('zoneDistanceText', '—');
+                var emptyBadge = document.getElementById('zoneBadge');
+                if (emptyBadge) emptyBadge.style.background = none.color;
+                var emptyIcon = emptyBadge && emptyBadge.querySelector('i');
+                if (emptyIcon) emptyIcon.className = 'bi ' + none.icon + ' me-1';
+                return;
+            }
+
+            var level = bicycle.zone_level !== undefined ? bicycle.zone_level : bicycle.zone;
+            var distance = bicycle.distance_to_boundary !== undefined
+                ? bicycle.distance_to_boundary
+                : bicycle.distanceToBoundary;
+            var tone = zoneTone(level);
+
+            setText('zoneBadgeText', tone.label);
+            setText('zoneStatusText', tone.label);
+            setText('zoneBikeName', bicycle.name || '—');
+            setText('zoneDistanceText', formatDistance(distance));
+
+            var badge = document.getElementById('zoneBadge');
+            if (badge) badge.style.background = tone.color;
+            var icon = badge && badge.querySelector('i');
+            if (icon) icon.className = 'bi ' + tone.icon + ' me-1';
+        }
+
+        // Paint from the server-rendered values first so the badge is correct
+        // before the first poll arrives. Only a live rental has a zone to report.
+        applyZone(@json($activeRental ? ($mapBicycles[0] ?? null) : null));
+
+        PedalyaGeoLibre.init({
+            container: 'riderMap',
+            // The same geofence configuration the admin monitoring map draws, so
+            // the operating area a rider is shown is always the operator's area.
+            geofence: @json($geofence),
+            // While a rental is live this list holds exactly one entry: the rider's
+            // own bicycle. Other bicycles are never sent to a rider who is riding.
+            bicycles: @json($mapBicycles),
+            liveUrl: @if($activeRental){{ route('rider.operating-area.live') }}@else null @endif,
+            pollMs: 15000,
+            // The geofence-alerts channel is an admin feed carrying an event for
+            // every bicycle in the fleet, so a rider map must never subscribe to
+            // it: polling this rider's own endpoint is the only live source here.
+            broadcast: false,
+            buttons: @json(['center' => 'centerMapBtn']),
+            onLive: function (data) {
+                if (!hasActiveRental) return;
+                applyZone((data.bicycles && data.bicycles[0]) || null);
+            }
+        });
     });
 </script>
 @endsection

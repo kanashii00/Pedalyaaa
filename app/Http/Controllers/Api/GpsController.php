@@ -2,24 +2,20 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Events\GeofenceAlert;
-use App\Events\GpsUpdate;
 use App\Http\Controllers\Controller;
-use App\Models\Accident;
 use App\Models\Bicycle;
 use App\Models\Geofence;
 use App\Models\GpsLog;
 use App\Services\GeofenceService;
-use App\Services\TheftDetectionService;
+use App\Services\GpsIngestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 
 class GpsController extends Controller
 {
     public function __construct(
         private GeofenceService $geofenceService,
-        private TheftDetectionService $theftDetectionService
+        private GpsIngestService $gpsIngest
     ) {}
 
     public function location(Request $request): JsonResponse
@@ -32,50 +28,66 @@ class GpsController extends Controller
             'heading' => 'nullable|numeric|between:0,360',
             'altitude' => 'nullable|numeric',
             'accuracy' => 'nullable|numeric|min:0',
+            'hdop' => 'nullable|numeric|min:0',
+            'satellites' => 'nullable|integer|min:0',
             'battery' => 'nullable|numeric|between:0,100',
             'timestamp' => 'nullable|date',
         ]);
 
         $bicycle = Bicycle::findOrFail($validated['bicycle_id']);
 
-        $gpsLog = GpsLog::create([
-            'bicycleId' => $bicycle->id,
+        $recorded = $this->gpsIngest->record($bicycle, [
             'lat' => $validated['lat'],
             'lng' => $validated['lng'],
             'speed' => $validated['speed'] ?? null,
             'heading' => $validated['heading'] ?? null,
             'altitude' => $validated['altitude'] ?? null,
             'accuracy' => $validated['accuracy'] ?? null,
-            'batteryLevel' => $validated['battery'] ?? null,
-            'timestamp' => $validated['timestamp'] ?? now(),
+            'hdop' => $validated['hdop'] ?? null,
+            'satellites' => $validated['satellites'] ?? null,
+            'battery' => $validated['battery'] ?? null,
+            'timestamp' => $validated['timestamp'] ?? null,
         ]);
-
-        $bicycle->update([
-            'currentLat' => $validated['lat'],
-            'currentLng' => $validated['lng'],
-            'batteryLevel' => $validated['battery'] ?? $bicycle->batteryLevel,
-            'lastGpsUpdate' => now(),
-        ]);
-
-        $geofence = $this->checkGeofence($bicycle, (float) $validated['lat'], (float) $validated['lng']);
-
-        event(new GpsUpdate(
-            $bicycle,
-            (float) $validated['lat'],
-            (float) $validated['lng'],
-            [
-                'speed' => isset($validated['speed']) ? (float) $validated['speed'] : null,
-                'battery' => (int) ($validated['battery'] ?? $bicycle->batteryLevel),
-                'lock_status' => $bicycle->lockStatus,
-                'zone' => $geofence['level'] ?? null,
-                'zone_distance' => $geofence['distance'] ?? null,
-            ]
-        ));
 
         return response()->json([
             'message' => 'Location recorded',
-            'gps_log' => $gpsLog,
-            'geofence' => $geofence,
+            'gps_log' => $recorded['gps_log'],
+            'geofence' => $recorded['geofence'],
+        ]);
+    }
+
+    public function bicycleLocation(Request $request, Bicycle $bicycle): JsonResponse
+    {
+        $validated = $request->validate([
+            'lat' => 'required|numeric|between:-90,90',
+            'lng' => 'required|numeric|between:-180,180',
+            'speed' => 'nullable|numeric|min:0',
+            'heading' => 'nullable|numeric|between:0,360',
+            'altitude' => 'nullable|numeric',
+            'accuracy' => 'nullable|numeric|min:0',
+            'hdop' => 'nullable|numeric|min:0',
+            'satellites' => 'nullable|integer|min:0',
+            'battery' => 'nullable|numeric|between:0,100',
+            'timestamp' => 'nullable|date',
+        ]);
+
+        $recorded = $this->gpsIngest->record($bicycle, [
+            'lat' => $validated['lat'],
+            'lng' => $validated['lng'],
+            'speed' => $validated['speed'] ?? null,
+            'heading' => $validated['heading'] ?? null,
+            'altitude' => $validated['altitude'] ?? null,
+            'accuracy' => $validated['accuracy'] ?? null,
+            'hdop' => $validated['hdop'] ?? null,
+            'satellites' => $validated['satellites'] ?? null,
+            'battery' => $validated['battery'] ?? null,
+            'timestamp' => $validated['timestamp'] ?? null,
+        ]);
+
+        return response()->json([
+            'message' => 'Location recorded',
+            'gps_log' => $recorded['gps_log'],
+            'geofence' => $recorded['geofence'],
         ]);
     }
 
@@ -88,7 +100,7 @@ class GpsController extends Controller
         }
 
         $logs = GpsLog::where('bicycleId', $id)
-            ->orderByDesc('timestamp')
+            ->orderByDesc('id')
             ->limit(1000)
             ->get();
 
@@ -108,7 +120,7 @@ class GpsController extends Controller
         }
 
         $latestLog = GpsLog::where('bicycleId', $id)
-            ->orderByDesc('timestamp')
+            ->orderByDesc('id')
             ->first();
 
         return response()->json([
@@ -116,11 +128,13 @@ class GpsController extends Controller
             'location' => $latestLog ? [
                 'lat' => (float) $latestLog->lat,
                 'lng' => (float) $latestLog->lng,
-                'speed' => (float) $latestLog->speed,
-                'heading' => (float) $latestLog->heading,
-                'altitude' => (float) $latestLog->altitude,
-                'accuracy' => (float) $latestLog->accuracy,
-                'battery' => (float) $latestLog->batteryLevel,
+                'speed' => $latestLog->speed !== null ? (float) $latestLog->speed : null,
+                'heading' => $latestLog->heading !== null ? (float) $latestLog->heading : null,
+                'altitude' => $latestLog->altitude !== null ? (float) $latestLog->altitude : null,
+                'accuracy' => $latestLog->accuracy !== null ? (float) $latestLog->accuracy : null,
+                'hdop' => $latestLog->hdop !== null ? (float) $latestLog->hdop : null,
+                'satellites' => $latestLog->satellites,
+                'battery' => $latestLog->batteryLevel !== null ? (float) $latestLog->batteryLevel : null,
                 'timestamp' => $latestLog->timestamp,
             ] : null,
         ]);
@@ -176,83 +190,6 @@ class GpsController extends Controller
     {
         return response()->json([
             'geofence' => $this->geofenceService->getConfig(),
-        ]);
-    }
-
-    private function checkGeofence(Bicycle $bicycle, float $lat, float $lng): ?array
-    {
-        $config = $this->geofenceService->getConfig();
-
-        $result = $this->geofenceService->checkPoint($lat, $lng, $config);
-
-        Log::debug('[GpsController] checkGeofence', [
-            'bicycleId' => $bicycle->id,
-            'lat' => $lat,
-            'lng' => $lng,
-            'inside' => $result['inside'] ?? null,
-            'level' => $result['level'] ?? null,
-            'alertEnabled' => $config['alertEnabled'] ?? null,
-        ]);
-
-        if ($result['inside']) {
-            if (in_array($result['level'] ?? null, ['approaching', 'warning'], true)) {
-                $this->recordWarningEvent($bicycle, $lat, $lng, $result);
-
-                event(new GeofenceAlert(
-                    $bicycle,
-                    $result['level'],
-                    (float) $result['distanceToBoundary'],
-                    $lat,
-                    $lng
-                ));
-
-                return $result;
-            }
-
-            // Returned inside the safe zone → resolve open theft alert, keep history.
-            $this->theftDetectionService->resolveAlertOnReturn($bicycle);
-
-            return $result;
-        }
-
-        // Outside / breach → open or update the single active theft alert and
-        // synchronise map markers, counters, notifications and the smart lock.
-        // This ALWAYS runs when the zone is outside, independent of alertEnabled.
-        $this->theftDetectionService->openOrUpdateTheftAlert(
-            $bicycle,
-            $lat,
-            $lng,
-            $result['distanceOutside'] ?? null,
-            $result
-        );
-
-        return $result;
-    }
-
-    private function recordWarningEvent(Bicycle $bicycle, float $lat, float $lng, array $result): void
-    {
-        $lastWarning = Accident::where('bicycleId', $bicycle->id)
-            ->where('type', 'geofence_alert')
-            ->where('warningLevel', '!=', 'breach')
-            ->latest('id')
-            ->first();
-
-        if ($lastWarning && $lastWarning->created_at->diffInMinutes(now()) < 15) {
-            return;
-        }
-
-        Accident::create([
-            'bicycleId' => $bicycle->id,
-            'type' => 'geofence_alert',
-            'severity' => 'minor',
-            'gpsLocation' => ['lat' => $lat, 'lng' => $lng],
-            'description' => 'Bicycle is approaching the geofence boundary ('.round($result['distanceToBoundary'], 1).'m from boundary).',
-            'status' => 'open',
-            'acknowledged' => false,
-            'alertSent' => true,
-            'reportedBy' => 'gps_service',
-            'warningLevel' => $result['level'] ?? 'approaching',
-            'distanceFromBoundary' => $result['distanceToBoundary'],
         ]);
     }
 }

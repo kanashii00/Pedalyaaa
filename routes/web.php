@@ -20,6 +20,7 @@ use App\Http\Controllers\Auth\GoogleAuthController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\Rider\DashboardController as RiderDashboard;
 use App\Http\Controllers\Rider\NotificationController as RiderNotifications;
+use App\Http\Controllers\Rider\OperatingAreaController as RiderOperatingArea;
 use App\Http\Controllers\Rider\ProfileController as RiderProfile;
 use App\Http\Controllers\Rider\RentController as RiderRent;
 use Illuminate\Support\Facades\Route;
@@ -153,6 +154,10 @@ Route::post('/theft/{id}/acknowledge', [AdminTheft::class, 'acknowledge'])->name
 // Rider routes
 Route::middleware(['auth', 'role:rider'])->prefix('rider')->name('rider.')->group(function () {
     Route::get('/dashboard', [RiderDashboard::class, 'index'])->middleware('rental.sync')->name('dashboard');
+
+    // Live operating area for the rider's own rental. The bicycle is resolved
+    // from the rider's rental, so this cannot be pointed at another bicycle.
+    Route::get('/operating-area/live', [RiderOperatingArea::class, 'live'])->name('operating-area.live');
 
     // Rent bicycle
     Route::get('/rent', [RiderRent::class, 'index'])->middleware('rental.sync')->name('rentals.create');

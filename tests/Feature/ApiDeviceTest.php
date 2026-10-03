@@ -142,6 +142,36 @@ class ApiDeviceTest extends TestCase
         $this->assertDatabaseHas('gps_logs', ['bicycleId' => $bike->id, 'lat' => 14.6]);
     }
 
+    public function test_bicycle_gps_path_records_the_authenticated_bicycles_fix(): void
+    {
+        $bike = $this->makeBicycle();
+        $deviceKey = $bike->issueDeviceKey();
+
+        $this->postJson("/api/iot/bicycle/{$bike->id}/gps", [
+            'lat' => 14.6123456,
+            'lng' => 120.9876543,
+            'speed' => 8.5,
+            'heading' => 90,
+            'accuracy' => 4.2,
+            'hdop' => 1.3,
+            'satellites' => 7,
+        ], ['X-API-Key' => $deviceKey])
+            ->assertOk()
+            ->assertJsonPath('message', 'Location recorded');
+
+        $this->assertDatabaseHas('gps_logs', [
+            'bicycleId' => $bike->id,
+            'lat' => 14.6123456,
+            'lng' => 120.9876543,
+            'accuracy' => 4.2,
+            'hdop' => 1.3,
+            'satellites' => 7,
+        ]);
+        $this->assertEquals(14.6123456, (float) $bike->fresh()->currentLat);
+        $this->assertEquals(120.9876543, (float) $bike->fresh()->currentLng);
+        $this->assertNotNull($bike->fresh()->lastGpsUpdate);
+    }
+
     public function test_gps_location_triggers_geofence_breach(): void
     {
         config(['services.geofence' => ['center_lat' => 15.0, 'center_lng' => 121.0, 'default_radius' => 100, 'warning_threshold' => 50]]);

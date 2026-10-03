@@ -7,8 +7,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Bicycle;
 use App\Models\Rental;
 use App\Models\SystemSetting;
+use App\Services\GeofenceService;
 use App\Services\RentalService;
 use App\Services\RiderCacheService;
+use App\Services\RiderOperatingAreaService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -19,6 +21,7 @@ class RentController extends Controller
     public function __construct(
         protected RentalService $rentalService,
         protected RiderCacheService $riderCacheService,
+        protected RiderOperatingAreaService $operatingArea,
     ) {}
 
     public function index(): View
@@ -29,8 +32,18 @@ class RentController extends Controller
         // an enabled button is decided per row by Bicycle::isRentable().
         $bicycles = $this->riderCacheService->listedFleet();
 
+        // The operating area the rider is about to ride inside. It comes from the
+        // same GeofenceService configuration the admin monitoring map draws, so
+        // the area shown before renting is the area enforced during the ride.
+        $geofence = $this->operatingArea->geofence();
+
         return view('rider.rent', [
             'bicycles' => $bicycles,
+            'geofence' => $geofence,
+            // Boundary geometry is resolved server-side rather than redrawn in the
+            // browser, so the shape on this map is exactly the shape that
+            // GeofenceService measures a bicycle against.
+            'geofenceGeoJson' => app(GeofenceService::class)->shapeGeoJson($geofence),
             'selectableBicycleIds' => $this->selectableBicycleIds(),
             'maxDurationMinutes' => $this->maxDurationMinutes(),
         ]);

@@ -17,13 +17,50 @@ pedalya_lcd/
   platformio.ini            PlatformIO project
   .gitignore                ignores .pio/ and the live secrets.h
   pedalya_lcd/              Arduino IDE sketch folder
-    pedalya_lcd.ino         setup() and loop()
+    pedalya_lcd.ino         wiring and loop() only
     config.h                server, pins, and polling settings
     secrets.h               live WiFi password and device key (gitignored)
     secrets_example.h       committed template for secrets.h
-    PedalyaApi.h/.cpp       WiFi, HTTP, JSON, clock
+    BuzzerAlarm.h/.cpp      every sound; the only writer of BUZZER_PIN
+    BuzzerCountdown.h       the accelerating beep pattern
+    LockActuator.h/.cpp     the servo on SERVO_PIN
+    RentalTimer.h/.cpp      overdue clock, return grace, projected penalty
+    RentalController.h/.cpp expiry state machine and the actuator safety rule
+    CommandHandler.h/.cpp   the server command queue
     LcdDisplay.h/.cpp       16x2 rendering
+    GpsReceiver.h           checksummed NMEA RMC GPS reader
+    PedalyaApi.h/.cpp       WiFi, HTTP, JSON, clock
+    Diagnostics.h/.cpp      the boot banner
 ```
+
+### One part per tab
+
+Each module owns one piece of hardware or one decision, and the sketch only
+wires them together:
+
+| Tab | Owns |
+| --- | --- |
+| `LcdDisplay` | the screen, including the whole expired sequence |
+| `LockActuator` | the servo, and the only code that drives `SERVO_PIN` |
+| `BuzzerAlarm` | the alarm shapes, and the only code that drives `BUZZER_PIN` |
+| `RentalTimer` | seconds since expiry, the free window, the projected penalty |
+| `RentalController` | the only place expiry is decided, and the safety rule |
+| `CommandHandler` | the server queue; a command is a request, never a decision |
+| `GpsReceiver` | the NMEA sentence reader |
+| `PedalyaApi` | the network and the JSON |
+| `Diagnostics` | the boot banner, including a key fingerprint that is not the key |
+
+The Arduino IDE shows every one of these as its own tab next to
+`pedalya_lcd.ino`. PlatformIO builds the same files from the same folder.
+
+Single-part sketches live one level up in `firmware/tests/`, each its own sketch
+folder so one part can be flashed on its own:
+
+| Sketch | Answers |
+| --- | --- |
+| `firmware/tests/lcd_test` | is the screen, the backpack address or the wiring at fault? |
+| `firmware/tests/buzzer_test` | what do the two alarm shapes sound like, at the real timings? |
+| `firmware/tests/lock_stroke_test` | does the expiry stroke move the real linkage safely? |
 
 ### Where the API key goes
 
@@ -110,6 +147,8 @@ Everything else stays in `config.h`:
 | `SERVER_HOST` | your machine's LAN IP, where Laravel runs |
 | `SERVER_PORT` | `8000` for `php artisan serve`, or `443` with `USE_HTTPS 1` |
 | `SERVER_PATH` | `/api/iot/bicycle/1/rental` for this bicycle |
+| `HEARTBEAT_PATH` | `/api/iot/bicycle/1/heartbeat` for this bicycle |
+| `GPS_PATH` | `/api/iot/bicycle/1/gps` for this bicycle |
 | `I2C_ADDRESS` | `0x27`, or `0x3F` if the screen stays blank |
 
 Save the file. Only `secrets.h` is ever edited per unit; the rest of the sketch
@@ -130,7 +169,7 @@ prints the library paths and sketch size as it goes. A successful run ends with
 [cfg] key     1d1e9e17... (64 chars)
 [cfg] display I2C 0x27  SDA 21  SCL 22
 [wifi] connecting to "PLDTHOMEFIBRZ47rS"
-[ip] 192.168.1.115
+[ip] 192.168.1.112
 [api] 200 OK from http://192.168.1.112:8000/api/iot/bicycle/1/rental
 [api] bicycle idle
 ```
@@ -182,12 +221,10 @@ the same sources. `WIFI_SSID` and `WIFI_PASSWORD` come from the environment; the
 
 ### Servo, buzzer, and safe calibration
 
-The actuator pins are fixed by default: servo PWM is **GPIO18**, and GPIO19
-drives the **gate/base of a buzzer driver**, not the buzzer itself. Power the
-servo from its own regulated 5-6 V supply and connect that supply's GND to the
-ESP32 GND. A passive buzzer receives a 2 kHz PWM tone on GPIO19 by default;
-set `BUZZER_FREQUENCY_HZ` if its sound is too quiet. A high-current buzzer
-still needs a transistor/MOSFET driver and its rated supply.
+The prototype uses servo PWM on **GPIO18** (`0°` released, `80°` locked) and an
+active HIGH/LOW buzzer output on **GPIO19**. Power the servo from its own
+regulated 5-6 V supply and connect that supply's GND to ESP32 GND. Use a
+transistor/MOSFET driver if the buzzer current exceeds the GPIO rating.
 
 `config.h` exposes `SERVO_RELEASE_ANGLE`, `SERVO_LOCK_ANGLE`, warning timing,
 and beep duration. Start with the servo horn disconnected, then adjust those
@@ -206,8 +243,40 @@ normal mechanical brake usable throughout calibration; set calibration back to
 `0` before a rider uses the bicycle.
 
 In normal mode, `active` releases the servo, the configured warning window
-beeps without moving it, `expired` locks it, and a missing/settled rental
-releases it. Failed API polls preserve the last servo position.
+stays silent, `expired` locks it, and `awaiting_return` locks it without an
+expiry alarm. With no live rental, the servo follows the bicycle's recorded
+`lockStatus`. Failed API polls preserve the last servo position. On boot the
+servo waits for a successful authenticated rental poll before it moves.
+
+### The two alarm sounds
+
+The buzzer only ever sounds after a rental has actually expired, and it uses two
+shapes so a rider can tell "your time is up" from "come back to the station"
+without looking at the LCD:
+
+| When | Sound | Meaning |
+| --- | --- | --- |
+| The instant time runs out | flat, unbroken tone for `EXPIRED_FLATLINE_MS` (4 s) | the rental expired |
+| The free return window that follows, `RETURN_GRACE_SECONDS` (5 min) | separate beeps that speed up as the window runs out | return the bicycle, still no charge |
+| The window lapses | flat, unbroken tone, held | the grace is gone and penalties apply |
+
+The countdown gap shrinks linearly from `RETURN_COUNTDOWN_GAP_START_MS` (1.8 s,
+one beep every ~2 s with the full window left) down to
+`RETURN_COUNTDOWN_GAP_END_MS` (0.25 s, one every ~0.45 s on the final second),
+so the pattern itself counts the window down. Each beep lasts
+`RETURN_COUNTDOWN_TONE_MS`. Return the bicycle and the beeps stop with it.
+
+Two deliberate limits:
+
+- The countdown is only ever played while the link to the server is up. During a
+  network outage the flatline is held instead, because an alarm that is mostly
+  silent is least acceptable exactly when the connection is unreliable.
+- A `buzzer` command from the server cannot start a sound before expiry, and
+  cannot choose a different shape afterwards: it goes through the same decision
+  as the timer does.
+
+Set `RETURN_COUNTDOWN_ENABLED 0` in `secrets.h` to go back to one continuous
+flatline for the whole expired state.
 
 The PCF8574 backpack on the LCD is I2C only, so four wires:
 
@@ -221,6 +290,32 @@ The PCF8574 backpack on the LCD is I2C only, so four wires:
 If the screen stays blank, the backpack address is usually `0x3F` rather than
 `0x27`. An I2C scanner sketch will confirm it, then set `I2C_ADDRESS` to `0x3F`
 in `config.h`.
+
+### GPS and device telemetry
+
+The controller reads checksummed NMEA RMC sentences on UART1 at 9600 baud,
+using ESP32 RX GPIO4 and TX GPIO2. It uploads a valid fix every 15 seconds to
+`GPS_PATH`; no GPS fix means no location request. A per-bicycle authenticated
+heartbeat reports the commanded lock state and uptime at the rental polling
+interval. Both endpoints use the same `X-API-Key` as the rental display and
+command queue.
+
+The GPS endpoint records the fix in the existing `gps_logs` table and runs the
+existing geofence checks. The heartbeat reports lock state only when the servo
+is attached; this prototype has no lock-position feedback sensor.
+
+GPIO2 is also an ESP32 boot strapping pin. This firmware disables the status LED
+on that pin so it does not drive the GPS signal, but the GPS module's TX output
+can still affect boot or flashing on some boards. The prototype should be
+checked through a cold boot and a flash cycle with GPS connected.
+
+The integrated controller currently uses Wi-Fi HTTP, matching the existing
+`PedalyaApi` transport. The EC20 AT initialization sketch in
+`firmware/prototypes/bench_bringup/bench_bringup.ino` is a separate prototype;
+it does not provide the active controller's HTTP transport. Cellular operation
+needs a carrier APN and a backend hostname reachable over the mobile network.
+For HTTPS, set `USE_HTTPS 1` and configure a server fingerprint; the client
+refuses TLS requests without one.
 
 ## Server side: issuing the device key
 
@@ -256,11 +351,31 @@ anywhere but a bench.
 | Rented, before the deadline | `RIDE 00:12:35` | `LEFT 14:32:09` |
 | Rented, past the deadline | `RIDE 00:12:35` | `LATE PHP250.00` |
 | No deadline set | `RIDE 00:12:35` | `NO DEADLINE` |
+| Last `EXPIRY_WARNING_SECONDS` before expiry | `RENTAL ENDING` | `LEFT 00:05` |
+| First 3 seconds after expiry | `RENTAL EXPIRED` | `LOCK ENGAGED` |
+| Return grace, counting down | `RETURN BICYCLE` | `RETURN IN 04:57` |
+| Overdue, counting up | `RETURN BICYCLE` | `OVERDUE 00:01` |
+| Overdue, alternating every 2s | `RETURN BICYCLE` | `PENALTY P30` |
 | Cannot reach the server | `NO SERVER` | `http 401` |
 | WiFi down | `PEDALYA` | `connecting...` |
 
 Row 1 is always time on the clock. Row 2 is the countdown, and switches to the
 running penalty the moment the deadline passes.
+
+Once the deadline passes the rider is given `RETURN_GRACE_SECONDS` (five minutes
+by default) to get the bicycle back to the station, and that window has its own
+screen because it is the only part of the expired state where returning is still
+free. `RETURN IN mm:ss` counts down to `00:00` and is the number the rider
+watches; it does not alternate, because a single falling figure is what makes
+the remaining time legible at a glance.
+
+After the grace expires the screen alternates `OVERDUE mm:ss` with
+`PENALTY Pxx` every two seconds, as a 16x2 display cannot hold both at once.
+That overdue counter starts at `00:01`, measured from the end of the grace
+rather than from the deadline, so the first penalised second reads as one second
+late instead of jumping straight to five minutes. It keeps counting up for as
+long as the rental is open, and the peso figure steps up every
+`PENALTY_INTERVAL_SECONDS` in step with `updateOverdueTimer()`.
 
 Which deadline the countdown targets follows the rental lifecycle. While a
 rental is `active` no administrator deadline exists yet, so it counts down to

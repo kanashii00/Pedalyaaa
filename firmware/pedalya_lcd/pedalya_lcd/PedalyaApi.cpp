@@ -82,6 +82,7 @@ void PedalyaApi::ensureTime() {
  */
 void PedalyaApi::reportFailure(int status, const String& body, String& error) {
     char shortReason[20];
+    lastStatus_ = status;
 
     // Laravel returns {"message":"..."} for API errors. A 404 does not: implicit
     // model binding rejects an unknown bicycle before the middleware runs, so the
@@ -160,6 +161,11 @@ void PedalyaApi::reportFailure(int status, const String& body, String& error) {
 }
 
 bool PedalyaApi::poll(RentalState& out, String& error) {
+    // Cleared up front: this poll may fail before any HTTP status exists, and a
+    // status left over from an earlier rejection would mislabel an offline bike
+    // as a key fault on the LCD.
+    lastStatus_ = 0;
+
     if (!connected()) {
         error = "wifi down";
         return false;
@@ -177,10 +183,11 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
 
 #if USE_HTTPS
     WiFiClientSecure client;
-    client.setInsecure();
-    if (strlen(SERVER_FINGERPRINT) > 0) {
-        client.setFingerprint(SERVER_FINGERPRINT);
+    if (strlen(SERVER_FINGERPRINT) == 0) {
+        error = "no tls fingerprint";
+        return false;
     }
+    client.setFingerprint(SERVER_FINGERPRINT);
 #else
     WiFiClient client;
 #endif
@@ -240,10 +247,11 @@ bool PedalyaApi::pollCommands(DeviceCommand* commands, size_t capacity, size_t& 
 
 #if USE_HTTPS
     WiFiClientSecure client;
-    client.setInsecure();
-    if (strlen(SERVER_FINGERPRINT) > 0) {
-        client.setFingerprint(SERVER_FINGERPRINT);
+    if (strlen(SERVER_FINGERPRINT) == 0) {
+        error = "no tls fingerprint";
+        return false;
     }
+    client.setFingerprint(SERVER_FINGERPRINT);
 #else
     WiFiClient client;
 #endif
@@ -286,10 +294,11 @@ bool PedalyaApi::acknowledgeCommand(uint32_t commandId, bool executed, const Str
 
 #if USE_HTTPS
     WiFiClientSecure client;
-    client.setInsecure();
-    if (strlen(SERVER_FINGERPRINT) > 0) {
-        client.setFingerprint(SERVER_FINGERPRINT);
+    if (strlen(SERVER_FINGERPRINT) == 0) {
+        error = "no tls fingerprint";
+        return false;
     }
+    client.setFingerprint(SERVER_FINGERPRINT);
 #else
     WiFiClient client;
 #endif
@@ -326,6 +335,122 @@ bool PedalyaApi::acknowledgeCommand(uint32_t commandId, bool executed, const Str
     return true;
 }
 
+bool PedalyaApi::postJson(const char* path, const String& payload, String& error) {
+    if (!connected()) {
+        error = "wifi down";
+        return false;
+    }
+    if (strlen(DEVICE_API_KEY) == 0) {
+        error = "no api key";
+        return false;
+    }
+
+#if USE_HTTPS
+    WiFiClientSecure client;
+    if (strlen(SERVER_FINGERPRINT) == 0) {
+        error = "no tls fingerprint";
+        return false;
+    }
+    client.setFingerprint(SERVER_FINGERPRINT);
+#else
+    WiFiClient client;
+#endif
+
+    HTTPClient http;
+    char url[192];
+    snprintf(url, sizeof(url), "%s://%s:%d%s",
+             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, path);
+    if (!http.begin(client, url)) {
+        error = "post begin";
+        return false;
+    }
+
+    http.setTimeout(REQUEST_TIMEOUT_MS);
+    http.addHeader("X-API-Key", DEVICE_API_KEY);
+    http.addHeader("Accept", "application/json");
+    http.addHeader("Content-Type", "application/json");
+    const int status = http.POST(payload);
+    const String response = http.getString();
+    http.end();
+    if (status < 200 || status >= 300) {
+        reportFailure(status, response, error);
+        return false;
+    }
+    return true;
+}
+
+bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptimeSeconds, String& error) {
+    JsonDocument payload;
+    if (lockStateKnown) payload["locked"] = locked;
+    payload["uptime"] = uptimeSeconds;
+    payload["firmware"] = "pedalya-esp32-v1";
+    String body;
+    serializeJson(payload, body);
+    return postJson(HEARTBEAT_PATH, body, error);
+}
+
+bool PedalyaApi::sendGps(double latitude, double longitude, float speedKph,
+                         float heading, String& error) {
+    JsonDocument payload;
+    payload["lat"] = latitude;
+    payload["lng"] = longitude;
+    payload["speed"] = speedKph;
+    payload["heading"] = heading;
+    String body;
+    serializeJson(payload, body);
+    return postJson(GPS_PATH, body, error);
+}
+
+bool PedalyaApi::reportAccident(double latitude,
+                                double longitude,
+                                bool hasFix,
+                                float impactG,
+                                float rotationDps,
+                                float tiltDegrees,
+                                float accelXG,
+                                float accelYG,
+                                float accelZG,
+                                String& error) {
+    // Cleared up front so a stale status from an earlier poll cannot be read as
+    // the verdict on this report.
+    lastStatus_ = 0;
+
+    JsonDocument payload;
+
+    // Only claim a position when there is one. A crash under a bridge or in a
+    // tunnel must still be reported, so the coordinates are left out entirely
+    // rather than sent as zero, which would point at Null Island.
+    if (hasFix) {
+        payload["lat"] = latitude;
+        payload["lng"] = longitude;
+    }
+
+    // Sent for the fleet-wide endpoint's benefit. The per-bicycle endpoint
+    // derives both from the authenticated device key and ignores these.
+    payload["bicycle_id"] = (uint32_t)ACCIDENT_BICYCLE_ID;
+    payload["device_id"] = ACCIDENT_DEVICE_ID;
+
+    // impact is what the backend bands into a severity, so it carries the
+    // measured peak. impact_force is kept in step for the older endpoint.
+    payload["impact"] = impactG;
+    payload["impact_force"] = impactG;
+    payload["rotation_dps"] = rotationDps;
+    payload["tilt_degrees"] = tiltDegrees;
+
+    // The vector the event was judged on, so the record shows what the sensor
+    // actually saw and not only the verdict derived from it.
+    JsonArray accelerometer = payload["accelerometer"].to<JsonArray>();
+    accelerometer.add(accelXG);
+    accelerometer.add(accelYG);
+    accelerometer.add(accelZG);
+
+    // The timestamp is optional; the server stamps it on arrival.
+    String body;
+    serializeJson(payload, body);
+    Serial.printf("[api] accident report -> %s %s\n", ACCIDENT_REPORT_PATH, body.c_str());
+    return postJson(ACCIDENT_REPORT_PATH, body, error);
+}
+
 bool PedalyaApi::parse(const String& body, RentalState& out, String& error) {
     JsonDocument doc;
     if (deserializeJson(doc, body)) {
@@ -359,6 +484,12 @@ bool PedalyaApi::parse(const String& body, RentalState& out, String& error) {
     uint16_t requested = data["pollAfterSeconds"] | (uint16_t)DEFAULT_POLL_SECONDS;
     out.pollAfterSeconds = requested < 5 ? 5 : requested;
 
+    JsonObjectConst bicycle = data["bicycle"].as<JsonObjectConst>();
+    if (!bicycle.isNull()) {
+        out.bicycleLockStatus = bicycle["lockStatus"] | "locked";
+        out.bicycleStatus = bicycle["status"] | "available";
+    }
+
     JsonObjectConst rental = data["rental"].as<JsonObjectConst>();
     if (rental.isNull()) {
         out.clearRental();
@@ -377,6 +508,7 @@ bool PedalyaApi::parse(const String& body, RentalState& out, String& error) {
     out.startTs         = rental["startTimestamp"].as<int64_t>();
     out.deadlineTs      = rental["returnDeadlineTimestamp"].as<int64_t>();
     out.isOverdue       = rental["isOverdue"] | false;
+    out.serverOverdueSeconds = rental["overdueSeconds"] | 0UL;
     out.ratePerHour     = rental["ratePerHour"] | 0.0f;
 
     JsonObjectConst penalty = rental["penalty"].as<JsonObjectConst>();

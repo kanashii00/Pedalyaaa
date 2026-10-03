@@ -18,6 +18,9 @@
 // Issued per bicycle by: php artisan devices:provision-key <id>
 // Sent as the X-API-Key header, and must belong to the bicycle named in
 // SERVER_PATH. A valid key for a different bicycle is rejected as invalid.
+// Left empty on purpose: a copied template must reach the API key check
+// (which reports a missing key) rather than ship a placeholder that looks
+// plausible but is rejected as invalid.
 #ifndef DEVICE_API_KEY
-#define DEVICE_API_KEY "paste-the-key-here"
+#define DEVICE_API_KEY ""
 #endif

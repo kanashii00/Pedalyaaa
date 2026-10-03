@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Bicycle;
 use App\Services\GeofenceService;
+use App\Services\GpsIngestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -32,8 +33,11 @@ class MonitoringController extends Controller
         $geofence = $this->geofenceService->getConfig();
 
         foreach ($bicycles as $bike) {
-            if ($bike->currentLat !== null && $bike->currentLng !== null) {
-                $bike->zone = $this->geofenceService->checkPoint((float) $bike->currentLat, (float) $bike->currentLng, $geofence);
+            $gps = $this->gpsSnapshot($bike);
+            $bike->setAttribute('gps_data', $gps);
+
+            if ($gps['status'] === 'fix') {
+                $bike->zone = $this->geofenceService->checkPoint($gps['latitude'], $gps['longitude'], $geofence);
             } else {
                 $bike->zone = ['inside' => null, 'distance' => null, 'level' => 'unknown', 'warning' => false];
             }
@@ -144,7 +148,8 @@ class MonitoringController extends Controller
 
     public function live(): JsonResponse
     {
-        $bicycles = Bicycle::where('status', '!=', 'removed')
+        $bicycles = Bicycle::with('latestGpsLog')
+            ->where('status', '!=', 'removed')
             ->orderBy('id')
             ->get();
 
@@ -152,8 +157,10 @@ class MonitoringController extends Controller
 
         $data = [];
         foreach ($bicycles as $bike) {
-            if ($bike->currentLat !== null && $bike->currentLng !== null) {
-                $zone = $this->geofenceService->checkPoint((float) $bike->currentLat, (float) $bike->currentLng, $geofence);
+            $gps = $this->gpsSnapshot($bike);
+
+            if ($gps['status'] === 'fix') {
+                $zone = $this->geofenceService->checkPoint($gps['latitude'], $gps['longitude'], $geofence);
             } else {
                 $zone = ['inside' => null, 'distance' => null, 'level' => 'unknown', 'warning' => false];
             }
@@ -161,8 +168,14 @@ class MonitoringController extends Controller
                 'id' => $bike->id,
                 'name' => $bike->name,
                 'status' => $bike->status,
-                'current_lat' => $bike->currentLat,
-                'current_lng' => $bike->currentLng,
+                'current_lat' => $gps['latitude'],
+                'current_lng' => $gps['longitude'],
+                'gps_status' => $gps['status'],
+                'last_gps_update' => $gps['updated_at'],
+                'gps_accuracy' => $gps['accuracy'],
+                'gps_hdop' => $gps['hdop'],
+                'gps_satellites' => $gps['satellites'],
+                'gps_speed' => $gps['speed'],
                 'battery_level' => $bike->batteryLevel,
                 'lock_status' => $bike->lockStatus,
                 'last_heartbeat' => $bike->lastHeartbeat,
@@ -172,5 +185,39 @@ class MonitoringController extends Controller
         }
 
         return response()->json(['bicycles' => $data, 'geofence' => $geofence]);
+    }
+
+    /**
+     * Use only a position explicitly recorded in the GPS log. currentLat and
+     * currentLng can also be populated by non-GPS device telemetry or seed data.
+     */
+    private function gpsSnapshot(Bicycle $bicycle): array
+    {
+        $log = $bicycle->latestGpsLog;
+        $latitude = $log?->lat;
+        $longitude = $log?->lng;
+        $hasPosition = $latitude !== null
+            && $longitude !== null
+            && is_numeric($latitude)
+            && is_numeric($longitude)
+            && (float) $latitude >= -90
+            && (float) $latitude <= 90
+            && (float) $longitude >= -180
+            && (float) $longitude <= 180;
+        $updatedAt = $log?->created_at;
+        $isFresh = $hasPosition
+            && $updatedAt !== null
+            && $updatedAt->greaterThanOrEqualTo(now()->subSeconds(GpsIngestService::FIX_FRESH_SECONDS));
+
+        return [
+            'latitude' => $hasPosition ? (float) $latitude : null,
+            'longitude' => $hasPosition ? (float) $longitude : null,
+            'status' => ! $hasPosition ? 'unavailable' : ($isFresh ? 'fix' : 'last_known'),
+            'updated_at' => $updatedAt?->toIso8601String(),
+            'accuracy' => $log?->accuracy !== null ? (float) $log->accuracy : null,
+            'hdop' => $log?->hdop !== null ? (float) $log->hdop : null,
+            'satellites' => $log?->satellites,
+            'speed' => $log?->speed !== null ? (float) $log->speed : null,
+        ];
     }
 }

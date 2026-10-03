@@ -30,6 +30,9 @@ class GpsUpdate implements ShouldBroadcast
             'lock_status' => $meta['lock_status'] ?? 'locked',
             'zone' => $meta['zone'] ?? null,
             'zone_distance' => $meta['zone_distance'] ?? null,
+            'accuracy' => $meta['accuracy'] ?? null,
+            'hdop' => $meta['hdop'] ?? null,
+            'satellites' => $meta['satellites'] ?? null,
         ];
     }
 
@@ -55,10 +58,14 @@ class GpsUpdate implements ShouldBroadcast
                 'lng' => $this->lng,
                 'speed' => $this->meta['speed'],
                 'battery' => $this->meta['battery'],
+                'accuracy' => $this->meta['accuracy'],
+                'hdop' => $this->meta['hdop'],
+                'satellites' => $this->meta['satellites'],
                 'locked' => $this->meta['lock_status'] === 'locked',
                 'status' => $this->bicycle->status,
                 'zone' => $this->meta['zone'],
                 'zone_distance' => $this->meta['zone_distance'],
+                'lastGpsUpdate' => $this->bicycle->lastGpsUpdate?->toIso8601String(),
                 'updated_at' => now()->toIso8601String(),
             ],
         ];

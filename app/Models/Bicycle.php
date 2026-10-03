@@ -153,7 +153,7 @@ class Bicycle extends Model
 
     public function latestGpsLog()
     {
-        return $this->hasOne(GpsLog::class, 'bicycleId')->latestOfMany('timestamp');
+        return $this->hasOne(GpsLog::class, 'bicycleId')->latestOfMany('id');
     }
 
     public function currentRiderUser(): BelongsTo

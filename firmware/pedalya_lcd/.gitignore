@@ -1,5 +1,11 @@
 .pio/
 .vscode/
 
+# Arduino IDE build output. It copies pedalya_lcd/secrets.h into
+# build/<board>/sketch/secrets.h, so committing it leaked the live Wi-Fi
+# password into history even though the source secrets.h is ignored above.
+# Nothing here is source; regenerate it by building.
+build/
+
 # Live per-bicycle device key and Wi-Fi password. Commit secrets_example.h.
 pedalya_lcd/secrets.h

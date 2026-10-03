@@ -138,12 +138,50 @@ class AdminMaintenanceMonitoringGeofenceTest extends TestCase
     public function test_monitoring_live_returns_json(): void
     {
         $admin = $this->makeAdmin();
-        $this->makeBicycle(['currentLat' => 14.6, 'currentLng' => 120.99]);
+        $seedOnlyBike = $this->makeBicycle(['currentLat' => 14.6, 'currentLng' => 120.99]);
+        $lastKnownBike = $this->makeBicycle(['currentLat' => 14.7, 'currentLng' => 121.0]);
+        $lastKnownLog = GpsLog::create([
+            'bicycleId' => $lastKnownBike->id,
+            'lat' => 14.6123456,
+            'lng' => 120.9876543,
+            'timestamp' => now()->subMinutes(2),
+        ]);
+        $lastKnownLog->forceFill([
+            'created_at' => now()->subMinutes(2),
+            'timestamp' => now()->subMinutes(2),
+        ])->save();
+        $freshBike = $this->makeBicycle(['currentLat' => 14.8, 'currentLng' => 121.1]);
+        GpsLog::create([
+            'bicycleId' => $freshBike->id,
+            'lat' => 0,
+            'lng' => 0,
+            'accuracy' => 4.2,
+            'hdop' => 1.3,
+            'satellites' => 7,
+            'timestamp' => now(),
+        ]);
 
-        $this->actingAs($admin)
+        $response = $this->actingAs($admin)
             ->getJson(route('admin.monitoring.live'))
             ->assertOk()
-            ->assertJsonCount(1, 'bicycles');
+            ->assertJsonCount(3, 'bicycles');
+        $bicycles = collect($response->json('bicycles'))->keyBy('id');
+
+        $this->assertNull($bicycles[$seedOnlyBike->id]['current_lat']);
+        $this->assertSame('unavailable', $bicycles[$seedOnlyBike->id]['gps_status']);
+        $this->assertSame('last_known', $bicycles[$lastKnownBike->id]['gps_status']);
+        $this->assertSame(14.6123456, $bicycles[$lastKnownBike->id]['current_lat']);
+        $this->assertSame('fix', $bicycles[$freshBike->id]['gps_status']);
+        $this->assertEquals(0.0, $bicycles[$freshBike->id]['current_lat']);
+        $this->assertEquals(0.0, $bicycles[$freshBike->id]['current_lng']);
+        $this->assertSame(4.2, $bicycles[$freshBike->id]['gps_accuracy']);
+        $this->assertSame(1.3, $bicycles[$freshBike->id]['gps_hdop']);
+
+        $this->actingAs($admin)
+            ->get(route('admin.monitoring.index', ['section' => 'gps']))
+            ->assertOk()
+            ->assertSee('Center on bicycle GPS location')
+            ->assertSee('GPS FIX NOT AVAILABLE');
     }
 
     public function test_geofence_index_renders(): void
@@ -264,4 +302,3 @@ class AdminMaintenanceMonitoringGeofenceTest extends TestCase
             ->assertJsonPath('geofence.height', 900);
     }
 }
-

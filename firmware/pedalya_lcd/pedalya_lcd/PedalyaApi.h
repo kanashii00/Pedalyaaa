@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "config.h"
+#include <ArduinoJson.h>
 
 struct RentalState {
     bool    hasRental       = false;
@@ -12,9 +13,12 @@ struct RentalState {
     String  deadlineBasis;
     String  penaltyBasis;
     String  penaltyRule;
+    String  bicycleLockStatus;
+    String  bicycleStatus;
 
     int64_t startTs          = 0;
     int64_t deadlineTs       = 0;
+    uint32_t serverOverdueSeconds = 0;
     int64_t serverUnix       = 0;
     uint32_t syncedAtMs      = 0;
 
@@ -37,6 +41,7 @@ struct RentalState {
         penaltyRule   = "";
         startTs       = 0;
         deadlineTs    = 0;
+        serverOverdueSeconds = 0;
         isOverdue     = false;
         penaltyAccrued   = 0.0f;
         penaltyRuleValue = 0.0f;
@@ -77,7 +82,7 @@ struct RentalState {
      * means the lock, the alarm and the LCD can never disagree about it.
      */
     bool expired() const {
-        if (status == "expired") {
+        if (status == "expired" || status == "overdue" || status == "overdue_return") {
             return true;
         }
         if (status != "active" || deadlineTs <= 0) {
@@ -106,6 +111,15 @@ struct DeviceCommand {
 
 class PedalyaApi {
 public:
+    /**
+     * HTTP status behind the most recent failure, or 0 if the call succeeded.
+     *
+     * A 401 or 403 is a provisioning mistake rather than a transient fault: the
+     * same key will be rejected just as firmly a minute later, so a caller that
+     * retries on it only burns battery and delays the report. Reset at the top
+     * of each request so the value always describes the call just made.
+     */
+    int lastStatus() const { return lastStatus_; }
     bool connected();
     void begin();
     void ensureTime();
@@ -113,11 +127,52 @@ public:
     bool poll(RentalState& out, String& error);
     bool pollCommands(DeviceCommand* commands, size_t capacity, size_t& count, String& error);
     bool acknowledgeCommand(uint32_t commandId, bool executed, const String& result, String& error);
+    bool sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptimeSeconds, String& error);
+    bool sendGps(double latitude, double longitude, float speedKph, float heading, String& error);
+
+    /**
+     * Report a possible accident to the backend.
+     *
+     * Posts to ACCIDENT_REPORT_PATH, so it is authenticated by the same
+     * per-bicycle device key as the rental, heartbeat and GPS calls, and the
+     * backend derives the bicycle from that key rather than from the payload.
+     *
+     * The coordinates are only sent when `hasFix` is true. An accident during a
+     * GPS outage still has to reach the admin, so the report is posted without
+     * a location instead of being withheld or rejected as invalid.
+     *
+     * @param latitude      Latest latitude, used only when hasFix is true.
+     * @param longitude     Latest longitude, used only when hasFix is true.
+     * @param hasFix        Whether the GPS fix was valid at that moment.
+     * @param impactG       Peak acceleration magnitude of the event, in g.
+     * @param rotationDps   Peak rotation rate of the event, in degrees/second.
+     * @param tiltDegrees   How far the bike was from upright, in degrees.
+     * @param accelXG       Accelerometer X axis at that sample, in g.
+     * @param accelYG       Accelerometer Y axis at that sample, in g.
+     * @param accelZG       Accelerometer Z axis at that sample, in g.
+     * @param error         On failure, this is set to a descriptive string.
+     * @return true when the backend accepted the report.
+     */
+    bool reportAccident(double latitude,
+                        double longitude,
+                        bool hasFix,
+                        float impactG,
+                        float rotationDps,
+                        float tiltDegrees,
+                        float accelXG,
+                        float accelYG,
+                        float accelZG,
+                        String& error);
 
 private:
     bool parse(const String& body, RentalState& out, String& error);
     bool parseCommands(const String& body, DeviceCommand* commands, size_t capacity, size_t& count, String& error);
+    bool postJson(const char* path, const String& body, String& error);
     void reportFailure(int status, const String& body, String& error);
+
+    // Status of the last request, so a caller can tell a permanent rejection
+    // from something worth retrying.
+    int      lastStatus_ = 0;
 
     bool     timeSynced = false;
     uint32_t lastNtpAttempt = 0;
