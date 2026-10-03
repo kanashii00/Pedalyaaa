@@ -1,0 +1,5 @@
+# The container entrypoint is executed by /bin/sh inside the image. A CRLF line
+# ending turns the shebang into an unresolvable path and the container refuses
+# to start, so these are pinned to LF regardless of core.autocrlf.
+*.sh text eol=lf
+Dockerfile text eol=lf

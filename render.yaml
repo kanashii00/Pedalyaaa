@@ -38,3 +38,9 @@ services:
         value: /var/www/html/storage/pedalya.sqlite
       - key: DEVICE_API_KEY
         generateValue: true
+      # Password for the shared demo admin/rider logins. Set it once in the
+      # dashboard; docker/entrypoint.sh then recreates those logins on every
+      # deploy, which the ephemeral SQLite file otherwise wipes. Leave it unset
+      # and no demo accounts are created.
+      - key: DEMO_ACCOUNT_PASSWORD
+        sync: false

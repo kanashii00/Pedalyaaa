@@ -14,6 +14,24 @@ touch "$DB_DATABASE"
 chown www-data:www-data "$DB_DATABASE"
 
 su -s /bin/sh www-data -c 'php artisan migrate --force --no-interaction'
+
+# The demo database is a SQLite file on an ephemeral disk, so it comes back empty
+# after every deploy. Re-seed the reference data on each boot, otherwise the demo
+# has no fleet and no settings to show. Only the two safe seeders run here:
+# AdminSeeder and RiderSeeder are deliberately left out because they hardcode a
+# shared password.
+su -s /bin/sh www-data -c 'php artisan db:seed --class=SystemSettingsSeeder --force --no-interaction'
+su -s /bin/sh www-data -c 'php artisan db:seed --class=BicycleSeeder --force --no-interaction'
+
+# Demo logins are only provisioned when a password was supplied, so no credential
+# is ever baked into the image. Set DEMO_ACCOUNT_PASSWORD once in the Render
+# dashboard and the same admin/rider logins come back on every deploy.
+if [ -n "${DEMO_ACCOUNT_PASSWORD:-}" ]; then
+    su -s /bin/sh www-data -c 'php artisan demo:provision-accounts --no-interaction'
+else
+    echo "pedalya: DEMO_ACCOUNT_PASSWORD is unset, skipping demo account provisioning." >&2
+fi
+
 su -s /bin/sh www-data -c 'php artisan config:cache'
 su -s /bin/sh www-data -c 'php artisan route:cache'
 
