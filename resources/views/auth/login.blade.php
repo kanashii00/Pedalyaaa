@@ -34,6 +34,12 @@
     .auth-footer-text { color: rgba(255,255,255,0.9) !important; font-weight: 500; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
     .google-btn { background:#fff !important; color:#333 !important; font-weight:600; border:1px solid rgba(0,0,0,0.12); display:flex; align-items:center; justify-content:center; }
     .google-btn:hover { background:#f6f6f6 !important; color:#111 !important; box-shadow:0 4px 14px rgba(0,0,0,0.15); }
+    .demo-accounts { margin-top: 1.25rem; padding: 1rem; border: 1px solid rgba(255,255,255,0.28); border-radius: 12px; background: rgba(0,0,0,0.2); color: rgba(255,255,255,0.95); font-size: 0.85rem; }
+    .demo-accounts h2 { margin: 0 0 0.65rem; color: #fff; font-size: 1rem; font-weight: 700; }
+    .demo-accounts ul { margin: 0.2rem 0 0.65rem; padding-left: 1.2rem; }
+    .demo-accounts li { margin: 0.15rem 0; overflow-wrap: anywhere; }
+    .demo-accounts code { color: #fff; font-size: 0.82rem; overflow-wrap: anywhere; }
+    .demo-accounts-note { margin: 0.65rem 0 0; font-size: 0.78rem; opacity: 0.9; }
 </style>
 @endsection
 
@@ -104,6 +110,26 @@
                 <i class="bi bi-box-arrow-in-right me-2"></i>Sign In
             </button>
         </form>
+
+        @if(config('services.demo_account_password'))
+            <section class="demo-accounts" aria-labelledby="demo-accounts-title">
+                <h2 id="demo-accounts-title">Demo accounts</h2>
+                <strong>Admin</strong>
+                <ul>
+                    <li><code>admin@pedalya.com</code></li>
+                </ul>
+                <strong>Rider accounts</strong>
+                <ul>
+                    <li><code>juan.delacruz@jmc.edu.ph</code></li>
+                    <li><code>maria.santos@jmc.edu.ph</code></li>
+                    <li><code>jose.reyes@jmc.edu.ph</code></li>
+                    <li><code>ana.garcia@jmc.edu.ph</code></li>
+                    <li><code>pedro.mendoza@jmc.edu.ph</code></li>
+                </ul>
+                <strong>Shared password:</strong> <code>{{ config('services.demo_account_password') }}</code>
+                <p class="demo-accounts-note">These are shared public demo accounts. Please do not enter personal or real rider data.</p>
+            </section>
+        @endif
 
         <div class="d-flex align-items-center my-4">
             <div style="flex:1; height:1px; background: rgba(255,255,255,0.25);"></div>

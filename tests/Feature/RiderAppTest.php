@@ -51,6 +51,30 @@ class RiderAppTest extends TestCase
         );
     }
 
+    public function test_login_page_shows_demo_accounts_when_a_demo_password_is_configured(): void
+    {
+        config(['services.demo_account_password' => 'public-demo-pass']);
+
+        $this->get(route('login'))
+            ->assertOk()
+            ->assertSee('Demo accounts')
+            ->assertSee('admin@pedalya.com')
+            ->assertSee('juan.delacruz@jmc.edu.ph')
+            ->assertSee('pedro.mendoza@jmc.edu.ph')
+            ->assertSee('public-demo-pass')
+            ->assertSee('shared public demo accounts');
+    }
+
+    public function test_login_page_hides_demo_accounts_when_no_demo_password_is_configured(): void
+    {
+        config(['services.demo_account_password' => null]);
+
+        $this->get(route('login'))
+            ->assertOk()
+            ->assertDontSee('Demo accounts')
+            ->assertDontSee('admin@pedalya.com');
+    }
+
     public function test_login_rider_succeeds(): void
     {
         $rider = $this->makeRider();
