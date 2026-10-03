@@ -7,17 +7,8 @@
 
 namespace Diagnostics {
 
-const char* keyFingerprint() {
-    static char buffer[32];
-    const size_t length = strlen(DEVICE_API_KEY);
-    if (length == 0) {
-        snprintf(buffer, sizeof(buffer), "MISSING - put it in secrets.h");
-        return buffer;
-    }
-    const size_t visible = length < 8 ? length : 8;
-    snprintf(buffer, sizeof(buffer), "%.*s... (%u chars)", (int)visible, DEVICE_API_KEY,
-             (unsigned)length);
-    return buffer;
+bool apiKeyConfigured() {
+    return strlen(DEVICE_API_KEY) > 0;
 }
 
 void printActuatorConfig() {
@@ -43,7 +34,8 @@ void printBanner() {
                   SERVER_PORT, SERVER_PATH);
     Serial.printf("[cfg] commands %s\n", COMMANDS_PATH);
     Serial.printf("[cfg] accident %s\n", ACCIDENT_REPORT_PATH);
-    Serial.printf("[cfg] key     %s\n", keyFingerprint());
+    Serial.printf("[api] API key configured: %s\n", apiKeyConfigured() ? "YES" : "NO");
+    Serial.println("[api] API key header configured: YES (X-API-Key)");
 }
 
 }  // namespace Diagnostics

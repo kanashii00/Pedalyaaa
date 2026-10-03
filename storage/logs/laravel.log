@@ -34223,3 +34223,51 @@ Did you mean one of these?
     "socket": null
 }  
 [2026-10-04 00:40:43] local.DEBUG: [TheftDetection] RESOLVING alert on return {"bicycleId":1,"alertId":5,"status":"returned"} 
+[2026-10-04 02:35:33] local.ERROR: A non-numeric value encountered {"exception":"[object] (ErrorException(code: 0): A non-numeric value encountered at C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/ServeCommand.php:250)
+[stacktrace]
+#0 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/HandleExceptions.php(262): Illuminate/Foundation/Bootstrap/HandleExceptions->handleError(2, 'A non-numeric v...', 'C://Users//Admini...', 250)
+#1 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/ServeCommand.php(250): Illuminate/Foundation/Bootstrap/HandleExceptions->Illuminate/Foundation/Bootstrap/{closure}(2, 'A non-numeric v...', 'C://Users//Admini...', 250)
+#2 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/ServeCommand.php(218): Illuminate/Foundation/Console/ServeCommand->port()
+#3 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/ServeCommand.php(183): Illuminate/Foundation/Console/ServeCommand->serverCommand()
+#4 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/ServeCommand.php(138): Illuminate/Foundation/Console/ServeCommand->startProcess(true)
+#5 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): Illuminate/Foundation/Console/ServeCommand->handle()
+#6 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Container/Util.php(43): Illuminate/Container/BoundMethod::Illuminate/Container/{closure}()
+#7 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(96): Illuminate/Container/Util::unwrapIfClosure(Object(Closure))
+#8 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(35): Illuminate/Container/BoundMethod::callBoundMethod(Object(Illuminate/Foundation/Application), Array, Object(Closure))
+#9 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Container/Container.php(799): Illuminate/Container/BoundMethod::call(Object(Illuminate/Foundation/Application), Array, Array, NULL)
+#10 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Console/Command.php(211): Illuminate/Container/Container->call(Array)
+#11 C:/Users/Administrator/pedalya/vendor/symfony/console/Command/Command.php(341): Illuminate/Console/Command->execute(Object(Symfony/Component/Console/Input/ArgvInput), Object(Illuminate/Console/OutputStyle))
+#12 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Console/Command.php(180): Symfony/Component/Console/Command/Command->run(Object(Symfony/Component/Console/Input/ArgvInput), Object(Illuminate/Console/OutputStyle))
+#13 C:/Users/Administrator/pedalya/vendor/symfony/console/Application.php(1117): Illuminate/Console/Command->run(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#14 C:/Users/Administrator/pedalya/vendor/symfony/console/Application.php(356): Symfony/Component/Console/Application->doRunCommand(Object(Illuminate/Foundation/Console/ServeCommand), Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#15 C:/Users/Administrator/pedalya/vendor/symfony/console/Application.php(195): Symfony/Component/Console/Application->doRun(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#16 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(198): Symfony/Component/Console/Application->run(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#17 C:/Users/Administrator/pedalya/artisan(12): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#18 {main}
+"} 
+[2026-10-04 02:35:57] local.ERROR: A non-numeric value encountered {"exception":"[object] (ErrorException(code: 0): A non-numeric value encountered at C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/ServeCommand.php:250)
+[stacktrace]
+#0 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/HandleExceptions.php(262): Illuminate/Foundation/Bootstrap/HandleExceptions->handleError(2, 'A non-numeric v...', 'C://Users//Admini...', 250)
+#1 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/ServeCommand.php(250): Illuminate/Foundation/Bootstrap/HandleExceptions->Illuminate/Foundation/Bootstrap/{closure}(2, 'A non-numeric v...', 'C://Users//Admini...', 250)
+#2 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/ServeCommand.php(218): Illuminate/Foundation/Console/ServeCommand->port()
+#3 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/ServeCommand.php(183): Illuminate/Foundation/Console/ServeCommand->serverCommand()
+#4 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/ServeCommand.php(138): Illuminate/Foundation/Console/ServeCommand->startProcess(true)
+#5 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): Illuminate/Foundation/Console/ServeCommand->handle()
+#6 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Container/Util.php(43): Illuminate/Container/BoundMethod::Illuminate/Container/{closure}()
+#7 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(96): Illuminate/Container/Util::unwrapIfClosure(Object(Closure))
+#8 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(35): Illuminate/Container/BoundMethod::callBoundMethod(Object(Illuminate/Foundation/Application), Array, Object(Closure))
+#9 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Container/Container.php(799): Illuminate/Container/BoundMethod::call(Object(Illuminate/Foundation/Application), Array, Array, NULL)
+#10 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Console/Command.php(211): Illuminate/Container/Container->call(Array)
+#11 C:/Users/Administrator/pedalya/vendor/symfony/console/Command/Command.php(341): Illuminate/Console/Command->execute(Object(Symfony/Component/Console/Input/ArgvInput), Object(Illuminate/Console/OutputStyle))
+#12 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Console/Command.php(180): Symfony/Component/Console/Command/Command->run(Object(Symfony/Component/Console/Input/ArgvInput), Object(Illuminate/Console/OutputStyle))
+#13 C:/Users/Administrator/pedalya/vendor/symfony/console/Application.php(1117): Illuminate/Console/Command->run(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#14 C:/Users/Administrator/pedalya/vendor/symfony/console/Application.php(356): Symfony/Component/Console/Application->doRunCommand(Object(Illuminate/Foundation/Console/ServeCommand), Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#15 C:/Users/Administrator/pedalya/vendor/symfony/console/Application.php(195): Symfony/Component/Console/Application->doRun(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#16 C:/Users/Administrator/pedalya/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(198): Symfony/Component/Console/Application->run(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#17 C:/Users/Administrator/pedalya/artisan(12): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#18 {main}
+"} 
+[2026-10-04 03:32:00] local.DEBUG: [TheftDetection] CREATING theft alert {"bicycleId":1,"lat":7.199390167,"lng":125.6238285,"distanceOutside":6.659723859897996,"level":"breach","source":"geofence_branch"} 
+[2026-10-04 03:33:01] local.DEBUG: [TheftDetection] RESOLVING alert on return {"bicycleId":1,"alertId":12,"status":"returned"} 
+[2026-10-04 04:02:10] local.DEBUG: [TheftDetection] CREATING theft alert {"bicycleId":1,"lat":7.1994405,"lng":125.6238817,"distanceOutside":0.7968894799805144,"level":"breach","source":"geofence_branch"} 
+[2026-10-04 04:06:42] local.DEBUG: [TheftDetection] RESOLVING alert on return {"bicycleId":1,"alertId":15,"status":"returned"} 

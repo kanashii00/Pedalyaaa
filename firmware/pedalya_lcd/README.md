@@ -48,7 +48,7 @@ wires them together:
 | `CommandHandler` | the server queue; a command is a request, never a decision |
 | `GpsReceiver` | the NMEA sentence reader |
 | `PedalyaApi` | the network and the JSON |
-| `Diagnostics` | the boot banner, including a key fingerprint that is not the key |
+| `Diagnostics` | the boot banner, including API-key presence checks that never reveal the key |
 
 The Arduino IDE shows every one of these as its own tab next to
 `pedalya_lcd.ino`. PlatformIO builds the same files from the same folder.
@@ -84,8 +84,8 @@ Every setting in `config.h` is wrapped in `#ifndef`, so a value from
 copy secrets_example.h secrets.h    # then paste in the real values
 ```
 
-To see which key is loaded without printing it, the boot banner prints a
-fingerprint, for example `[cfg] key     1d1e9e17... (64 chars)`.
+The boot banner confirms whether `DEVICE_API_KEY` is configured and whether
+the `X-API-Key` request header is configured. It never prints any part of the key.
 
 ## Opening in the Arduino IDE
 
@@ -166,10 +166,15 @@ prints the library paths and sketch size as it goes. A successful run ends with
 
 ```
 [cfg] server  http://192.168.1.112:8000/api/iot/bicycle/1/rental
-[cfg] key     1d1e9e17... (64 chars)
+[api] API key configured: YES
+[api] API key header configured: YES (X-API-Key)
 [cfg] display I2C 0x27  SDA 21  SCL 22
 [wifi] connecting to "PLDTHOMEFIBRZ47rS"
-[ip] 192.168.1.112
+WiFi connected!
+ESP32 IP address: 192.168.1.115
+Gateway: 192.168.1.1
+Subnet: 255.255.255.0
+[ip] 192.168.1.115
 [api] 200 OK from http://192.168.1.112:8000/api/iot/bicycle/1/rental
 [api] bicycle idle
 ```

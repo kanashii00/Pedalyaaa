@@ -175,6 +175,7 @@ private:
     int      lastStatus_ = 0;
 
     bool     timeSynced = false;
+    bool     wifiConnectionAnnounced_ = false;
     uint32_t lastNtpAttempt = 0;
     int32_t  appliedUtcOffset = -1;
     // WiFi.begin() changes the ESP32 station configuration. Calling it again

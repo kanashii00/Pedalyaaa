@@ -13,7 +13,21 @@
 #endif
 
 bool PedalyaApi::connected() {
-    return WiFi.status() == WL_CONNECTED;
+    const bool isConnected = WiFi.status() == WL_CONNECTED;
+    if (isConnected && !wifiConnectionAnnounced_) {
+        Serial.println("WiFi connected!");
+        Serial.print("ESP32 IP address: ");
+        Serial.println(WiFi.localIP());
+        Serial.print("Gateway: ");
+        Serial.println(WiFi.gatewayIP());
+        Serial.print("Subnet: ");
+        Serial.println(WiFi.subnetMask());
+        wifiConnectionAnnounced_ = true;
+    } else if (!isConnected) {
+        wifiConnectionAnnounced_ = false;
+    }
+
+    return isConnected;
 }
 
 void PedalyaApi::begin() {
