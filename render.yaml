@@ -1,5 +1,5 @@
-# Free-tier demo deployment. SQLite and uploads are ephemeral on Render's free
-# instance; do not use this configuration for real rider data.
+# Free-tier demo deployment. Render Free Postgres expires after 30 days, so
+# this configuration is for testing and prototyping, not production rider data.
 services:
   - type: web
     name: pedalya-demo
@@ -33,9 +33,11 @@ services:
       - key: FILESYSTEM_DISK
         value: public
       - key: DB_CONNECTION
-        value: sqlite
-      - key: DB_DATABASE
-        value: /var/www/html/storage/pedalya.sqlite
+        value: pgsql
+      # Set this to the database's Internal Database URL in the Render
+      # dashboard. Keep the credential out of the Blueprint and source control.
+      - key: DB_URL
+        sync: false
       - key: DEVICE_API_KEY
         generateValue: true
       # Password for the shared demo admin/rider logins. Set it once in the

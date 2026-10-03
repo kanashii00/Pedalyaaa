@@ -1,23 +1,25 @@
 #!/bin/sh
 set -eu
 
-: "${DB_DATABASE:?DB_DATABASE must be configured}"
 : "${APP_KEY:?APP_KEY must be configured}"
 export APP_URL="${APP_URL:-${RENDER_EXTERNAL_URL:-http://localhost}}"
+
+# SQLite needs a local database file; network databases provide their own storage.
+if [ "${DB_CONNECTION:-sqlite}" = "sqlite" ]; then
+    : "${DB_DATABASE:?DB_DATABASE must be configured for SQLite}"
+    mkdir -p "$(dirname "$DB_DATABASE")"
+    touch "$DB_DATABASE"
+    chown www-data:www-data "$DB_DATABASE"
+fi
 
 # Derive an accepted Laravel key when Render's generated value has an unsupported length.
 APP_KEY="$(APP_KEY="$APP_KEY" php -r '$key = getenv("APP_KEY"); $decoded = str_starts_with($key, "base64:") ? base64_decode(substr($key, 7), true) : $key; if ($decoded !== false && in_array(strlen($decoded), [16, 32], true)) { echo $key; } else { echo "base64:".base64_encode(hash_hmac("sha256", "pedalya-app-key", $key, true)); }')"
 export APP_KEY
 
-mkdir -p "$(dirname "$DB_DATABASE")"
-touch "$DB_DATABASE"
-chown www-data:www-data "$DB_DATABASE"
-
 su -s /bin/sh www-data -c 'php artisan migrate --force --no-interaction'
 
-# The demo database is a SQLite file on an ephemeral disk, so it comes back empty
-# after every deploy. Re-seed the reference data on each boot, otherwise the demo
-# has no fleet and no settings to show. Only the two safe seeders run here:
+# Re-seed the reference data on each boot to ensure the demo has a fleet and
+# settings to show. Only the two safe seeders run here:
 # AdminSeeder and RiderSeeder are deliberately left out because they hardcode a
 # shared password.
 su -s /bin/sh www-data -c 'php artisan db:seed --class=SystemSettingsSeeder --force --no-interaction'

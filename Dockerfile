@@ -7,10 +7,11 @@
 
 FROM php:8.3-apache
 
-# Dependencies for Laravel and the SQLite demo database.
+# Dependencies for Laravel, PostgreSQL, and local SQLite-based tests.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git \
+        libpq-dev \
         libzip-dev \
         libpng-dev \
         libjpeg62-turbo-dev \
@@ -28,6 +29,7 @@ RUN apt-get update \
         gd \
         intl \
         mbstring \
+        pdo_pgsql \
         pdo_sqlite \
         zip \
     && a2enmod rewrite \
