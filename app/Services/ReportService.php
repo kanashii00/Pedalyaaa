@@ -148,9 +148,9 @@ public function getDashboardStats(): array
     {
         return Bicycle::selectRaw('
             COUNT(*) as total,
-            SUM(CASE WHEN status = "available" THEN 1 ELSE 0 END) as available_count,
-            SUM(CASE WHEN status = "rented" THEN 1 ELSE 0 END) as rented_count,
-            SUM(CASE WHEN status = "maintenance" THEN 1 ELSE 0 END) as maintenance_count,
+            SUM(CASE WHEN status = \'available\' THEN 1 ELSE 0 END) as available_count,
+            SUM(CASE WHEN status = \'rented\' THEN 1 ELSE 0 END) as rented_count,
+            SUM(CASE WHEN status = \'maintenance\' THEN 1 ELSE 0 END) as maintenance_count,
             SUM(CASE WHEN batteryLevel < 20 THEN 1 ELSE 0 END) as low_battery_count
         ')->first();
     }
@@ -158,9 +158,9 @@ public function getDashboardStats(): array
     private function rentalCounts(): ?object
     {
         return Rental::selectRaw('
-            SUM(CASE WHEN status = "active" THEN 1 ELSE 0 END) as active_count,
-            SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_count,
-            SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as reserved_count
+            SUM(CASE WHEN status = \'active\' THEN 1 ELSE 0 END) as active_count,
+            SUM(CASE WHEN status = \'completed\' THEN 1 ELSE 0 END) as completed_count,
+            SUM(CASE WHEN status = \'pending\' THEN 1 ELSE 0 END) as reserved_count
         ')->first();
     }
 
@@ -168,18 +168,18 @@ public function getDashboardStats(): array
     {
         return User::selectRaw('
             COUNT(*) as total,
-            SUM(CASE WHEN verified = 1 THEN 1 ELSE 0 END) as verified_count,
-            SUM(CASE WHEN verified = 0 THEN 1 ELSE 0 END) as pending_count
+            SUM(CASE WHEN verified = true THEN 1 ELSE 0 END) as verified_count,
+            SUM(CASE WHEN verified = false THEN 1 ELSE 0 END) as pending_count
         ')->first();
     }
 
     private function batteryDistribution(): ?object
     {
         return Bicycle::selectRaw('
-            SUM(batteryLevel <= 20) as low,
-            SUM(batteryLevel > 20 AND batteryLevel <= 50) as mid,
-            SUM(batteryLevel > 50 AND batteryLevel <= 80) as good,
-            SUM(batteryLevel > 80) as full
+            SUM(CASE WHEN batteryLevel <= 20 THEN 1 ELSE 0 END) as low,
+            SUM(CASE WHEN batteryLevel > 20 AND batteryLevel <= 50 THEN 1 ELSE 0 END) as mid,
+            SUM(CASE WHEN batteryLevel > 50 AND batteryLevel <= 80 THEN 1 ELSE 0 END) as good,
+            SUM(CASE WHEN batteryLevel > 80 THEN 1 ELSE 0 END) as full
         ')->first();
     }
 
