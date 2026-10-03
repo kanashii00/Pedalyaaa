@@ -60,6 +60,18 @@ return new class extends Migration
             return;
         }
 
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('ALTER TABLE "bicycles" DROP CONSTRAINT IF EXISTS "bicycles_status_check"');
+
+            $allowedValues = collect($values)
+                ->map(fn (string $value): string => DB::connection()->getPdo()->quote($value))
+                ->implode(', ');
+
+            DB::statement('ALTER TABLE "bicycles" ADD CONSTRAINT "bicycles_status_check" CHECK ("status" IN ('.$allowedValues.'))');
+
+            return;
+        }
+
         Schema::table('bicycles', function (Blueprint $table) use ($values, $default) {
             $table->enum('status', $values)->default($default)->change();
         });

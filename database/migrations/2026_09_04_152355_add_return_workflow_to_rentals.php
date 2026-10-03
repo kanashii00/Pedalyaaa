@@ -25,6 +25,8 @@ return new class extends Migration
 
         if (Schema::getConnection()->getDriverName() === 'mysql') {
             DB::statement('ALTER TABLE rentals MODIFY status ENUM("active","pending","awaiting_return","completed","cancelled","overdue","returned","expired") NOT NULL DEFAULT "pending"');
+        } elseif (Schema::getConnection()->getDriverName() === 'pgsql') {
+            $this->setPostgresStatusConstraint(['active', 'pending', 'awaiting_return', 'completed', 'cancelled', 'overdue', 'returned', 'expired']);
         } else {
             Schema::table('rentals', function (Blueprint $table) {
                 $table->enum('status', ['active', 'pending', 'awaiting_return', 'completed', 'cancelled', 'overdue', 'returned', 'expired'])
@@ -51,8 +53,28 @@ return new class extends Migration
             ]);
         });
 
+        DB::table('rentals')->where('status', 'awaiting_return')->update(['status' => 'pending']);
+
         if (Schema::getConnection()->getDriverName() === 'mysql') {
             DB::statement('ALTER TABLE rentals MODIFY status ENUM("active","pending","completed","cancelled","overdue","returned","expired") NOT NULL DEFAULT "pending"');
+        } elseif (Schema::getConnection()->getDriverName() === 'pgsql') {
+            $this->setPostgresStatusConstraint(['active', 'pending', 'completed', 'cancelled', 'overdue', 'returned', 'expired']);
         }
+    }
+
+    /**
+     * PostgreSQL represents Laravel enums as varchar columns with CHECK constraints.
+     *
+     * @param  array<int, string>  $statuses
+     */
+    private function setPostgresStatusConstraint(array $statuses): void
+    {
+        DB::statement('ALTER TABLE "rentals" DROP CONSTRAINT IF EXISTS "rentals_status_check"');
+
+        $allowedStatuses = collect($statuses)
+            ->map(fn (string $status): string => DB::connection()->getPdo()->quote($status))
+            ->implode(', ');
+
+        DB::statement('ALTER TABLE "rentals" ADD CONSTRAINT "rentals_status_check" CHECK ("status" IN ('.$allowedStatuses.'))');
     }
 };
