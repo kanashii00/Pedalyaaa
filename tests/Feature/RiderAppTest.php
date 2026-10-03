@@ -37,6 +37,20 @@ class RiderAppTest extends TestCase
         $this->get(route('login'))->assertOk();
     }
 
+    public function test_login_page_uses_https_assets_behind_a_proxy(): void
+    {
+        $response = $this->withServerVariables([
+            'HTTP_HOST' => 'pedalya-demo.onrender.com',
+            'HTTP_X_FORWARDED_PROTO' => 'https',
+        ])->get('/login')
+            ->assertOk();
+
+        $this->assertMatchesRegularExpression(
+            '~href="https://[^"]+/css/style\.css"~',
+            $response->getContent(),
+        );
+    }
+
     public function test_login_rider_succeeds(): void
     {
         $rider = $this->makeRider();
