@@ -4,6 +4,13 @@ return [
     'device_api_key' => env('DEVICE_API_KEY', 'pedalya-iot-device-key-2024'),
 
     /*
+     * Shared password for the demo admin/rider logins created by
+     * `php artisan demo:provision-accounts`. Null by default so the command
+     * refuses to invent one; supply it per environment instead of committing it.
+     */
+    'demo_account_password' => env('DEMO_ACCOUNT_PASSWORD'),
+
+    /*
      * On-board display (ESP32 + 16x2 LCD) polling. The countdown runs locally
      * on the device between polls, so this only needs to be frequent enough to
      * keep a rider's view of the clock honest and to notice a newly-set
