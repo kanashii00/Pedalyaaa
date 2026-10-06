@@ -44,8 +44,9 @@
     <div class="admin-table-scroll">
     <table class="admin-table admin-table--inventory">
         <colgroup>
-            {{-- Fixed column widths keep every row aligned; the wide ones hold
-                 the rental/renter stacks, the narrow ones hold badges. --}}
+            {{-- Percentage widths in a fixed-layout table: every column keeps
+                 its share of the card at any viewport, so the whole inventory is
+                 visible without horizontal scrolling. --}}
             <col class="col-name">
             <col class="col-serial">
             <col class="col-status">
@@ -90,18 +91,10 @@
                         \App\Models\Rental::STATUS_AWAITING_RETURN,
                         \App\Models\Rental::STATUS_OVERDUE_RETURN,
                     ], true);
-
-                    // End Ride is the step that moves an in-progress rental
-                    // into the return workflow.
-                    $canEndRide = $rental && in_array($rental->status, [
-                        \App\Models\Rental::STATUS_ACTIVE,
-                        \App\Models\Rental::STATUS_OVERDUE,
-                        \App\Models\Rental::STATUS_EXPIRED,
-                    ], true);
                 @endphp
                 <tr>
-                    <td class="cell-title" data-label="Name">{{ $bike->name }}</td>
-                    <td data-label="Serial"><code>{{ $bike->serialNumber }}</code></td>
+                    <td class="cell-title" data-label="Name" title="{{ $bike->name }}">{{ $bike->name }}</td>
+                    <td data-label="Serial"><code title="{{ $bike->serialNumber }}">{{ $bike->serialNumber }}</code></td>
                     <td data-label="Status">
                         {{-- A bicycle that is not in service is shown as such regardless
                              of the status column, because that is the fact that governs
@@ -121,8 +114,8 @@
                     <td data-label="Current Renter">
                         @if($isRented && $bike->currentRiderUser)
                             <div class="cell-stack">
-                                <span class="cell-title">{{ $bike->currentRiderUser->name }}</span>
-                                <small class="cell-sub">
+                                <span class="cell-title" title="{{ $bike->currentRiderUser->name }}">{{ $bike->currentRiderUser->name }}</span>
+                                <small class="cell-sub" title="{{ $bike->currentRiderUser->studentId ?? $bike->currentRiderUser->email }}">
                                     {{ $bike->currentRiderUser->studentId ?? $bike->currentRiderUser->email }}
                                 </small>
                             </div>
@@ -133,24 +126,29 @@
                     <td data-label="Current Rental">
                         @if($rental)
                             <div class="cell-stack">
-                                <a href="{{ route('admin.rentals.show', $rental->id) }}" class="cell-key">
+                                <a href="{{ route('admin.rentals.show', $rental->id) }}" class="cell-key" title="{{ $rental->rentalId }}">
                                     <code>{{ $rental->rentalId }}</code>
                                 </a>
                                 <small class="cell-sub">
                                     {{ \Illuminate\Support\Str::headline($rental->status) }}
                                 </small>
-                                <small class="cell-sub">
+                                @php
+                                    $rentalStart = \Illuminate\Support\Carbon::parse($rental->startTime)->format('M j, g:i A');
+                                    $rentalDue = \Illuminate\Support\Carbon::parse($rental->expectedEndTime)->format('M j, g:i A');
+                                    $rentalDuration = $rental->durationFormatted ?: ($rental->durationMinutes . ' min');
+                                @endphp
+                                <small class="cell-sub" title="Started {{ $rentalStart }}">
                                     <i class="bi bi-play-circle"></i>
-                                    {{ \Illuminate\Support\Carbon::parse($rental->startTime)->format('M j, g:i A') }}
+                                    {{ $rentalStart }}
                                 </small>
-                                <small class="cell-sub">
+                                <small class="cell-sub" title="Due {{ $rentalDue }}">
                                     <i class="bi bi-flag"></i>
                                     Due
-                                    {{ \Illuminate\Support\Carbon::parse($rental->expectedEndTime)->format('M j, g:i A') }}
+                                    {{ $rentalDue }}
                                 </small>
-                                <small class="cell-sub">
+                                <small class="cell-sub" title="{{ $rentalDuration }}">
                                     <i class="bi bi-hourglass-split"></i>
-                                    {{ $rental->durationFormatted ?: ($rental->durationMinutes . ' min') }}
+                                    {{ $rentalDuration }}
                                 </small>
                             </div>
                         @else
@@ -159,7 +157,10 @@
                     </td>
                     <td data-label="Battery">
                         <div class="d-flex align-items-center gap-2">
-                            <div class="progress flex-grow-1" style="height:6px; max-width:80px;">
+                            {{-- The bar flexes with the column so a narrow viewport
+                                 never pushes the row wider than the card; its height
+                                 comes from the stylesheet. --}}
+                            <div class="progress flex-grow-1">
                                 <div class="progress-bar bg-{{ $bike->batteryLevel <= 20 ? 'danger' : ($bike->batteryLevel <= 50 ? 'warning' : 'success') }}"
                                      style="width:{{ $bike->batteryLevel }}%"></div>
                             </div>
@@ -179,21 +180,21 @@
                     </td>
                     <td data-label="Condition">{{ ucfirst($bike->condition ?? 'good') }}</td>
                     <td data-label="Hourly Rate">₱{{ number_format($bike->hourlyRate, 2) }}/hr</td>
-                    <td data-label="Last Updated"><small class="text-muted">{{ $bike->updated_at->diffForHumans() }}</small></td>
+                    <td data-label="Last Updated">
+                        <small class="text-muted" title="{{ $bike->updated_at->format('M j, Y g:i A') }}">
+                            {{ $bike->updated_at->diffForHumans() }}
+                        </small>
+                    </td>
                     <td data-label="Actions">
                         <div class="actions-row">
                             @if($inMaintenance)
-                                {{-- Under maintenance: all row actions disabled --}}
+                                {{-- Under maintenance: the direct row actions stay
+                                     disabled; the lock/device controls live in the
+                                     actions dropdown below. --}}
                                 <button class="btn-admin btn-admin--secondary btn-admin--sm" type="button" disabled
                                         title="Disabled while bicycle is under maintenance"
                                         aria-label="Edit disabled, bicycle under maintenance">
                                     <i class="bi bi-pencil"></i>
-                                </button>
-                                <button class="btn-admin btn-admin--secondary btn-admin--sm" type="button" disabled
-                                        title="Disabled while bicycle is under maintenance"
-                                        aria-label="Lock control disabled, bicycle under maintenance">
-                                    <i class="bi bi-{{ $isLocked ? 'lock' : 'unlock' }}-fill"></i>
-                                    <span>{{ $isLocked ? 'Lock' : 'Unlock' }}</span>
                                 </button>
                                 <button class="btn-admin btn-admin--danger btn-admin--sm" type="button" disabled
                                         title="Disabled while bicycle is under maintenance"
@@ -205,49 +206,6 @@
                                         onclick="PedalyaModal.open('editBicycleModal{{ $bike->id }}')" title="Edit">
                                     <i class="bi bi-pencil"></i>
                                 </button>
-
-                                @if($isRented)
-                                    {{-- Rented: lock is controlled by the active rider --}}
-                                    <button class="btn-admin btn-admin--secondary btn-admin--sm" type="button" disabled
-                                            title="Bicycle is currently rented - the smart lock is controlled by the rider"
-                                            aria-label="Bicycle in use, lock control unavailable">
-                                        <i class="bi bi-bicycle"></i>
-                                        <span>In Use</span>
-                                    </button>
-                                @elseif(!$bike->isInService())
-                                    {{-- Parked: no device, so there is nothing to actuate.
-                                         Rendering a button here would only ever queue a
-                                         command that no hardware could acknowledge. --}}
-                                    <button class="btn-admin btn-admin--secondary btn-admin--sm" type="button" disabled
-                                            title="{{ $bike->serialNumber }} is not in service and has no controllable lock"
-                                            aria-label="Lock control unavailable, bicycle not in service">
-                                        <i class="bi bi-plug"></i>
-                                        <span>No Device</span>
-                                    </button>
-                                @elseif(!$isLocked)
-                                    <form action="{{ route('admin.bicycles.lock', $bike->id) }}" method="POST">
-                                        @csrf
-                                        {{-- Label and icon mirror the Lock badge; clicking toggles the state --}}
-                                        <input type="hidden" name="action" value="lock">
-                                        <button type="submit" class="btn-admin btn-admin--secondary btn-admin--sm"
-                                                title="Unlocked - click to lock"
-                                                aria-label="Unlocked bicycle, click to lock">
-                                            <i class="bi bi-unlock-fill"></i>
-                                            <span>Unlock</span>
-                                        </button>
-                                    </form>
-                                @else
-                                    <form action="{{ route('admin.bicycles.lock', $bike->id) }}" method="POST">
-                                        @csrf
-                                        <input type="hidden" name="action" value="unlock">
-                                        <button type="submit" class="btn-admin btn-admin--danger btn-admin--sm"
-                                                title="Locked - click to unlock"
-                                                aria-label="Locked bicycle, click to unlock">
-                                            <i class="bi bi-lock-fill"></i>
-                                            <span>Lock</span>
-                                        </button>
-                                    </form>
-                                @endif
 
                                 <form action="{{ route('admin.bicycles.destroy', $bike->id) }}" method="POST">
                                     @csrf
@@ -263,19 +221,13 @@
                                  bicycle's live status, so a row can never offer
                                  an action the server would reject. The opener
                                  only carries the rental; the dialog itself is
-                                 rendered once below the table. --}}
-                            @if($canEndRide)
-                                <button type="button" class="btn-admin btn-admin--warning btn-admin--sm"
-                                        title="End Ride - end the ride and settle the rental"
-                                        data-end-ride
-                                        data-rental-id="{{ $rental->id }}"
-                                        data-rental-code="{{ $rental->rentalId }}"
-                                        data-bike="{{ $bike->serialNumber }} - {{ $bike->name }}"
-                                        data-rider="{{ $rental->rider->name ?? $rental->riderName ?? 'Unknown' }}">
-                                    <i class="bi bi-stop-circle"></i>
-                                </button>
-                            @endif
+                                 rendered once below the table.
 
+                                 End Ride is deliberately NOT offered here. Settling
+                                 an in-progress rental lives in Active Rentals
+                                 only: one home for it stops the inventory row
+                                 from terminating a ride that an admin merely
+                                 meant to inspect. --}}
                             @if($canProcessReturn)
                                 <button type="button" class="btn-admin btn-admin--success btn-admin--sm"
                                         title="Return Bicycle - confirm the rider returned it"
@@ -284,9 +236,12 @@
                                 </button>
                             @endif
 
-                            <div class="dropdown">
+                            {{-- data-row-menu is picked up by the controller in js/admin.js, which
+                                     places this menu against the viewport so it can open above or
+                                     below the row without the table clipping it. --}}
+                            <div class="dropdown" data-row-menu>
                                 <button class="btn-admin btn-admin--soft btn-admin--sm dropdown-toggle" type="button"
-                                        data-bs-toggle="dropdown" aria-expanded="false"
+                                        data-bs-toggle="dropdown" data-bs-boundary="viewport" aria-expanded="false"
                                         title="More actions for {{ $bike->serialNumber }}">
                                     <i class="bi bi-three-dots-vertical"></i>
                                 </button>
@@ -301,6 +256,58 @@
                                            href="{{ route('admin.rentals.index', ['bicycle_id' => $bike->id]) }}">
                                             <i class="bi bi-clock-history me-2"></i>Rental History
                                         </a>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        {{-- Device and lock controls live in the actions menu so the
+                                             row only keeps Edit and Delete. The conditions below
+                                             are unchanged: a row still never offers a control the
+                                             server would reject. --}}
+                                        @unless($bike->isInService())
+                                            <span class="dropdown-item disabled"
+                                                  title="{{ $bike->serialNumber }} is not in service and has no controllable lock"
+                                                  aria-label="Lock control unavailable, bicycle not in service">
+                                                <i class="bi bi-plug me-2"></i>No Device
+                                            </span>
+                                        @else
+                                            <a class="dropdown-item"
+                                               href="{{ route('admin.monitoring.index', ['section' => 'devices']) }}"
+                                               title="Open IoT device monitoring for {{ $bike->serialNumber }}">
+                                                <i class="bi bi-cpu me-2"></i>Device Management
+                                            </a>
+                                        @endunless
+                                    </li>
+                                    <li>
+                                        {{-- Lock control only exists for a bicycle that
+                                             has a device; the parked case is already
+                                             reported by the "No Device" entry above. --}}
+                                        @if($bike->isInService())
+                                            @if($inMaintenance)
+                                                <span class="dropdown-item disabled"
+                                                      title="Disabled while bicycle is under maintenance"
+                                                      aria-label="Lock control disabled, bicycle under maintenance">
+                                                    <i class="bi bi-{{ $isLocked ? 'lock' : 'unlock' }}-fill me-2"></i>{{ $isLocked ? 'Lock' : 'Unlock' }}
+                                                </span>
+                                            @elseif($isRented)
+                                                {{-- Rented: lock is controlled by the active rider --}}
+                                                <span class="dropdown-item disabled"
+                                                      title="Bicycle is currently rented - the smart lock is controlled by the rider"
+                                                      aria-label="Bicycle in use, lock control unavailable">
+                                                    <i class="bi bi-bicycle me-2"></i>In Use
+                                                </span>
+                                            @else
+                                                {{-- Label and icon mirror the Lock badge; submitting toggles the state --}}
+                                                <form action="{{ route('admin.bicycles.lock', $bike->id) }}" method="POST">
+                                                    @csrf
+                                                    <input type="hidden" name="action" value="{{ $isLocked ? 'unlock' : 'lock' }}">
+                                                    <button type="submit" class="dropdown-item"
+                                                            title="{{ $isLocked ? 'Locked - click to unlock' : 'Unlocked - click to lock' }}"
+                                                            aria-label="{{ $isLocked ? 'Locked bicycle, click to unlock' : 'Unlocked bicycle, click to lock' }}">
+                                                        <i class="bi bi-{{ $isLocked ? 'lock' : 'unlock' }}-fill me-2"></i>{{ $isLocked ? 'Lock' : 'Unlock' }}
+                                                    </button>
+                                                </form>
+                                            @endif
+                                        @endif
                                     </li>
                                     <li><hr class="dropdown-divider"></li>
                                     <li>
@@ -557,55 +564,6 @@
             </div>
         @endif
     @endforeach
-
-    {{-- Shared End Ride dialog. One dialog for the whole page keeps the markup
-         out of every row; the opener only carries the rental it acts on. --}}
-    <div class="admin-modal" id="endRideModal">
-        <div class="admin-modal__backdrop" data-modal-close></div>
-        <div class="admin-modal__dialog">
-            {{-- __RENTAL_ID__ is swapped for the clicked rental by admin.js --}}
-            <form action="{{ route('admin.rentals.end-ride', '__RENTAL_ID__') }}" method="POST" id="endRideForm" data-end-ride-form>
-                @csrf
-                @method('PUT')
-                <div class="admin-modal__head">
-                    <h3>End Ride <span id="endRideCode" class="cell-key"></span></h3>
-                    <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
-                </div>
-                <div class="admin-modal__body">
-                    <div class="admin-form">
-                        <p class="text-muted">
-                            Ending the ride for <strong id="endRideBike"></strong><br>
-                            Rider: <strong id="endRideRider"></strong>
-                        </p>
-                        <p class="form-hint">
-                            This closes the rental, records the fees owed, and sets the bicycle back to
-                            Available (or Maintenance if it came back damaged). The rental moves to history.
-                        </p>
-
-                        <div class="mb-3">
-                            <label class="form-label" for="endRideCondition">Condition on return</label>
-                            <select class="form-select" id="endRideCondition" name="condition" required>
-                                <option value="good">Good - bicycle returns to Available</option>
-                                <option value="fair">Fair - bicycle returns to Available</option>
-                                <option value="damaged">Damaged - routes to Maintenance</option>
-                                <option value="needs_maintenance">Needs maintenance - routes to Maintenance</option>
-                            </select>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label" for="endRideNote">Note (optional)</label>
-                            <textarea class="form-control" id="endRideNote" name="note" rows="2" maxlength="1000"
-                                      placeholder="Anything the rider reported on return"></textarea>
-                        </div>
-                    </div>
-                </div>
-                <div class="admin-modal__foot">
-                    <button type="button" class="btn-admin btn-admin--secondary" data-modal-close>Cancel</button>
-                    <button type="submit" class="btn-admin btn-admin--warning">End Ride &amp; Settle</button>
-                </div>
-            </form>
-        </div>
-    </div>
 
     <div class="admin-table-foot">
         <span>Showing {{ method_exists($bicycles, 'total') ? $bicycles->total() : $bicycles->count() }} records</span>

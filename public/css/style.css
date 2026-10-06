@@ -620,7 +620,7 @@ img {
   flex-direction: column;
 }
 
-/* Sidebar Brand */
+/* Sidebar Brand (logo + text + collapse toggle) */
 .sidebar-brand {
   padding: 16px 20px;
   display: flex;
@@ -751,22 +751,10 @@ img {
   min-height: 80px;
 }
 
-.sidebar.collapsed .sidebar-brand-text {
-  display: none;
-}
-
+/* Collapsed rail has no room for logo + text, so the toggle becomes the header */
+.sidebar.collapsed .sidebar-brand-text,
 .sidebar.collapsed .sidebar-logo-wrapper {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #ffffff 0%, #f5f5f5 100%);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.8);
-}
-
-.sidebar.collapsed .sidebar-logo-img {
-  width: 42px;
-  height: 42px;
-  border-radius: 9px;
+  display: none;
 }
 
 .sidebar.collapsed .sidebar-nav .nav-section {
@@ -866,57 +854,8 @@ img {
   gap: 16px;
 }
 
-.topbar-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-decoration: none;
-  color: var(--gray-900);
-  font-weight: 600;
-  font-size: 1.1rem;
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  transition: var(--transition);
-}
-
-.topbar-brand:hover {
-  background: var(--gray-100);
-  color: var(--primary);
-}
-
-.topbar-brand .topbar-logo-wrapper {
-  flex-shrink: 0;
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #ffffff 0%, #f5f5f5 100%);
-  box-shadow: 0 3px 12px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border: 1px solid rgba(0,0,0,0.05);
-}
-
-.topbar-brand .topbar-logo-img {
-  width: 36px;
-  height: 36px;
-  object-fit: cover;
-  border-radius: 8px;
-}
-
-.topbar-brand span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 160px;
-}
-
-.topbar-brand span span {
-  color: var(--primary);
-}
-
-.topbar .sidebar-toggle {
+/* Sidebar Toggle (shared: inside panel + mobile topbar) */
+.sidebar-toggle {
   background: none;
   border: none;
   font-size: 1.3rem;
@@ -931,9 +870,53 @@ img {
   line-height: 1;
 }
 
-.topbar .sidebar-toggle:hover {
+.sidebar-toggle:hover {
   background: var(--gray-100);
   color: var(--gray-900);
+}
+
+/* Toggle living inside the dark sidebar panel */
+.sidebar-toggle--panel {
+  margin-left: auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 11px;
+}
+
+.sidebar-toggle--panel:hover {
+  background: rgba(255,255,255,0.15);
+  border-color: rgba(255,255,255,0.22);
+  color: var(--white);
+}
+
+.sidebar-toggle--panel i {
+  transition: transform var(--transition-slow);
+}
+
+.sidebar-toggle--panel:hover i {
+  transform: scale(1.12);
+}
+
+/* Arrow direction follows the sidebar state */
+.sidebar-toggle[data-state="expanded"] .icon-expand,
+.sidebar-toggle[data-state="collapsed"] .icon-collapse {
+  display: none;
+}
+
+.sidebar-toggle[data-state="expanded"] .icon-collapse,
+.sidebar-toggle[data-state="collapsed"] .icon-expand {
+  display: inline-block;
+}
+
+/* Mobile-only opener in the topbar */
+.sidebar-toggle--mobile {
+  display: none;
 }
 
 .topbar .topbar-right {
@@ -942,45 +925,161 @@ img {
   gap: 12px;
 }
 
-.topbar .notification-bell {
-  position: relative;
-  display: flex;
-  align-items: center;
+/* ---------- Notification dropdown (shared with the admin shell) ----------
+   The dropdown markup, the shared js/notifications.js runtime and the CSS in
+   admin.css are identical in both shells. The admin design tokens live on
+   body.admin-shell, so the rider shell re-declares the same values for the
+   notification atoms it renders. Scoped with :not(.admin-shell) so the admin
+   shell (including its dark theme) keeps resolving tokens from admin.css. */
+body:not(.admin-shell) :is(.admin-dropdown, .admin-notif, .admin-empty, .admin-icon-btn, .badge-admin, .btn-admin) {
+  --canvas: #F4F6F9;
+  --surface: #FFFFFF;
+  --surface-2: #F8FAFC;
+  --surface-3: #EEF2F7;
+  --border-subtle: #E7ECF1;
+  --border-strong: #D7DFE8;
+  --text-1: #0F172A;
+  --text-2: #475569;
+  --text-3: #94A3B8;
+  --brand: #2E7D32;
+  --brand-strong: #1B5E20;
+  --brand-soft: #E8F5E9;
+  --brand-ring: rgba(46, 125, 50, 0.18);
+  --accent: #2563EB;
+  --accent-soft: #EFF6FF;
+  --success: #16A34A;
+  --success-soft: #ECFDF3;
+  --warning: #D97706;
+  --warning-soft: #FFFBEB;
+  --danger: #DC2626;
+  --danger-soft: #FEF2F2;
+  --info: #0EA5E9;
+  --info-soft: #F0F9FF;
+  --purple: #7C3AED;
+  --purple-soft: #F5F3FF;
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow-pop: 0 12px 32px rgba(16, 24, 40, 0.14);
 }
 
-.topbar .notification-bell a {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-sm);
-  color: var(--gray-600);
-  transition: var(--transition);
-}
-
-.topbar .notification-bell a:hover {
-  background: var(--gray-100);
-  color: var(--primary);
-}
-
-.notification-badge {
+.topbar .notification-badge-corner {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: -4px;
+  right: -4px;
   min-width: 18px;
   height: 18px;
+  padding: 0 4px;
   background: var(--danger);
   color: var(--white);
-  font-size: 0.65rem;
-  font-weight: 700;
+  border: 2px solid var(--white);
   border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 4px;
-  border: 2px solid var(--white);
+  font-size: 0.65rem;
+  font-weight: 700;
   line-height: 1;
+}
+
+.sidebar-nav .notification-nav-badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 1px 6px;
+  background: var(--danger);
+  color: var(--white);
+  border-radius: var(--radius-full);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* ---------- Toasts (rider shell fallback for PedalyaToast) ---------- */
+.pedalya-toast-stack {
+  position: fixed;
+  top: 80px;
+  right: 18px;
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 360px;
+}
+
+.pedalya-toast {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: var(--white);
+  border: 1px solid #E7ECF1;
+  border-left: 4px solid var(--primary);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.14);
+  padding: 13px 16px;
+  transform: translateX(120%);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pedalya-toast.show {
+  transform: translateX(0);
+}
+
+.pedalya-toast--success {
+  border-left-color: #16A34A;
+}
+
+.pedalya-toast--error {
+  border-left-color: #DC2626;
+}
+
+.pedalya-toast--warning {
+  border-left-color: #D97706;
+}
+
+.pedalya-toast--info {
+  border-left-color: #0EA5E9;
+}
+
+.pedalya-toast__icon {
+  font-size: 17px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.pedalya-toast--success .pedalya-toast__icon {
+  color: #16A34A;
+}
+
+.pedalya-toast--error .pedalya-toast__icon {
+  color: #DC2626;
+}
+
+.pedalya-toast--warning .pedalya-toast__icon {
+  color: #D97706;
+}
+
+.pedalya-toast--info .pedalya-toast__icon {
+  color: #0EA5E9;
+}
+
+.pedalya-toast__title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #0F172A;
+}
+
+.pedalya-toast__msg {
+  font-size: 12.5px;
+  color: #475569;
+}
+
+.pedalya-toast__close {
+  margin-left: auto;
+  color: #94A3B8;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-size: 14px;
 }
 
 .topbar .user-info {
@@ -1901,6 +2000,28 @@ img {
   min-width: 0;
 }
 
+.notification-item .notification-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.notification-item .notification-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--gray-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notification-unread-label {
+  font-size: 0.76rem;
+  color: var(--gray-500);
+  white-space: nowrap;
+}
+
 .notification-item .notification-text {
   font-size: 0.88rem;
   color: var(--gray-800);
@@ -2087,6 +2208,11 @@ img {
 
   .main-content.expanded {
     margin-left: 0;
+  }
+
+  /* Off-canvas panel: the in-panel arrow closes it, topbar opener brings it back */
+  .sidebar-toggle--mobile {
+    display: flex;
   }
 }
 

@@ -314,4 +314,24 @@ class AdminNotificationTest extends TestCase
             ->assertOk()
             ->assertHeader('Content-Type', 'text/html; charset=UTF-8');
     }
+
+    public function test_header_dropdown_uses_the_shared_notification_runtime(): void
+    {
+        $admin = $this->makeAdmin();
+        $this->actingAs($admin);
+        Notification::create(['userId' => $admin->id, 'title' => 'Mine', 'message' => 'World', 'type' => 'info', 'read' => false]);
+        Notification::create(['userId' => $this->makeRider()->id, 'title' => 'Someone Elses', 'message' => 'World', 'type' => 'info', 'read' => false]);
+
+        $response = $this->get(route('admin.dashboard'))->assertOk();
+
+        $response->assertSee('js/notifications.js', false);
+        $response->assertSee('data-notif-unread-label', false);
+        $response->assertSee('data-mark-all-read', false);
+        $response->assertSee('View all notifications');
+        $response->assertSee('Mine');
+        $response->assertDontSee('Someone Elses');
+        $response->assertSee(json_encode(route('admin.notifications.mark-all-read')), false);
+        $response->assertSee(json_encode(route('admin.notifications.mark-read', ['id' => '__ID__'])), false);
+        $response->assertSee('private-App.Models.User.'.$admin->id, false);
+    }
 }

@@ -185,21 +185,6 @@
     });
   }
 
-  /* ---------- Dropdowns ---------- */
-  $$('.admin-dropdown').forEach(dd => {
-    const btn = dd.querySelector('[data-dropdown-toggle]');
-    const menu = dd.querySelector('.admin-dropdown__menu');
-    if (!btn || !menu) return;
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      $$('.admin-dropdown__menu.open').forEach(m => { if (m !== menu) m.classList.remove('open'); });
-      menu.classList.toggle('open');
-    });
-  });
-  document.addEventListener('click', () => {
-    $$('.admin-dropdown__menu.open').forEach(m => m.classList.remove('open'));
-  });
-
   /* ---------- Toast system ---------- */
   const toasts = $('#adminToasts');
   function toast(title, msg, type) {
@@ -470,72 +455,60 @@
   initTables(document);
   window.PedalyaTableInit = initTables;
 
-  /* ---------- Notification badge system ---------- */
-  function notifBadgeEls() {
-    const els = [];
-    const top = $('#topbarNotifBadge');
-    const side = $('#sidebarNotifBadge');
-    if (top) els.push(top);
-    if (side) els.push(side);
-    return els;
-  }
-  function setNotifBadges(n) {
-    const count = Math.max(parseInt(n, 10) || 0, 0);
-    const text = count > 99 ? '99+' : String(count);
-    notifBadgeEls().forEach(b => {
-      b.textContent = text;
-      b.style.display = count > 0 ? '' : 'none';
-    });
-    const label = $('#notifUnreadLabel');
-    if (label) label.textContent = count + ' unread';
-    return count;
-  }
-  async function refreshNotifBadges() {
-    const url = window.PedalyaSettings && window.PedalyaSettings.unreadCountUrl;
-    if (!url) return;
-    try {
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
-      if (!res.ok) return;
-      const data = await res.json();
-      setNotifBadges(data.unread_count);
-    } catch (e) { /* server logged; keep last known badge */ }
-  }
-  window.PedalyaBadges = { set: setNotifBadges, refresh: refreshNotifBadges };
-
-  /* ---------- "Mark all read" (header dropdown & notifications page) ---------- */
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-mark-all-read]');
-    if (!btn) return;
-    const url = window.PedalyaSettings && window.PedalyaSettings.markAllReadUrl;
-    if (!url) return;
-    btn.disabled = true;
-    fetch(url, {
-      method: 'POST',
-      headers: {
-        'X-CSRF-TOKEN': (window.Pedalya && window.Pedalya.csrfToken) || '',
-        Accept: 'application/json',
-      },
-    })
-      .then(res => res.json())
-      .then(data => {
-        window.PedalyaToast.success(data.message || 'All notifications marked as read.');
-        if (window.PedalyaBadges) window.PedalyaBadges.set(0);
-        window.dispatchEvent(new Event('pedalya:notifications-changed'));
-      })
-      .catch(() => window.PedalyaToast.error('Unable to mark notifications as read.', 'Failed'))
-      .finally(() => { btn.disabled = false; });
-  });
-
-  /* ---------- Live reload of sidebar badges via Echo ---------- */
-  if (window.Echo && window.PedalyaChannels) {
-    const chan = window.Echo.private(window.PedalyaChannels.notifications);
-    if (chan) {
-      chan.listen('.notification.created', (e) => {
-        window.PedalyaToast.info(e.title || 'New notification', e.message || '');
-        if (window.PedalyaBadges) window.PedalyaBadges.refresh();
+  /* ---------- Row actions menu (three dots) ----------
+     A menu inside a table cell is positioned by Popper, but every container
+     between the cell and the card hides its overflow (the cell for
+     truncation, the scroll wrapper, the rounded card), so an absolutely
+     positioned menu was cut off after the first few items. Creating each menu
+     with Popper's "fixed" strategy places it against the viewport instead: it
+     opens above or below the row depending on the room it has, stays inside the
+     window, and no ancestor can clip it. Bootstrap keeps owning the behaviour -
+     the button toggles only its own menu, a click outside closes it and opening
+     another row's menu closes the previous one. */
+  function initRowMenus(root) {
+    if (!window.bootstrap || !window.bootstrap.Dropdown) return;
+    $$('[data-row-menu]', root).forEach((el) => {
+      if (el.dataset.rowMenuReady === '1') return;
+      el.dataset.rowMenuReady = '1';
+      el.pedalyaMenu = window.bootstrap.Dropdown.getOrCreateInstance(el, {
+        popperConfig: (defaults) => ({
+          ...defaults,
+          strategy: 'fixed',
+          // Keep the menu inside the window; the card is not a valid boundary
+          // because the menu is meant to extend past it.
+          modifiers: (defaults.modifiers || []).map((modifier) => (
+            modifier.name === 'preventOverflow'
+              ? { ...modifier, options: { ...modifier.options, boundary: 'viewport', rootBoundary: 'viewport' } }
+              : modifier
+          )),
+        }),
       });
-    }
+      el.addEventListener('show.bs.dropdown', () => {
+        const table = el.closest('table') || document;
+        $$('[data-row-menu].show', table).forEach((other) => {
+          if (other !== el && other.pedalyaMenu) other.pedalyaMenu.hide();
+        });
+      });
+    });
   }
+  initRowMenus(document);
+  window.PedalyaRowMenuInit = initRowMenus;
+
+  /* A viewport-positioned menu would drift away from its button while the page
+     or the table scrolls under it, so any open menu is re-placed on the next
+     frame instead. Captured so a scrolling table container counts too. */
+  let rowMenuFrame = 0;
+  const repositionRowMenus = () => {
+    rowMenuFrame = 0;
+    $$('[data-row-menu].show').forEach((el) => {
+      if (el.pedalyaMenu) el.pedalyaMenu.update();
+    });
+  };
+  const scheduleRowMenuUpdate = () => {
+    if (!rowMenuFrame) rowMenuFrame = window.requestAnimationFrame(repositionRowMenus);
+  };
+  window.addEventListener('scroll', scheduleRowMenuUpdate, { passive: true, capture: true });
+  window.addEventListener('resize', scheduleRowMenuUpdate, { passive: true });
 
   /* ---------- Auto-dismiss alerts ---------- */
   setTimeout(() => {

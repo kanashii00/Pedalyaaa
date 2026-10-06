@@ -9,51 +9,21 @@
             <div class="card-pedalya-header d-flex justify-content-between align-items-center">
                 <div class="d-flex align-items-center gap-3">
                     <span><strong>Notifications</strong></span>
+                    <span class="notification-unread-label" id="riderNotifUnreadLabel" data-notif-unread-label>{{ $unreadCount }} unread</span>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-secondary active" onclick="filterNotif('all', this)">All</button>
-                        <button class="btn btn-outline-secondary" onclick="filterNotif('unread', this)">Unread</button>
-                        <button class="btn btn-outline-secondary" onclick="filterNotif('rental', this)">Rentals</button>
-                        <button class="btn btn-outline-secondary" onclick="filterNotif('system', this)">System</button>
+                        <button type="button" class="btn btn-outline-secondary active" onclick="filterNotif('all', this)">All</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="filterNotif('unread', this)">Unread</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="filterNotif('rental', this)">Rentals</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="filterNotif('system', this)">System</button>
                     </div>
                 </div>
-                <form action="{{ route('rider.notifications.mark-all-read') }}" method="POST" class="d-inline">
-                    @csrf
-                    <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-check-all"></i> Mark All Read</button>
-                </form>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-mark-all-read>
+                    <i class="bi bi-check-all"></i> Mark All Read
+                </button>
             </div>
-            <div class="notification-list" id="riderNotifList">
-                @forelse($notifications as $notification)
-                    <div class="notification-item {{ $notification->readAt ? '' : 'unread' }}" data-type="{{ $notification->type ?? 'system' }}">
-                        <div class="notification-icon" style="background: {{ $notification->type === 'rental' ? '#E8F5E9; color: #2E7D32' : '#E3F2FD; color: #1976D2' }};">
-                            @if($notification->type === 'rental')
-                                <i class="bi bi-key-fill"></i>
-                            @else
-                                <i class="bi bi-info-circle"></i>
-                            @endif
-                        </div>
-                        <div class="notification-content">
-                            <div class="notification-text">{!! $notification->message !!}</div>
-                            <div class="notification-time">{{ $notification->created_at->diffForHumans() }}</div>
-                        </div>
-                        <div class="notification-actions">
-                            @if(!$notification->readAt)
-                                <form action="{{ route('rider.notifications.mark-read', $notification->id) }}" method="POST" class="d-inline">
-                                    @csrf
-                                    <button type="submit" class="btn btn-sm btn-link" title="Mark as read"><i class="bi bi-envelope-open"></i></button>
-                                </form>
-                            @else
-                                <span class="btn btn-sm btn-link text-muted" title="Read"><i class="bi bi-envelope"></i></span>
-                            @endif
-                        </div>
-                    </div>
-                @empty
-                    <div class="text-center py-5">
-                        <div class="empty-state">
-                            <i class="bi bi-bell-slash"></i>
-                            <p>No notifications yet</p>
-                        </div>
-                    </div>
-                @endforelse
+
+            <div id="riderNotificationWrap">
+                @include('rider.notifications-list', ['notifications' => $notifications])
             </div>
         </div>
     </div>
@@ -62,18 +32,40 @@
 
 @section('scripts')
 <script>
-    function filterNotif(type, btn) {
-        document.querySelectorAll('.btn-group .btn').forEach(function(b) { b.classList.remove('active'); });
+(function () {
+    'use strict';
+
+    var wrap = document.getElementById('riderNotificationWrap');
+    var tableUrl = @json(route('rider.notifications.table'));
+
+    window.filterNotif = function (type, btn) {
+        document.querySelectorAll('.btn-group .btn').forEach(function (b) { b.classList.remove('active'); });
         btn.classList.add('active');
-        document.querySelectorAll('#riderNotifList .notification-item').forEach(function(item) {
+        document.querySelectorAll('#riderNotifList .notification-item').forEach(function (item) {
             if (type === 'all') {
                 item.style.display = '';
             } else if (type === 'unread') {
                 item.style.display = item.classList.contains('unread') ? '' : 'none';
             } else {
-                item.style.display = item.dataset.type === type ? '' : 'none';
+                item.style.display = item.dataset.group === type ? '' : 'none';
             }
         });
-    }
+    };
+
+    // "Mark all read" and per-row "Mark as read" are handled globally in
+    // js/notifications.js; both refresh the badges and dispatch this event so
+    // the list below reloads in place, exactly like the admin list.
+    window.addEventListener('pedalya:notifications-changed', function () {
+        if (!wrap) return;
+
+        fetch(tableUrl, { headers: { 'Accept': 'text/html' } })
+            .then(function (res) {
+                if (!res.ok) throw new Error();
+                return res.text();
+            })
+            .then(function (html) { wrap.innerHTML = html; })
+            .catch(function () { /* keep the rendered list */ });
+    });
+})();
 </script>
 @endsection

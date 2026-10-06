@@ -99,6 +99,95 @@ class AdminCustomerManagementTest extends TestCase
         $this->assertDatabaseHas('notifications', ['userId' => $rider->id, 'type' => 'verification_rejected']);
     }
 
+    public function test_verify_returns_json_for_the_styled_approve_dialog(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider(['verified' => false]);
+
+        $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json', 'X-Requested-With' => 'XMLHttpRequest'])
+            ->put(route('admin.riders.verify', $rider->id), ['approved' => 1])
+            ->assertOk()
+            ->assertJson(['ok' => true, 'verified' => true, 'status' => 'approved']);
+
+        $this->assertTrue($rider->fresh()->verified);
+        $this->assertSame('approved', $rider->fresh()->idVerification['status']);
+        $this->assertDatabaseHas('notifications', ['userId' => $rider->id, 'type' => 'verification_approved']);
+    }
+
+    public function test_approve_verification_uses_a_styled_dialog_instead_of_native_confirm(): void
+    {
+        $admin = $this->makeAdmin();
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.riders.index'))
+            ->assertOk()
+            ->getContent();
+
+        // The confirmation is a Pedalya modal with its own title, message and
+        // Cancel / Approve Verification buttons...
+        $this->assertStringContainsString('id="verifyApproveModal"', $html);
+        $this->assertStringContainsString('Approve Customer Verification', $html);
+        $this->assertStringContainsString('id="verifyApproveCancel"', $html);
+        $this->assertStringContainsString('Approve Verification', $html);
+        $this->assertStringContainsString('id="verifyApproveConfirm"', $html);
+        $this->assertStringContainsString('id="vrApproveForm"', $html);
+
+        // ...and the browser popup it replaced is gone from the approve flow.
+        $this->assertStringNotContainsString("confirm('Approve this customer", $html);
+
+        // Review Verification header: icon, title, subtitle, close X.
+        $this->assertStringContainsString('vr-review-head', $html);
+        $this->assertStringContainsString('vr-review-head__subtitle', $html);
+        $this->assertStringContainsString('vr-review-head__close', $html);
+        $this->assertStringContainsString('>Review Verification<', $html);
+    }
+
+    public function test_reject_verification_uses_a_styled_dialog_with_a_reason_field(): void
+    {
+        $admin = $this->makeAdmin();
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.riders.index'))
+            ->assertOk()
+            ->getContent();
+
+        // Same confirmation family as approve: title, Cancel / Reject
+        // Verification buttons and a matching (danger) header icon.
+        $this->assertStringContainsString('id="verifyRejectModal"', $html);
+        $this->assertStringContainsString('Reject Customer Verification', $html);
+        $this->assertStringContainsString('vr-confirm-head__icon--danger', $html);
+        $this->assertStringContainsString('id="verifyRejectCancel"', $html);
+        $this->assertStringContainsString('id="verifyRejectConfirm"', $html);
+        $this->assertStringContainsString('id="verifyRejectLabel">Reject Verification', $html);
+
+        // The reason is collected in the dialog and posts with the reject form.
+        $this->assertStringContainsString('id="vrRejectReason"', $html);
+        $this->assertStringContainsString('name="reason"', $html);
+        $this->assertStringContainsString('form="vrRejectForm"', $html);
+
+        // The browser popup it replaced is gone.
+        $this->assertStringNotContainsString("confirm('Reject this customer", $html);
+    }
+
+    public function test_verify_rejects_rider_over_json_and_saves_the_reason(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider(['verified' => true]);
+
+        $this->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json', 'X-Requested-With' => 'XMLHttpRequest'])
+            ->put(route('admin.riders.verify', $rider->id), ['approved' => 0, 'reason' => 'Blurry photo'])
+            ->assertOk()
+            ->assertJson(['ok' => true, 'verified' => false, 'status' => 'rejected']);
+
+        $fresh = $rider->fresh();
+        $this->assertFalse($fresh->verified);
+        $this->assertSame('rejected', $fresh->idVerification['status']);
+        $this->assertSame('Blurry photo', $fresh->idVerification['reason']);
+        $this->assertDatabaseHas('notifications', ['userId' => $rider->id, 'type' => 'verification_rejected']);
+    }
+
     public function test_update_status_success(): void
     {
         $admin = $this->makeAdmin();

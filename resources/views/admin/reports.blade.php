@@ -2,12 +2,12 @@
 
 @php
     $reportMeta = [
-        'customer' => ['title' => 'Customer Reports', 'desc' => 'Generate and export customer reports'],
-        'rental'   => ['title' => 'Rental Reports', 'desc' => 'Generate and export rental reports'],
-        'bicycle'  => ['title' => 'Bicycle Reports', 'desc' => 'Generate and export bicycle usage reports'],
-        'theft'    => ['title' => 'Theft Reports', 'desc' => 'Generate and export theft / theft-detection reports'],
-        'accident' => ['title' => 'Accident Reports', 'desc' => 'Generate and export accident reports'],
-        'revenue'  => ['title' => 'Revenue Reports', 'desc' => 'Generate and export revenue reports'],
+        'customer' => ['title' => 'Customer Reports', 'desc' => 'View, filter and export customer reports'],
+        'rental'   => ['title' => 'Rental Reports', 'desc' => 'View, filter and export rental reports'],
+        'bicycle'  => ['title' => 'Bicycle Reports', 'desc' => 'View, filter and export bicycle usage reports'],
+        'theft'    => ['title' => 'Theft Reports', 'desc' => 'View, filter and export theft / theft-detection reports'],
+        'accident' => ['title' => 'Accident Reports', 'desc' => 'View, filter and export accident reports'],
+        'revenue'  => ['title' => 'Revenue Reports', 'desc' => 'View, filter and export revenue reports'],
         'export'   => ['title' => 'Export Reports', 'desc' => 'Export report data to PDF, Excel, or CSV'],
     ];
     $meta = $reportMeta[$reportType] ?? $reportMeta['customer'];
@@ -70,7 +70,7 @@
             </div>
             <div class="d-flex justify-content-between align-items-center mt-3">
                 <button type="submit" class="btn-admin btn-admin--primary">
-                    <i class="bi bi-bar-chart me-1"></i>Generate Report
+                    <i class="bi bi-funnel me-1"></i>Filter
                 </button>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="printReport('customer')">
@@ -158,7 +158,7 @@
             </div>
             <div class="d-flex justify-content-between align-items-center mt-3">
                 <button type="submit" class="btn-admin btn-admin--primary">
-                    <i class="bi bi-bar-chart me-1"></i>Generate Report
+                    <i class="bi bi-funnel me-1"></i>Filter
                 </button>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="printReport('rental')">
@@ -204,7 +204,7 @@
             </div>
             <div class="d-flex justify-content-between align-items-center mt-3">
                 <button type="submit" class="btn-admin btn-admin--primary">
-                    <i class="bi bi-bar-chart me-1"></i>Generate Report
+                    <i class="bi bi-funnel me-1"></i>Filter
                 </button>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="printReport('bicycle')">
@@ -268,7 +268,7 @@
             </div>
             <div class="d-flex justify-content-between align-items-center mt-3">
                 <button type="submit" class="btn-admin btn-admin--primary">
-                    <i class="bi bi-bar-chart me-1"></i>Generate Report
+                    <i class="bi bi-funnel me-1"></i>Filter
                 </button>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="printReport('theft')">
@@ -361,7 +361,7 @@
             </div>
             <div class="d-flex justify-content-between align-items-center mt-3">
                 <button type="submit" class="btn-admin btn-admin--primary">
-                    <i class="bi bi-bar-chart me-1"></i>Generate Report
+                    <i class="bi bi-funnel me-1"></i>Filter
                 </button>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="printReport('accident')">
@@ -404,7 +404,7 @@
             </div>
             <div class="d-flex justify-content-between align-items-center mt-3">
                 <button type="submit" class="btn-admin btn-admin--primary">
-                    <i class="bi bi-graph-up me-1"></i>Generate Report
+                    <i class="bi bi-funnel me-1"></i>Filter
                 </button>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="printReport('revenue')">
@@ -436,7 +436,7 @@
         <div id="reportResults">
             <div class="text-center text-muted py-5">
                 <i class="bi bi-bar-chart" style="font-size:3rem;"></i>
-                <p class="mt-3">Generate a report to see results here.</p>
+                <p class="mt-3">No data loaded yet.</p>
             </div>
         </div>
     </div>
@@ -499,22 +499,44 @@ var _baseUrl = '{{ url("/admin/reports/export/pdf") }}'.replace('/export/pdf', '
 var _reportType = '{{ $reportType }}';
 var _reportData = { customer: [], rental: [], bicycle: [], theft: [], accident: [], revenue: [], incident: [] };
 var _reportPage = { customer: 1, rental: 1, bicycle: 1, theft: 1, accident: 1, revenue: 1, incident: 1 };
+var _reportSeq = { customer: 0, rental: 0, bicycle: 0, theft: 0, accident: 0, revenue: 0, incident: 0 };
+var _appliedFilters = {};
+var _summaryHtml = {};
 var _pageSize = 10;
 
-/* ─── Generate Report ─── */
+/* ─── Report loading ─── */
 function generateReport(event, form) {
     event.preventDefault();
+    loadReport(form);
+    return false;
+}
+
+/* Stable snapshot of the visible filter values, used to tell whether the table
+   on screen still matches the controls above it. */
+function filterSignature(form) {
+    var parts = [];
+    form.querySelectorAll('input[name], select[name]').forEach(function (field) {
+        if (field.type === 'hidden') return;
+        parts.push(field.name + '=' + (field.value || ''));
+    });
+    return parts.sort().join('&');
+}
+
+/* Loads a report for the form's current filter values and renders it. Returns a
+   promise that resolves once the table is on screen. */
+function loadReport(form) {
     var url = form.getAttribute('action');
     var formData = new FormData(form);
     var resultsDiv = document.getElementById('reportResults');
     var resultsCard = document.getElementById('resultsCard');
     var resultCount = document.getElementById('resultCount');
     var type = detectReportType(form);
+    var seq = ++_reportSeq[type];
 
     resultsCard.style.display = 'block';
-    resultsDiv.innerHTML = '<div class="text-center py-5"><div class="spinner-border" style="color:var(--brand);" role="status"><span class="visually-hidden">Loading...</span></div><p class="mt-3 text-muted">Generating report...</p></div>';
+    resultsDiv.innerHTML = '<div class="text-center py-5"><div class="spinner-border" style="color:var(--brand);" role="status"><span class="visually-hidden">Loading...</span></div><p class="mt-3 text-muted">Loading report...</p></div>';
 
-    fetch(url, {
+    return fetch(url, {
         method: 'POST',
         body: formData,
         headers: { 'X-CSRF-TOKEN': _token, 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
@@ -529,10 +551,12 @@ function generateReport(event, form) {
         return r.json();
     })
     .then(function (data) {
+        if (seq !== _reportSeq[type]) return;
         var records = data.data || [];
         var summary = data.summary || null;
         if (!_reportData.hasOwnProperty(type)) _reportData[type] = [];
         _reportData[type] = records; _reportPage[type] = 1;
+        _appliedFilters[type] = filterSignature(form);
 
         if (records.length === 0 && !summary) {
             resultCount.textContent = '0 records';
@@ -541,7 +565,12 @@ function generateReport(event, form) {
         }
 
         var html = '';
-        if (summary) html += renderSummaryCards(type, summary);
+        if (summary) {
+            _summaryHtml[type] = renderSummaryCards(type, summary);
+            html += _summaryHtml[type];
+        } else {
+            _summaryHtml[type] = '';
+        }
 
         if (records.length > 0) {
             resultCount.textContent = records.length + ' record' + (records.length !== 1 ? 's' : '');
@@ -553,11 +582,10 @@ function generateReport(event, form) {
         resultsDiv.innerHTML = html;
     })
     .catch(function (error) {
+        if (seq !== _reportSeq[type]) return;
         resultCount.textContent = 'Error';
-        resultsDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>Error generating report: ' + error.message + '</div>';
+        resultsDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>Error loading report: ' + error.message + '</div>';
     });
-
-    return false;
 }
 
 function detectReportType(form) {
@@ -572,16 +600,17 @@ function detectReportType(form) {
     return 'rental';
 }
 
-function renderTable(type, records) {
+function renderTable(type, records, page) {
+    var target = page || 1;
     switch (type) {
-        case 'customer': return renderCustomerTable(records, 1);
-        case 'rental': return renderRentalTable(records, 1);
-        case 'bicycle': return renderBicycleTable(records, 1);
-        case 'theft': return renderTheftTable(records, 1);
-        case 'accident': return renderAccidentTable(records, 1);
-        case 'revenue': return renderRevenueTable(records);
-        case 'incident': return renderIncidentTable(records);
-        default: return renderRentalTable(records, 1);
+        case 'customer': return renderCustomerTable(records, target);
+        case 'rental': return renderRentalTable(records, target);
+        case 'bicycle': return renderBicycleTable(records, target);
+        case 'theft': return renderTheftTable(records, target);
+        case 'accident': return renderAccidentTable(records, target);
+        case 'revenue': return renderRevenueTable(records, target);
+        case 'incident': return renderIncidentTable(records, target);
+        default: return renderRentalTable(records, target);
     }
 }
 
@@ -844,11 +873,19 @@ function renderAccidentTable(records, page) {
 
 /* ─── Pagination Builder ─── */
 function buildPagination(type, total, totalPages) {
-    if (totalPages <= 1) return '';
-    var currentPage = _reportPage[type];
-    var html = '<div class="d-flex justify-content-between align-items-center mt-3">';
-    html += '<div class="text-muted" style="font-size:0.85rem;">Showing ' + ((currentPage - 1) * _pageSize + 1) + '-' + Math.min(currentPage * _pageSize, total) + ' of ' + total + '</div>';
-    html += '<nav><ul class="pagination pagination-sm mb-0">';
+    if (total <= 0) return '';
+    totalPages = Math.max(1, totalPages);
+    var currentPage = Math.min(Math.max(_reportPage[type] || 1, 1), totalPages);
+    var from = (currentPage - 1) * _pageSize + 1;
+    var to = Math.min(currentPage * _pageSize, total);
+
+    var html = '<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">';
+    html += '<div class="text-muted" style="font-size:0.85rem;">Showing ' + from + '-' + to + ' of ' + total + '</div>';
+
+    /* Page buttons only earn their space once there is more than one page. */
+    if (totalPages <= 1) return html + '</div>';
+
+    html += '<nav aria-label="' + type + ' report pages"><ul class="pagination pagination-sm mb-0 flex-wrap">';
     html += '<li class="page-item' + (currentPage === 1 ? ' disabled' : '') + '">'
           + '<a class="page-link" href="#" onclick="event.preventDefault();paginateTable(\'' + type + '\',' + (currentPage - 1) + ')">&laquo;</a></li>';
     var maxPages = 7;
@@ -875,11 +912,22 @@ function buildPagination(type, total, totalPages) {
 
 function paginateTable(type, page) {
     var container = document.getElementById('reportResults');
-    var summaryEl = container.querySelector('.row.g-3.mb-4');
-    var summarySection = summaryEl ? summaryEl.parentElement.outerHTML : '';
-    var newHtml = renderTable(type, _reportData[type], page);
-    container.innerHTML = summarySection + newHtml;
-    container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!container) return;
+
+    var records = _reportData[type] || [];
+    var totalPages = Math.max(1, Math.ceil(records.length / _pageSize));
+    var target = Math.min(Math.max(parseInt(page, 10) || 1, 1), totalPages);
+
+    /* Re-render the whole results area from the cached summary + this page's
+       slice. Rebuilding the container wholesale is what guarantees the previous
+       page's table is never left behind underneath the new one. */
+    container.innerHTML = (_summaryHtml[type] || '') + renderTable(type, records, target);
+
+    /* Stay where the user already is; only pull the results back into view when
+       they have scrolled past them, so long tables keep their place. */
+    if (container.getBoundingClientRect().top < 0) {
+        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 }
 
 function formatLocation(a) {
@@ -1031,11 +1079,16 @@ function viewAccidentDetail(index) {
 }
 
 /* ─── Revenue Table ─── */
-function renderRevenueTable(records) {
+function renderRevenueTable(records, page) {
+    _reportPage.revenue = page || 1;
+    var total = records.length, totalPages = Math.ceil(total / _pageSize);
+    var start = (_reportPage.revenue - 1) * _pageSize;
+    var pageRecords = records.slice(start, start + _pageSize);
     var html = '<div class="table-responsive"><table class="admin-table"><thead><tr>'
         + '<th>Period</th><th>Rentals</th><th>Total Revenue</th><th>Avg Revenue</th><th>Duration (min)</th>'
         + '</tr></thead><tbody>';
-    records.forEach(function (r) {
+    if (pageRecords.length === 0) html += '<tr><td colspan="5" class="text-center text-muted py-4">No revenue data found</td></tr>';
+    pageRecords.forEach(function (r) {
         html += '<tr>'
             + '<td class="fw-bold">' + esc(r.period) + '</td>'
             + '<td>' + Number(r.total_rentals || 0).toLocaleString() + '</td>'
@@ -1045,16 +1098,22 @@ function renderRevenueTable(records) {
             + '</tr>';
     });
     html += '</tbody></table></div>';
+    html += buildPagination('revenue', total, totalPages);
     return html;
 }
 
 /* ─── Incident Table ─── */
-function renderIncidentTable(records) {
+function renderIncidentTable(records, page) {
+    _reportPage.incident = page || 1;
+    var total = records.length, totalPages = Math.ceil(total / _pageSize);
+    var start = (_reportPage.incident - 1) * _pageSize;
+    var pageRecords = records.slice(start, start + _pageSize);
     var html = '<div class="table-responsive"><table class="admin-table"><thead><tr>'
         + '<th>ID</th><th>Type</th><th>Severity</th><th>Bicycle</th><th>Description</th>'
         + '<th>Status</th><th>Acknowledged</th><th>Timestamp</th>'
         + '</tr></thead><tbody>';
-    records.forEach(function (r) {
+    if (pageRecords.length === 0) html += '<tr><td colspan="8" class="text-center text-muted py-4">No incidents found</td></tr>';
+    pageRecords.forEach(function (r) {
         var sevClass = 'secondary';
         if (r.severity === 'critical') sevClass = 'danger';
         else if (r.severity === 'major') sevClass = 'warning';
@@ -1073,6 +1132,7 @@ function renderIncidentTable(records) {
             + '</tr>';
     });
     html += '</tbody></table></div>';
+    html += buildPagination('incident', total, totalPages);
     return html;
 }
 
@@ -1084,17 +1144,35 @@ function exportReport(type, format) {
     if (!form) { alert('Report form not found.'); return; }
     var params = new URLSearchParams();
     params.append('type', type);
-    var fields = form.querySelectorAll('input, select');
-    fields.forEach(function (field) {
-        if (field.name && field.value) params.append(field.name, field.value);
+    // Only the visible filters - hidden inputs (e.g. the CSRF token) stay out of the URL.
+    form.querySelectorAll('input[name], select[name]').forEach(function (field) {
+        if (field.type === 'hidden') return;
+        if (field.value) params.append(field.name, field.value);
     });
     window.location.href = _baseUrl + '/export/' + format + '?' + params.toString();
 }
 
+/* Runs loadReport only when the on-screen table no longer matches the filters,
+   so Print/Export always act on the data the user is actually looking at. */
+function ensureFreshResults(type, done) {
+    var form = document.getElementById(type + 'ReportForm');
+    if (!form) { done(); return; }
+    if (_appliedFilters[type] === filterSignature(form)) { done(); return; }
+    var run = function () { done(); };
+    var p = loadReport(form);
+    if (p && typeof p.then === 'function') p.then(run, run); else run();
+}
+
 /* ─── Print ─── */
 function printReport(type) {
+    ensureFreshResults(type, function () {
+        doPrintReport(type);
+    });
+}
+
+function doPrintReport(type) {
     var records = _reportData[type] || [];
-    if (records.length === 0) { alert('Please generate a report first before printing.'); return; }
+    if (records.length === 0) { alert('No data to print for the current filters.'); return; }
 
     var win = window.open('', '_blank', 'width=1200,height=700');
     var titles = { customer: 'Customer Report', rental: 'Rental Report', bicycle: 'Bicycle Report', theft: 'Theft Report', accident: 'Accident Report', revenue: 'Revenue Report', incident: 'Incidents Report' };
@@ -1198,6 +1276,13 @@ function clearResults() {
     document.getElementById('resultCount').textContent = '0';
     _reportData = { customer: [], rental: [], bicycle: [], theft: [], accident: [], revenue: [], incident: [] };
     _reportPage = { customer: 1, rental: 1, bicycle: 1, theft: 1, accident: 1, revenue: 1, incident: 1 };
+    _appliedFilters = {};
+    _summaryHtml = {};
+}
+
+/* The table auto-applies on filter change, so a reset must re-run it too. */
+function reloadActiveReport() {
+    if (typeof window.applyActiveReportFilters === 'function') window.applyActiveReportFilters();
 }
 
 function clearCustomerFilters() {
@@ -1206,6 +1291,7 @@ function clearCustomerFilters() {
     document.getElementById('customerDateTo').value = '';
     document.getElementById('customerStatus').value = '';
     document.getElementById('customerVerified').value = '';
+    reloadActiveReport();
 }
 
 function clearRentalFilters() {
@@ -1216,11 +1302,13 @@ function clearRentalFilters() {
     document.getElementById('rentalPaymentStatus').value = '';
     document.getElementById('rentalBicycle').value = '';
     document.getElementById('rentalRider').value = '';
+    reloadActiveReport();
 }
 
 function clearBicycleFilters() {
     var s = document.getElementById('bicycleSearch'); if (s) s.value = '';
     var st = document.getElementById('bicycleStatus'); if (st) st.value = '';
+    reloadActiveReport();
 }
 
 function clearTheftFilters() {
@@ -1229,6 +1317,7 @@ function clearTheftFilters() {
     document.getElementById('theftDateTo').value = '{{ now()->format("Y-m-d") }}';
     document.getElementById('theftStatus').value = '';
     document.getElementById('theftBicycle').value = '';
+    reloadActiveReport();
 }
 
 function clearAccidentFilters() {
@@ -1241,6 +1330,41 @@ function clearAccidentFilters() {
     document.getElementById('accidentRider').value = '';
     var typeEl = document.getElementById('accidentType');
     if (typeEl) typeEl.value = '';
+    reloadActiveReport();
 }
+
+/* ─── Auto-load + live filtering ───
+   Every report tab renders its table as soon as the page loads and re-applies
+   whenever a filter changes, so there is no separate generate step and the
+   actions above always act on what is currently on screen. */
+(function () {
+    var AUTO_TABS = ['customer', 'rental', 'bicycle', 'theft', 'accident', 'revenue'];
+    var form = document.getElementById(_reportType + 'ReportForm');
+    if (!form || AUTO_TABS.indexOf(_reportType) === -1) return;
+
+    var debounceTimer = null;
+    var applyNow = function () {
+        if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+        loadReport(form);
+    };
+    var applySoon = function () {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(applyNow, 450);
+    };
+
+    form.querySelectorAll('input[name], select[name]').forEach(function (field) {
+        if (field.type === 'hidden') return;
+        if (field.tagName === 'SELECT' || field.type === 'date') {
+            field.addEventListener('change', applyNow);
+        } else {
+            field.addEventListener('input', applySoon);
+        }
+    });
+
+    // Lets "Clear Filters" reload the table instead of leaving stale rows behind.
+    if (typeof window !== 'undefined') window.applyActiveReportFilters = applyNow;
+
+    applyNow();
+})();
 </script>
 @endsection

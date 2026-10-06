@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Centralises the theft / boundary-breach detection pipeline that ties the
- * live GPS feed and the GeoLibre 3D map & saved geofence logic together.
+ * live GPS feed and the shared location map & saved geofence logic together.
  *
  * Responsibilities:
  *  - Create a single open theft alert per bicycle (never duplicates while the
@@ -167,7 +167,7 @@ class TheftDetectionService
      * seed, etc.). Idempotent: reuses an existing open alert; never duplicates.
      *
      * This is the read-path self-heal that guarantees a red pin on the shared
-     * GeoLibre 3D Map produces a row in the Theft Alert Log.
+     * live location map produces a row in the Theft Alert Log.
      */
     public function ensureActiveAlertForOutside(
         Bicycle $bicycle,

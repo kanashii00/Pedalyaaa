@@ -7,8 +7,10 @@ use App\Models\DeviceCommand;
 use App\Models\Payment;
 use App\Models\Rental;
 use App\Services\IoTService;
+use App\Services\NotificationService;
 use App\Services\RentalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Mockery;
 use Tests\Concerns\CreatesTestData;
 use Tests\TestCase;
@@ -520,5 +522,122 @@ class AdminRentalTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('admin.rentals.history') . '?status=returned')
             ->assertOk();
+    }
+
+    public function test_sidebar_badge_counts_rentals_not_unread_notifications(): void
+    {
+        // The reported bug: the badge showed 49 next to a single rental row
+        // because it was counting unread `rental_started` notifications.
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle();
+        $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => Rental::STATUS_ACTIVE]);
+
+        $notificationService = app(NotificationService::class);
+        for ($i = 0; $i < 49; $i++) {
+            $notificationService->create($this->admin->id, 'New Rental', 'A bike was rented.', 'rental_started');
+        }
+
+        $response = $this->actingAs($this->admin)->get(route('admin.rentals.index'));
+
+        $response->assertOk();
+        $response->assertSee('Showing 1 record');
+        $this->assertSidebarActiveRentalsBadge($response, 1);
+    }
+
+    public function test_sidebar_badge_counts_the_whole_queue(): void
+    {
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle();
+
+        // Every status the queue page lists has to be counted.
+        foreach ([Rental::STATUS_ACTIVE, Rental::STATUS_PENDING, Rental::STATUS_OVERDUE, Rental::STATUS_EXPIRED] as $status) {
+            $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => $status]);
+        }
+
+        // ...and nothing that has already been settled.
+        foreach ([Rental::STATUS_RETURNED, Rental::STATUS_COMPLETED, Rental::STATUS_CANCELLED] as $status) {
+            $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => $status]);
+        }
+
+        $response = $this->actingAs($this->admin)->get(route('admin.rentals.index'));
+
+        $response->assertOk();
+        $response->assertSee('Showing 4 records');
+        $this->assertSidebarActiveRentalsBadge($response, 4);
+    }
+
+    public function test_sidebar_badge_tracks_rentals_created_and_cancelled(): void
+    {
+        $this->assertSame(0, Rental::activeListCount());
+
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle();
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_ACTIVE,
+        ]);
+
+        $this->assertSame(1, Rental::activeListCount());
+
+        $this->actingAs($this->admin)
+            ->from(route('admin.rentals.index'))
+            ->put(route('admin.rentals.cancel', $rental->id), ['reason' => 'Rider never picked it up'])
+            ->assertRedirect(route('admin.rentals.index'));
+
+        $this->assertSame(0, Rental::activeListCount());
+
+        $response = $this->actingAs($this->admin)->get(route('admin.rentals.index'));
+
+        $response->assertOk();
+        $response->assertSee('Showing 0 records');
+        $this->assertSidebarActiveRentalsBadge($response, 0);
+    }
+
+    public function test_active_rental_count_follows_the_rental_lifecycle(): void
+    {
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle();
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_PENDING,
+        ]);
+
+        // A pending request is still something an admin has to act on.
+        $this->assertSame(1, Rental::activeListCount());
+
+        $rental->update(['status' => Rental::STATUS_ACTIVE]);
+        $this->assertSame(1, Rental::activeListCount());
+
+        $rental->update(['status' => Rental::STATUS_EXPIRED]);
+        $this->assertSame(1, Rental::activeListCount());
+
+        $rental->update(['status' => Rental::STATUS_RETURNED]);
+        $this->assertSame(0, Rental::activeListCount());
+
+        $rental->update(['status' => Rental::STATUS_ACTIVE]);
+        $this->assertSame(1, Rental::activeListCount());
+
+        $rental->update(['status' => Rental::STATUS_CANCELLED]);
+        $this->assertSame(0, Rental::activeListCount());
+    }
+
+    /**
+     * Assert what the sidebar Active Rentals badge renders.
+     *
+     * The badge is compared against its own element rather than a bare number so
+     * a matching digit elsewhere in the page cannot make this pass.
+     */
+    private function assertSidebarActiveRentalsBadge(TestResponse $response, int $expected): void
+    {
+        $matched = preg_match(
+            '/id="sidebarActiveRentalsBadge"[^>]*>([^<]*)</',
+            $response->getContent(),
+            $matches
+        );
+
+        $this->assertSame(1, $matched, 'Active Rentals sidebar badge was not rendered.');
+        $this->assertSame((string) $expected, trim($matches[1]));
     }
 }

@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Events\NotificationCreated;
 use App\Models\Notification;
 use App\Services\CacheRegistry;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 class NotificationService
 {
@@ -13,13 +15,24 @@ class NotificationService
     {
         CacheRegistry::bumpUserVersion($userId);
 
-        return Notification::create(array_merge([
+        $notification = Notification::create(array_merge([
             'userId' => $userId,
             'title' => $title,
             'message' => $message,
             'type' => $type,
             'read' => false,
         ], $extra));
+
+        // Live dropdown updates are best effort: the row above is already
+        // persisted, so an unreachable broadcaster must never fail the request
+        // that created the notification.
+        try {
+            NotificationCreated::dispatch($notification);
+        } catch (Throwable $e) {
+            report($e);
+        }
+
+        return $notification;
     }
 
     public function createForUsers(array $userIds, string $title, string $message, string $type, array $extra = []): Collection
@@ -83,6 +96,20 @@ class NotificationService
         return Notification::where('userId', $userId)
             ->where('read', false)
             ->orderBy('created_at', 'desc')
+            ->get();
+    }
+
+    /**
+     * Most recent notifications for the header dropdown. Shared by the admin and
+     * rider shells so both menus show the same rows for the signed-in user.
+     */
+    public function getRecentForUser(int $userId, int $limit = 6): Collection
+    {
+        return Notification::with('bicycle')
+            ->where('userId', $userId)
+            ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->limit($limit)
             ->get();
     }
 }

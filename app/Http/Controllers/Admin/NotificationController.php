@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Concerns\HandlesNotifications;
 use App\Http\Controllers\Controller;
 use App\Models\Notification;
 use App\Models\User;
@@ -14,15 +15,17 @@ use Illuminate\Validation\Rule;
 
 class NotificationController extends Controller
 {
+    use HandlesNotifications;
+
     public function __construct(
         private NotificationService $notificationService
     ) {}
 
     public function index(): Response
     {
-        $notifications = Notification::with('user')->latest()->paginate(20)->withQueryString();
+        $notifications = $this->notificationList();
         $users = User::where('role', User::ROLE_RIDER)->orderBy('name')->get();
-        $unreadCount = $this->notificationService->getUnreadCount(auth()->id());
+        $unreadCount = $this->notificationUnreadCount(auth()->id());
 
         return response()->view('admin.notifications', compact('notifications', 'users', 'unreadCount'));
     }
@@ -33,7 +36,7 @@ class NotificationController extends Controller
      */
     public function table(Request $request): Response
     {
-        $notifications = Notification::with('user')->latest()->paginate(20)->withQueryString();
+        $notifications = $this->notificationList();
 
         return response()->view('admin.notifications-table', compact('notifications'));
     }
@@ -53,7 +56,7 @@ class NotificationController extends Controller
         $userIds = $this->resolveRecipients($validated['recipientType'], $validated);
 
         if (empty($userIds)) {
-            return $this->respond(
+            return $this->notificationRespond(
                 $request,
                 'No recipients match this selection.',
                 [],
@@ -63,7 +66,7 @@ class NotificationController extends Controller
         }
 
         if ($this->isDuplicate($userIds, $validated['title'], $validated['message'], $validated['type'])) {
-            return $this->respond(
+            return $this->notificationRespond(
                 $request,
                 'This notification was already sent. Please check the Notifications list before sending again.',
                 [],
@@ -76,7 +79,7 @@ class NotificationController extends Controller
             ->createForUsers($userIds, $validated['title'], $validated['message'], $validated['type'])
             ->count();
 
-        return $this->respond(
+        return $this->notificationRespond(
             $request,
             'Notification sent successfully.',
             ['count' => $count],
@@ -87,52 +90,17 @@ class NotificationController extends Controller
 
     public function unreadCount(Request $request): JsonResponse
     {
-        return response()->json([
-            'unread_count' => $this->notificationService->getUnreadCount($request->user()->id),
-        ]);
+        return $this->unreadCountResponse($request);
     }
 
     public function markRead(Request $request, int $id): JsonResponse|RedirectResponse
     {
-        $marked = $this->notificationService->markAsRead($id, $request->user()->id);
-
-        return $marked
-            ? $this->respond($request, 'Notification marked as read.', [], 200, back()->with('success', 'Notification marked as read.'))
-            : $this->respond($request, 'Notification not found.', [], 404, back()->with('error', 'Notification not found.'));
+        return $this->markReadResponse($request, $id);
     }
 
     public function markAllRead(Request $request): JsonResponse|RedirectResponse
     {
-        $updated = $this->notificationService->markAllAsRead($request->user()->id);
-        $message = $updated > 0
-            ? $updated.' notification(s) marked as read.'
-            : 'No unread notifications.';
-
-        return $this->respond(
-            $request,
-            $message,
-            ['unread_count' => 0],
-            200,
-            back()->with('success', $message)
-        );
-    }
-
-    /**
-     * Keep a single consistent success/failure response for both AJAX and
-     * non-AJAX callers so the browser never displays a raw JSON body.
-     */
-    private function respond(
-        Request $request,
-        string $message,
-        array $extra = [],
-        int $status = 200,
-        ?RedirectResponse $fallback = null
-    ): JsonResponse|RedirectResponse {
-        if ($request->wantsJson()) {
-            return response()->json(array_merge(['message' => $message], $extra), $status);
-        }
-
-        return $fallback ?? back()->with('error', $message);
+        return $this->markAllReadResponse($request);
     }
 
     private function rules(): array

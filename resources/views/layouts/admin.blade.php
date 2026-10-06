@@ -7,14 +7,18 @@
     use App\Models\Accident;
     use App\Models\Bicycle;
     use App\Models\MaintenanceRecord;
+    use App\Models\Rental;
     use App\Models\User;
+    use App\Services\NotificationService;
+    use App\Support\NotificationType;
 
-    $unreadNotifs = auth()->user()->notifications()->where('read', false)->count();
-    $unreadRentalNotifs = auth()->user()->notifications()
-        ->where('read', false)
-        ->where('type', 'rental_started')
-        ->count();
-    $recentNotifs = auth()->user()->notifications()->with('bicycle')->latest()->take(6)->get();
+    $notificationService = app(NotificationService::class);
+    $unreadNotifs = $notificationService->getUnreadCount(auth()->id());
+    // Same query the Active Rentals page lists from, so the badge is the queue
+    // depth and nothing else. It used to count unread `rental_started`
+    // notifications, which is why it read 49 next to a single rental row.
+    $activeRentalsCount = Rental::activeListCount();
+    $recentNotifs = $notificationService->getRecentForUser(auth()->id());
     $unackTheft = Accident::where('type', 'theft')->where('acknowledged', false)->count();
     $unackAccidents = Accident::whereIn('type', ['accident', 'impact_detected'])->where('acknowledged', false)->count();
     $pendingMaint = MaintenanceRecord::whereIn('status', ['scheduled', 'in_progress'])->count();
@@ -25,9 +29,9 @@
     $iotOnline = Bicycle::where('lastHeartbeat', '>=', now()->subMinutes(5))->count();
     $gpsOnline = Bicycle::where('lastGpsUpdate', '>=', now()->subMinutes(5))->count();
 
-    $currentSection = in_array(request()->query('section'), ['map', 'gps', 'locks', 'devices'], true)
+    $currentSection = in_array(request()->query('section'), ['gps', 'locks', 'devices'], true)
         ? request()->query('section')
-        : 'map';
+        : 'gps';
 
     $navGroups = [
         [
@@ -62,7 +66,7 @@
             'label' => 'Rental Management',
             'icon' => 'bi-key',
             'items' => [
-                ['title' => 'Active Rentals', 'icon' => 'bi-play-circle', 'route' => 'admin.rentals.index', 'active' => ['admin.rentals.index'], 'badge' => $unreadRentalNotifs, 'badgeType' => 'warning'],
+                ['title' => 'Active Rentals', 'icon' => 'bi-play-circle', 'route' => 'admin.rentals.index', 'active' => ['admin.rentals.index'], 'badge' => $activeRentalsCount, 'badgeId' => 'sidebarActiveRentalsBadge', 'badgeType' => 'warning'],
                 ['title' => 'Rental History', 'icon' => 'bi-clock-history', 'route' => 'admin.rentals.history', 'active' => ['admin.rentals.history']],
                 ['title' => 'Returns', 'icon' => 'bi-arrow-return-left', 'route' => 'admin.rentals.returns', 'active' => ['admin.rentals.returns']],
                 ['title' => 'Rental Requests', 'icon' => 'bi-inbox', 'route' => 'admin.rentals.index', 'active' => ['admin.rentals.index'], 'query' => '?filter=pending'],
@@ -80,8 +84,7 @@
                     'icon' => 'bi-grid',
                     'active' => ['admin.monitoring.*', 'admin.geofence.*', 'admin.theft-alerts.*'],
                     'items' => [
-                        ['title' => 'GeoLibre 3D Map', 'icon' => 'bi-map', 'route' => 'admin.monitoring.index', 'section' => 'map', 'sub' => 'Live 3D fleet map', 'active' => ['admin.monitoring.index']],
-                        ['title' => 'Live GPS Tracking', 'icon' => 'bi-geo-alt', 'route' => 'admin.monitoring.index', 'section' => 'gps', 'query' => '?section=gps', 'sub' => 'Real-time positions', 'active' => ['admin.monitoring.index']],
+                        ['title' => 'Live GPS Tracking', 'icon' => 'bi-geo-alt', 'route' => 'admin.monitoring.index', 'section' => 'gps', 'sub' => 'Real-time positions', 'active' => ['admin.monitoring.index']],
                         ['title' => 'Circular Geofence', 'icon' => 'bi-bounding-box-circles', 'route' => 'admin.geofence.index', 'sub' => 'Azuela Cove riding zone', 'active' => ['admin.geofence.*']],
                         ['title' => 'Smart Lock Control', 'icon' => 'bi-lock', 'route' => 'admin.monitoring.index', 'section' => 'locks', 'query' => '?section=locks', 'sub' => 'Remote lock / unlock', 'active' => ['admin.monitoring.index']],
                         ['title' => 'IoT Device Monitoring', 'icon' => 'bi-cpu', 'route' => 'admin.monitoring.index', 'section' => 'devices', 'query' => '?section=devices', 'sub' => 'Firmware & telemetry', 'active' => ['admin.monitoring.index']],
@@ -180,22 +183,6 @@
         }
     }
     if (!$currentPage) { $currentPage = ['title' => 'Dashboard', 'icon' => 'bi-grid-1x2']; $currentGroup = 'Dashboard'; }
-
-    $notifIcon = fn ($type) => match ($type) {
-        'theft', 'accident' => 'bi-exclamation-triangle',
-        'rental' => 'bi-key',
-        'maintenance' => 'bi-tools',
-        'system' => 'bi-gear',
-        'success' => 'bi-check-circle',
-        default => 'bi-info-circle',
-    };
-    $notifColor = fn ($type) => match ($type) {
-        'theft', 'accident' => 'var(--danger)',
-        'rental' => 'var(--accent)',
-        'maintenance' => 'var(--warning)',
-        'success' => 'var(--success)',
-        default => 'var(--info)',
-    };
 @endphp
 
 @section('body')
@@ -378,18 +365,18 @@
             <div class="admin-dropdown">
                 <button class="admin-icon-btn" type="button" data-dropdown-toggle aria-label="Notifications">
                     <i class="bi bi-bell"></i>
-                    <span id="topbarNotifBadge" class="admin-nav__badge" style="position:absolute;top:-4px;right:-4px;{{ $unreadNotifs > 0 ? '' : 'display:none;' }}">{{ $unreadNotifs > 99 ? '99+' : $unreadNotifs }}</span>
+                    <span id="topbarNotifBadge" data-notif-badge class="admin-nav__badge" style="position:absolute;top:-4px;right:-4px;{{ $unreadNotifs > 0 ? '' : 'display:none;' }}">{{ $unreadNotifs > 99 ? '99+' : $unreadNotifs }}</span>
                 </button>
                 <div class="admin-dropdown__menu">
                     <div class="admin-dropdown__head">
                         <span>Notifications</span>
-                        <span class="badge-admin badge-admin--neutral badge-admin--plain" id="notifUnreadLabel">{{ $unreadNotifs }} unread</span>
+                        <span class="badge-admin badge-admin--neutral badge-admin--plain" id="notifUnreadLabel" data-notif-unread-label>{{ $unreadNotifs }} unread</span>
                     </div>
                     <div class="admin-dropdown__body">
                         @forelse($recentNotifs as $n)
                             <a href="{{ route('admin.notifications.index') }}" class="admin-notif {{ !$n->read ? 'unread' : '' }}">
-                                <div class="admin-notif__icon" style="background: {{ $notifColor($n->type) }}22; color: {{ $notifColor($n->type) }};">
-                                    <i class="bi {{ $notifIcon($n->type) }}"></i>
+                                <div class="admin-notif__icon" style="background: {{ NotificationType::accent($n->type) }}22; color: {{ NotificationType::accent($n->type) }};">
+                                    <i class="bi {{ NotificationType::icon($n->type) }}"></i>
                                 </div>
                                 <div>
                                     <div class="admin-notif__title">{{ $n->title }}</div>
@@ -520,9 +507,11 @@
     window.PedalyaSettings = {
         unreadCountUrl: @json(route('admin.notifications.unread-count')),
         markAllReadUrl: @json(route('admin.notifications.mark-all-read')),
+        markReadUrl: @json(route('admin.notifications.mark-read', ['id' => '__ID__'])),
     };
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{{ asset('js/notifications.js') }}"></script>
 <script src="{{ asset('js/admin.js') }}"></script>
 @endsection

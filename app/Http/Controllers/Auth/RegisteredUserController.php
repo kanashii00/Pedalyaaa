@@ -37,20 +37,19 @@ class RegisteredUserController extends Controller
                 Rule::unique(User::class, 'email'),
             ],
             'phoneNumber' => ['nullable', 'string', 'max:20'],
+            // Google sign-ups also set a Pedalya password so the rider can later
+            // sign in either with Google or with email + password. The value is
+            // hashed below and never stored in plain text.
+            'password' => ['required', 'string', 'confirmed', Password::defaults()],
         ];
-
-        // Google-authenticated users don't need a password to register.
-        if (! $pendingOauth) {
-            $rules['password'] = ['required', 'confirmed', Password::defaults()];
-        }
 
         $request->validate($rules);
 
         $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'phoneNumber' => $request->phoneNumber,
-            'password' => $pendingOauth ? null : Hash::make($request->password),
+            'name' => $request->string('name')->value(),
+            'email' => $request->string('email')->value(),
+            'phoneNumber' => $request->input('phoneNumber'),
+            'password' => Hash::make($request->string('password')->value()),
             'google_id' => $pendingOauth['google_id'] ?? null,
             'avatar' => $pendingOauth['avatar'] ?? null,
             'oauth_provider' => $pendingOauth ? 'google' : null,
@@ -70,6 +69,8 @@ class RegisteredUserController extends Controller
         event(new Registered($user));
 
         Auth::login($user);
+
+        $request->session()->regenerate();
 
         return redirect()->route('rider.dashboard');
     }

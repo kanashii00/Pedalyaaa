@@ -176,6 +176,8 @@ Route::middleware(['auth', 'role:rider'])->prefix('rider')->name('rider.')->grou
 
     // Notifications
     Route::get('/notifications', [RiderNotifications::class, 'index'])->name('notifications.index');
+    Route::get('/notifications/table', [RiderNotifications::class, 'table'])->name('notifications.table');
+    Route::get('/notifications/unread-count', [RiderNotifications::class, 'unreadCount'])->name('notifications.unread-count');
     Route::post('/notifications/{id}/read', [RiderNotifications::class, 'markRead'])->name('notifications.mark-read');
     Route::post('/notifications/read-all', [RiderNotifications::class, 'markAllRead'])->name('notifications.mark-all-read');
 });

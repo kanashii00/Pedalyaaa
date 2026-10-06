@@ -62,11 +62,16 @@ class ProfileController extends Controller
         $user = $request->user();
 
         $validated = $request->validate([
-            'current_password' => ['required', 'string'],
+            'current_password' => ['nullable', 'string'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
-        if (!\Illuminate\Support\Facades\Hash::check($validated['current_password'], $user->password)) {
+        // Accounts created through Google before sign-up asked for a password have
+        // no hash yet, so there is nothing to match against. Those riders set their
+        // first Pedalya password here; every other account must prove the current one.
+        $hasPassword = ! empty($user->password);
+
+        if ($hasPassword && ! \Illuminate\Support\Facades\Hash::check((string) ($validated['current_password'] ?? ''), $user->password)) {
             return back()->withErrors(['current_password' => 'The current password is incorrect.']);
         }
 

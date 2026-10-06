@@ -1,7 +1,18 @@
 @extends('layouts.app')
 
+@php
+    use App\Services\NotificationService;
+    use App\Support\NotificationType;
+
+    $notificationService = app(NotificationService::class);
+    $riderUnreadCount = auth()->check() ? $notificationService->getUnreadCount(auth()->id()) : 0;
+    $riderRecentNotifs = auth()->check() ? $notificationService->getRecentForUser(auth()->id()) : collect();
+@endphp
+
 @section('body')
 <div>
+    <div id="pedalyaToasts" class="pedalya-toast-stack" aria-live="polite" aria-atomic="true"></div>
+
     <!-- Sidebar Overlay -->
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
@@ -12,6 +23,11 @@
                 <img src="{{ asset('assets/img/Logo.png') }}" alt="Pedalya" class="sidebar-logo-img">
             </div>
             <span class="sidebar-brand-text"><span>Peda</span>lya</span>
+            <button class="sidebar-toggle sidebar-toggle--panel" type="button" data-sidebar-toggle
+                    aria-controls="sidebar" aria-expanded="true" aria-label="Collapse sidebar" data-state="expanded">
+                <i class="bi bi-chevron-left icon-collapse"></i>
+                <i class="bi bi-chevron-right icon-expand"></i>
+            </button>
         </div>
         <nav class="sidebar-nav">
             <div class="nav-section">Menu</div>
@@ -37,6 +53,7 @@
                 <a href="{{ route('rider.notifications.index') }}" class="nav-link {{ request()->routeIs('rider.notifications.*') ? 'active' : '' }}">
                     <i class="bi bi-bell-fill"></i>
                     <span>Notifications</span>
+                    <span id="sidebarNotifBadge" class="notification-nav-badge" style="{{ $riderUnreadCount > 0 ? '' : 'display:none;' }}">{{ $riderUnreadCount > 99 ? '99+' : $riderUnreadCount }}</span>
                 </a>
             </div>
 
@@ -55,26 +72,47 @@
         <!-- Topbar -->
         <header class="topbar">
             <div class="topbar-left">
-                <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Toggle sidebar">
+                <button class="sidebar-toggle sidebar-toggle--mobile" type="button" data-sidebar-toggle
+                        aria-controls="sidebar" aria-expanded="false" aria-label="Open sidebar" data-state="collapsed">
                     <i class="bi bi-list"></i>
                 </button>
-                <a href="{{ route('rider.dashboard') }}" class="topbar-brand">
-                    <div class="topbar-logo-wrapper">
-                        <img src="{{ asset('assets/img/Logo.png') }}" alt="Pedalya" class="topbar-logo-img">
-                    </div>
-                    <span><span>Peda</span>lya</span>
-                </a>
             </div>
             <div class="topbar-right">
-                <div class="notification-bell">
-                    <a href="{{ route('rider.notifications.index') }}">
+                <div class="admin-dropdown">
+                    <button class="admin-icon-btn" type="button" data-dropdown-toggle aria-label="Notifications">
                         <i class="bi bi-bell"></i>
-                        @if(auth()->check() && auth()->user()->notifications()->where('read', false)->count() > 0)
-                            <span class="notification-badge">
-                                {{ auth()->user()->notifications()->where('read', false)->count() }}
-                            </span>
-                        @endif
-                    </a>
+                        <span id="topbarNotifBadge" data-notif-badge class="notification-badge-corner" style="{{ $riderUnreadCount > 0 ? '' : 'display:none;' }}">{{ $riderUnreadCount > 99 ? '99+' : $riderUnreadCount }}</span>
+                    </button>
+                    <div class="admin-dropdown__menu">
+                        <div class="admin-dropdown__head">
+                            <span>Notifications</span>
+                            <span class="badge-admin badge-admin--neutral badge-admin--plain" id="notifUnreadLabel" data-notif-unread-label>{{ $riderUnreadCount }} unread</span>
+                        </div>
+                        <div class="admin-dropdown__body">
+                            @forelse($riderRecentNotifs as $n)
+                                <a href="{{ route('rider.notifications.index') }}" class="admin-notif {{ !$n->read ? 'unread' : '' }}">
+                                    <div class="admin-notif__icon" style="background: {{ NotificationType::accent($n->type) }}22; color: {{ NotificationType::accent($n->type) }};">
+                                        <i class="bi {{ NotificationType::icon($n->type) }}"></i>
+                                    </div>
+                                    <div>
+                                        <div class="admin-notif__title">{{ $n->title }}</div>
+                                        <div class="admin-notif__msg">{{ \Illuminate\Support\Str::limit($n->message, 60) }}</div>
+                                        <div class="admin-notif__time">{{ $n->created_at->diffForHumans() }}</div>
+                                    </div>
+                                </a>
+                            @empty
+                                <div class="admin-empty">
+                                    <i class="bi bi-bell-slash"></i>
+                                    <h4>All caught up</h4>
+                                    <p>No notifications yet.</p>
+                                </div>
+                            @endforelse
+                        </div>
+                        <div class="admin-dropdown__foot" style="display:flex;gap:8px;">
+                            <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-mark-all-read>Mark all read</button>
+                            <a href="{{ route('rider.notifications.index') }}" class="btn-admin btn-admin--secondary btn-admin--sm">View all notifications</a>
+                        </div>
+                    </div>
                 </div>
                 <div class="user-info">
                     <div class="user-avatar">
@@ -134,41 +172,74 @@
     document.addEventListener('DOMContentLoaded', function() {
         const sidebar = document.getElementById('sidebar');
         const mainContent = document.getElementById('mainContent');
-        const sidebarToggle = document.getElementById('sidebarToggle');
         const overlay = document.getElementById('sidebarOverlay');
+        const toggles = document.querySelectorAll('[data-sidebar-toggle]');
+
+        function isMobile() {
+            return window.innerWidth <= 991;
+        }
+
+        function syncToggles() {
+            const collapsed = isMobile()
+                ? !sidebar.classList.contains('show')
+                : sidebar.classList.contains('collapsed');
+
+            toggles.forEach(function(btn) {
+                btn.setAttribute('data-state', collapsed ? 'collapsed' : 'expanded');
+                btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+                btn.setAttribute('aria-label', collapsed ? 'Open sidebar' : 'Collapse sidebar');
+            });
+        }
 
         function toggleSidebar() {
             sidebar.classList.toggle('show');
             overlay.classList.toggle('show');
+            syncToggles();
         }
 
         function collapseSidebar() {
             sidebar.classList.toggle('collapsed');
             mainContent.classList.toggle('expanded');
             localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
+            syncToggles();
         }
 
-        if (sidebarToggle) {
-            sidebarToggle.addEventListener('click', function() {
-                if (window.innerWidth <= 991) {
+        toggles.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                if (isMobile()) {
                     toggleSidebar();
                 } else {
                     collapseSidebar();
                 }
             });
-        }
+        });
 
         if (overlay) {
             overlay.addEventListener('click', function() {
                 sidebar.classList.remove('show');
                 overlay.classList.remove('show');
+                syncToggles();
             });
         }
 
-        if (localStorage.getItem('sidebarCollapsed') === 'true' && window.innerWidth > 991) {
+        if (localStorage.getItem('sidebarCollapsed') === 'true' && !isMobile()) {
             sidebar.classList.add('collapsed');
             mainContent.classList.add('expanded');
         }
+
+        syncToggles();
+
+        window.addEventListener('resize', syncToggles);
     });
 </script>
+
+<script>
+    window.PedalyaChannels = { notifications: {!! json_encode('private-App.Models.User.' . auth()->id()) !!} };
+    window.PedalyaSettings = {
+        unreadCountUrl: @json(route('rider.notifications.unread-count')),
+        markAllReadUrl: @json(route('rider.notifications.mark-all-read')),
+        markReadUrl: @json(route('rider.notifications.mark-read', ['id' => '__ID__'])),
+    };
+</script>
+<script src="{{ asset('js/notifications.js') }}"></script>
 @endsection

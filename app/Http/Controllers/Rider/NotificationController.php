@@ -2,46 +2,56 @@
 
 namespace App\Http\Controllers\Rider;
 
+use App\Http\Controllers\Concerns\HandlesNotifications;
 use App\Http\Controllers\Controller;
-use App\Services\NotificationService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
+/**
+ * Rider half of the notifications feature. Every bit of behaviour lives in the
+ * shared HandlesNotifications trait so this section reports the same list data,
+ * unread count, status codes and messages as the admin section.
+ */
 class NotificationController extends Controller
 {
-    public function __construct(
-        protected NotificationService $notificationService,
-    ) {}
+    use HandlesNotifications;
 
     public function index(Request $request): View
     {
-        $user = $request->user();
+        $userId = $request->user()->id;
 
-        $notifications = $user->notifications()
-            ->latest()
-            ->paginate(20);
-
-        $unreadCount = $this->notificationService->getUnreadCount($user->id);
+        $notifications = $this->notificationList($userId);
+        $unreadCount = $this->notificationUnreadCount($userId);
 
         return view('rider.notifications', compact('notifications', 'unreadCount'));
     }
 
-    public function markRead(Request $request, int $id): RedirectResponse
+    /**
+     * Returns just the notification list (HTML) so the page can refresh it
+     * after a mark-as-read without a full page reload, mirroring the admin
+     * table partial endpoint.
+     */
+    public function table(Request $request): View
     {
-        $userId = $request->user()->id;
+        $notifications = $this->notificationList($request->user()->id);
 
-        $this->notificationService->markAsRead($id, $userId);
-
-        return back()->with('success', 'Notification marked as read.');
+        return view('rider.notifications-list', compact('notifications'));
     }
 
-    public function markAllRead(Request $request): RedirectResponse
+    public function unreadCount(Request $request): JsonResponse
     {
-        $userId = $request->user()->id;
+        return $this->unreadCountResponse($request);
+    }
 
-        $this->notificationService->markAllAsRead($userId);
+    public function markRead(Request $request, int $id): JsonResponse|RedirectResponse
+    {
+        return $this->markReadResponse($request, $id);
+    }
 
-        return back()->with('success', 'All notifications marked as read.');
+    public function markAllRead(Request $request): JsonResponse|RedirectResponse
+    {
+        return $this->markAllReadResponse($request);
     }
 }

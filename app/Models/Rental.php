@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -61,6 +62,26 @@ class Rental extends Model
         self::STATUS_EXPIRED,
         self::STATUS_AWAITING_RETURN,
         self::STATUS_OVERDUE_RETURN,
+    ];
+
+    /**
+     * The statuses the Active Rentals queue is made of: a rental the rider is
+     * still holding, plus requests that have not been decided yet.
+     *
+     * This is the one definition of "active rental". The queue page, its
+     * "Showing N records" footer and the sidebar badge all read it, so the
+     * badge can never drift away from the rows behind it (it used to count
+     * unread `rental_started` notifications instead, which is an unrelated
+     * number that only ever grows).
+     *
+     * `returned`/`completed`/`cancelled` are deliberately absent: a settled
+     * rental belongs to Rental History.
+     */
+    public const ACTIVE_LIST_STATUSES = [
+        self::STATUS_ACTIVE,
+        self::STATUS_PENDING,
+        self::STATUS_OVERDUE,
+        self::STATUS_EXPIRED,
     ];
 
     public const PENALTY_FIXED = 'fixed';
@@ -187,5 +208,30 @@ class Rental extends Model
     public function rider(): BelongsTo
     {
         return $this->belongsTo(User::class, 'riderId');
+    }
+
+    /**
+     * The Active Rentals queue.
+     *
+     * Every consumer of "how many rentals are active" - the queue listing, its
+     * record count and the sidebar badge - goes through this scope, so they all
+     * report the same number.
+     */
+    public function scopeActiveList(Builder $query): Builder
+    {
+        return $query->whereIn('status', self::ACTIVE_LIST_STATUSES);
+    }
+
+    /**
+     * Live count of active rentals, straight from the table.
+     *
+     * Deliberately uncached: rentals are created, approved, expired, returned
+     * and cancelled from several places (including a scheduler that flips
+     * rentals to `expired` with nobody on the page), so a memoised total would
+     * report a stale number. One indexed COUNT is cheaper than the bug.
+     */
+    public static function activeListCount(): int
+    {
+        return static::query()->activeList()->count();
     }
 }

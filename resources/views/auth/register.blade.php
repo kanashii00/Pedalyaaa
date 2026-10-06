@@ -2,12 +2,19 @@
 
 @section('title', 'Create Account - Pedalya')
 
+@section('styles')
+<style>
+@include('auth.auth-styles')
+</style>
+@endsection
+
 @section('body')
 <div class="auth-page">
-    <div class="auth-card" style="max-width: 480px;">
+    <div class="auth-card">
         <div class="auth-logo">
-            <h1><i class="bi bi-bicycle me-2"></i>Peda<span style="color: var(--primary);">lya</span></h1>
-            <p>Create your renter account to start riding</p>
+            <img src="{{ asset('assets/img/Logo.png') }}" alt="Pedalya" style="width:160px;height:160px;border-radius:32px;object-fit:cover;margin-bottom:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3);background:#fdfdfd;padding:12px;">
+            <h1 class="text-white" style="text-shadow:0 3px 10px rgba(0,0,0,0.6);font-weight:800;">Peda<span style="color: var(--warning);">lya</span></h1>
+            <p class="text-white" style="opacity:0.98;text-shadow:0 2px 6px rgba(0,0,0,0.5);font-weight:500;">Create your renter account to start riding</p>
         </div>
 
         @if(session('status'))
@@ -64,26 +71,36 @@
                 </div>
             </div>
 
-            @if(! $pendingOauth)
-            <div class="row g-2 mb-4">
-                <div class="col-md-6">
-                    <label class="form-label-pedalya" for="password">Password</label>
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-lock"></i></span>
-                        <input type="password" class="form-control form-control-pedalya" id="password" name="password"
-                               required autocomplete="new-password" placeholder="Min 8 characters">
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label-pedalya" for="password_confirmation">Confirm Password</label>
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-shield-lock"></i></span>
-                        <input type="password" class="form-control form-control-pedalya" id="password_confirmation"
-                               name="password_confirmation" required autocomplete="new-password" placeholder="Repeat password">
-                    </div>
+            <div class="mb-3">
+                <label class="form-label-pedalya" for="password">Create Password</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                    <input type="password" class="form-control form-control-pedalya" id="password" name="password"
+                           required autocomplete="new-password" placeholder="Min 8 characters">
+                    <button class="btn btn-outline-secondary" type="button" data-password-toggle="#password" tabindex="-1"
+                            aria-label="Show password">
+                        <i class="bi bi-eye"></i>
+                    </button>
                 </div>
             </div>
-            @endif
+
+            <div class="mb-3">
+                <label class="form-label-pedalya" for="password_confirmation">Confirm Password</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-shield-lock"></i></span>
+                    <input type="password" class="form-control form-control-pedalya" id="password_confirmation"
+                           name="password_confirmation" required autocomplete="new-password" placeholder="Repeat password">
+                    <button class="btn btn-outline-secondary" type="button" data-password-toggle="#password_confirmation" tabindex="-1"
+                            aria-label="Show password">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <p class="auth-hint mb-4">
+                At least 8 characters. You can sign in with this password or with
+                {{ $pendingOauth ? 'your Google account' : 'Google' }}.
+            </p>
 
             <button type="submit" class="btn-pedalya w-100 btn-lg">
                 <i class="bi bi-person-plus me-2"></i>{{ $pendingOauth ? 'Finish Creating Account' : 'Create Account' }}
@@ -92,13 +109,12 @@
 
         @if(! $pendingOauth)
         <div class="d-flex align-items-center my-4">
-            <div style="flex:1; height:1px; background: rgba(0,0,0,0.1);"></div>
-            <span class="px-3" style="font-size:0.85rem; font-weight:600; color:var(--gray-500);">OR</span>
-            <div style="flex:1; height:1px; background: rgba(0,0,0,0.1);"></div>
+            <div style="flex:1; height:1px; background: rgba(255,255,255,0.25);"></div>
+            <span class="px-3 auth-footer-text" style="font-size:0.85rem; font-weight:600;">OR</span>
+            <div style="flex:1; height:1px; background: rgba(255,255,255,0.25);"></div>
         </div>
 
-        <a href="{{ route('login.google') }}" class="google-btn w-100 btn btn-lg"
-           style="background:#fff !important; color:#333 !important; font-weight:600; border:1px solid rgba(0,0,0,0.12); display:flex; align-items:center; justify-content:center;">
+        <a href="{{ route('login.google') }}" class="btn w-100 btn-lg google-btn">
             <svg width="20" height="20" viewBox="0 0 48 48" style="margin-right:10px;" aria-hidden="true">
                 <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
                 <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
@@ -109,16 +125,33 @@
         </a>
         @endif
 
-        <p class="text-center mt-4 mb-0" style="font-size: 0.88rem; color: var(--gray-500);">
+        <p class="text-center mt-4 mb-0 auth-footer-text" style="font-size: 0.9rem;">
             Already have an account?
-            <a href="{{ route('login') }}" style="font-weight: 600;">Sign in</a>
+            <a href="{{ route('login') }}">Sign in</a>
         </p>
 
-        <p class="text-center mt-3 mb-0">
-            <a href="{{ route('home') }}" style="color: var(--gray-500); font-size: 0.82rem;">
-                <i class="bi bi-arrow-left me-1"></i>Back to Home
-            </a>
+        <p class="text-center mt-3 mb-0 auth-footer-text" style="font-size: 0.85rem;">
+            <a href="{{ route('home') }}"><i class="bi bi-arrow-left me-1"></i>Back to Home</a>
         </p>
     </div>
 </div>
+@endsection
+
+@section('scripts')
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('[data-password-toggle]').forEach(function(toggle) {
+            const field = document.querySelector(toggle.getAttribute('data-password-toggle'));
+            if (!field) {
+                return;
+            }
+            toggle.addEventListener('click', function() {
+                const type = field.getAttribute('type') === 'password' ? 'text' : 'password';
+                field.setAttribute('type', type);
+                this.querySelector('i').classList.toggle('bi-eye');
+                this.querySelector('i').classList.toggle('bi-eye-slash');
+            });
+        });
+    });
+</script>
 @endsection

@@ -1,13 +1,14 @@
 /* ============================================================
-   PEDALYA - Shared GeoLibre 3D Map module
+   PEDALYA - Shared live location map module
    ------------------------------------------------------------
    Single source of truth for the live GeoLibre / OpenStreetMap
-   view used by both Monitoring (GeoLibre 3D Map) and Theft
-   Detection. Renders the saved geofence boundary + warning
-   threshold band + every live bicycle pin coloured strictly by
-   geofence position (green=inside, orange=near, red=outside),
-   using recorded GPS fixes and the same client-side geofence math
-   that mirrors GeofenceService::checkPoint.
+   view used by Live GPS Tracking, Theft Detection and the
+   Rider Dashboard. Renders the saved geofence boundary + warning
+   threshold band + every live bicycle pin coloured by GPS fix state
+   (red=current fix, gray=last known/no fix). Geofence position is
+   shown separately in the bicycle status and popup, using recorded
+   GPS fixes and the same client-side math that mirrors
+   GeofenceService::checkPoint.
 
    No hardcoded or duplicate map data: the geofence config and
    latest GPS readings are provided by the caller from
@@ -36,15 +37,6 @@
    ============================================================ */
 (function (global) {
     'use strict';
-
-    var zoneColor = {
-        safe: '#2ecc71',
-        approaching: '#f39c12',
-        warning: '#f39c12',
-        breach: '#e74c3c',
-        outside: '#e74c3c',
-        unknown: '#95a5a6'
-    };
 
     function el(id) {
         return id ? document.getElementById(id) : null;
@@ -218,20 +210,7 @@
     }
 
     function markerColor(bike) {
-        switch (bike.zone) {
-            case 'approaching':
-            case 'warning':
-                return zoneColor['warning'];
-            case 'breach':
-            case 'outside':
-                return zoneColor['breach'];
-            case 'no-gps':
-            case 'unknown':
-                return zoneColor['unknown'];
-            case 'safe':
-            default:
-                return bike.zone ? zoneColor['safe'] : zoneColor['unknown'];
-        }
+        return bike.gps_status === 'fix' ? '#e74c3c' : '#95a5a6';
     }
 
     function hasValidCoordinates(lat, lng) {
@@ -446,13 +425,15 @@
                 '<br><small>Last heartbeat: ' + (bike.heartbeat ? new Date(bike.heartbeat).toLocaleString() : 'Never') + '</small>';
         }
 
-        function currentFix() {
+        function currentGpsPosition() {
             var ids = Object.keys(ctx.markers).sort(function (a, b) { return Number(a) - Number(b); });
             var bikes = ids.map(function (id) { return ctx.markers[id].bike; })
                 .filter(function (bike) {
-                    return bike.gps_status === 'fix' && hasValidCoordinates(bike.lat, bike.lng);
+                    return (bike.gps_status === 'fix' || bike.gps_status === 'last_known')
+                        && hasValidCoordinates(bike.lat, bike.lng);
                 });
             bikes.sort(function (a, b) {
+                if (a.gps_status !== b.gps_status) return a.gps_status === 'fix' ? -1 : 1;
                 return new Date(b.last_gps_update || 0).getTime() - new Date(a.last_gps_update || 0).getTime();
             });
             return bikes[0] || null;
@@ -460,7 +441,7 @@
 
         function updateCenterButton() {
             if (options.centerOnGps && ctx.centerButton) {
-                ctx.centerButton.disabled = !currentFix();
+                ctx.centerButton.disabled = false;
             }
         }
 
@@ -637,10 +618,18 @@
             updateCenterButton();
             if (centerBtn && options.centerOnGps) {
                 centerBtn.addEventListener('click', function () {
+                    var status = el('centerMapStatus');
+                    if (status) status.textContent = '';
                     fetchLive().then(function (data) {
-                        if (!data) return;
-                        var bike = currentFix();
-                        if (!bike) return;
+                        var bike = currentGpsPosition();
+                        if (!bike) {
+                            if (status) {
+                                status.textContent = data
+                                    ? 'No valid GPS location is available.'
+                                    : 'Could not refresh GPS; no valid location is available.';
+                            }
+                            return;
+                        }
                         map.flyTo({
                             center: [bike.lng, bike.lat],
                             zoom: options.gpsZoom || 17,
@@ -648,8 +637,15 @@
                             bearing: options.bearing || -15,
                             duration: 1000
                         });
+                        if (status) {
+                            status.textContent = bike.gps_status === 'last_known'
+                                ? ''
+                                : (data ? '' : 'GPS refresh failed; showing last known GPS position.');
+                        }
                         var tracked = ctx.markers[bike.id];
-                        if (tracked) tracked.marker.togglePopup();
+                        if (tracked && tracked.marker.getPopup()) {
+                            tracked.marker.getPopup().addTo(map);
+                        }
                     });
                 });
             } else if (centerBtn && ctx.geofence) {

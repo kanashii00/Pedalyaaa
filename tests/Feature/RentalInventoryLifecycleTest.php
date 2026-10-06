@@ -80,7 +80,7 @@ class RentalInventoryLifecycleTest extends TestCase
         );
     }
 
-    public function test_inventory_offers_end_ride_while_a_rental_is_running(): void
+    public function test_inventory_withholds_end_ride_which_lives_in_active_rentals(): void
     {
         $admin = $this->makeAdmin();
         $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
@@ -94,22 +94,53 @@ class RentalInventoryLifecycleTest extends TestCase
 
         $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->getContent();
 
-        // The opener targets the rental by id; the URL itself lives once in the
-        // shared dialog, so an active rental must appear as an opener.
-        $this->assertStringContainsString(
+        // Ending a ride settles a rental, so it lives in Active Rentals only.
+        // Offering it from the inventory row duplicated the action and made it
+        // one mis-click away from terminating a ride.
+        $this->assertStringNotContainsString(
             'data-end-ride',
             $html,
-            'an in-progress rental offers End Ride'
+            'the inventory row no longer offers End Ride'
         );
-        $this->assertStringContainsString(
+        $this->assertStringNotContainsString(
             'data-rental-id="' . $rental->id . '"',
             $html,
-            'the End Ride opener names the rental it acts on'
+            'no End Ride opener names the in-progress rental'
+        );
+        $this->assertStringNotContainsString(
+            'endRideModal',
+            $html,
+            'the inventory page carries no End Ride dialog'
+        );
+        $this->assertStringNotContainsString(
+            'end-ride',
+            $html,
+            'the inventory page exposes no end-ride endpoint'
+        );
+
+        // The rental itself is still fully visible and linked from the row.
+        $this->assertStringContainsString(
+            route('admin.rentals.show', $rental->id),
+            $html,
+            'the row still links to the live rental'
         );
         $this->assertStringNotContainsString(
             'data-modal-close>Return',
             $html,
             'Return Bicycle is withheld until the ride has ended'
+        );
+
+        // And the action is reachable from its single home.
+        $queue = $this->actingAs($admin)->get(route('admin.rentals.index'))->getContent();
+        $this->assertStringContainsString(
+            'data-end-ride',
+            $queue,
+            'Active Rentals is where a ride is ended'
+        );
+        $this->assertStringContainsString(
+            'data-rental-id="' . $rental->id . '"',
+            $queue,
+            'the Active Rentals opener names the rental it acts on'
         );
     }
 
@@ -158,15 +189,24 @@ class RentalInventoryLifecycleTest extends TestCase
             $body,
             'no dialog markup may live inside the table body'
         );
+
+        // The remaining row dialogs (Edit, Return, Mark Maintenance) are still
+        // hoisted out of the table, and none of them is the End Ride dialog,
+        // which belongs to Active Rentals.
         $this->assertStringContainsString(
+            'id="editBicycleModal',
+            $html,
+            'the row dialogs are still rendered on the page'
+        );
+        $this->assertStringNotContainsString(
             'id="endRideModal"',
             $html,
-            'the End Ride dialog is still rendered on the page'
+            'the End Ride dialog is not rendered on the inventory page'
         );
-        $this->assertStringContainsString(
-            'name="condition"',
+        $this->assertStringNotContainsString(
+            'id="endRideForm"',
             $html,
-            'End Ride requires the inspected condition'
+            'no End Ride form is rendered on the inventory page'
         );
     }
 
@@ -209,8 +249,16 @@ class RentalInventoryLifecycleTest extends TestCase
         $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->getContent();
         $this->assertStringNotContainsString('View Rental', $html, 'a freed bicycle drops its rental actions');
         $this->assertStringNotContainsString(
-            'data-rental-id="' . $rental->id . '"',
+            'data-end-ride',
             $html,
+            'the inventory never offers End Ride, settled or not'
+        );
+
+        // The settled rental has left Active Rentals along with the row.
+        $queue = $this->actingAs($admin)->get(route('admin.rentals.index'))->getContent();
+        $this->assertStringNotContainsString(
+            'data-rental-id="' . $rental->id . '"',
+            $queue,
             'a settled rental is no longer offered an End Ride'
         );
     }

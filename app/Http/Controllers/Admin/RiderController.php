@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -83,7 +84,7 @@ class RiderController extends Controller
             ->with('success', 'Customer "' . $validated['name'] . '" registered successfully.');
     }
 
-    public function verify(Request $request, int $id): RedirectResponse
+    public function verify(Request $request, int $id): RedirectResponse|JsonResponse
     {
         $rider = User::where('role', 'rider')->findOrFail($id);
 
@@ -135,6 +136,18 @@ if ($validated['approved']) {
         AuditLog::record('rider_verification_' . ($validated['approved'] ? 'approved' : 'rejected'), auth()->id(), [
             'riderId' => $rider->id,
         ]);
+
+        // Both styled dialogs (approve and reject) submit over fetch so they can
+        // stay open until the write has landed; plain form posts keep the
+        // redirect-and-reload flow they always had.
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'verified' => (bool) $rider->verified,
+                'status' => $idVerification['status'],
+                'message' => 'Rider verification updated.',
+            ]);
+        }
 
         return back()->with('success', 'Rider verification updated.');
     }

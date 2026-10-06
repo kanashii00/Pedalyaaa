@@ -28,13 +28,9 @@ class RentalController extends Controller
 
     public function index(Request $request): Response
     {
-        $query = Rental::with(['bicycle', 'rider'])
-            ->whereIn('status', [
-                Rental::STATUS_ACTIVE,
-                Rental::STATUS_PENDING,
-                Rental::STATUS_OVERDUE,
-                Rental::STATUS_EXPIRED,
-            ]);
+        // The queue is the shared "active rentals" scope so this listing, its
+        // record count and the sidebar badge can never disagree.
+        $query = Rental::with(['bicycle', 'rider'])->activeList();
 
         if ($request->filled('status')) {
             $query->where('status', $request->input('status'));
@@ -61,7 +57,11 @@ class RentalController extends Controller
         $bicyclesList = Bicycle::orderBy('name')->get();
         $ridersList = User::where('role', User::ROLE_RIDER)->orderBy('name')->get();
 
-        return response()->view('admin.rentals', compact('rentals', 'bicyclesList', 'ridersList'));
+        // Unfiltered size of the queue. With no filters applied this is exactly
+        // $rentals->total(), and it is the same number the sidebar badge shows.
+        $activeRentalCount = Rental::activeListCount();
+
+        return response()->view('admin.rentals', compact('rentals', 'bicyclesList', 'ridersList', 'activeRentalCount'));
     }
 
     public function history(Request $request): Response

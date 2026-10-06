@@ -17,3 +17,12 @@ Broadcast::channel('gps.{bicycleId}', function (User $user, int $bicycleId) {
 Broadcast::channel('geofence-alerts', function (User $user) {
     return $user->isAdmin();
 });
+
+/**
+ * Per-user notification channel used by the header dropdown of both the admin
+ * and rider shells. Only the signed-in owner of the notifications may listen,
+ * so a rider can never receive (or subscribe to) somebody else's rows.
+ */
+Broadcast::channel('App.Models.User.{id}', function (?User $user, int $id) {
+    return $user !== null && (int) $user->id === $id;
+});

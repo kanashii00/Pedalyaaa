@@ -200,6 +200,29 @@
         50% { box-shadow: 0 0 0 4px transparent; opacity: 0.65; }
     }
 
+    .rv-grace {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11.5px;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 999px;
+        white-space: nowrap;
+        background: var(--brand-soft);
+        color: var(--brand-strong);
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 40%, transparent);
+        animation: rvPulse 2s ease-in-out infinite;
+        border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent);
+    }
+    .rv-grace.is-expired {
+        background: var(--danger-soft);
+        color: var(--danger);
+        border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+        animation: rvPulse 1.2s ease-in-out infinite;
+    }
+    .rv-grace > i { font-size: 13px; }
+
     .rv-method {
         display: inline-flex; align-items: center; gap: 5px;
         font-size: 11.5px; font-weight: 600; padding: 3px 10px;
@@ -745,6 +768,13 @@
                                 @else
                                     <span class="rv-status rv-status--cancelled rv-status--dot">{{ ucfirst($rental->status) }}</span>
                                 @endif
+                                @if($rental->returnDeadline && in_array($rental->status, ['awaiting_return', 'overdue_return'], true))
+                                    <div class="rv-grace"
+                                         data-return-countdown="{{ $rental->returnDeadline->toIso8601String() }}"
+                                         title="Return deadline {{ $rental->returnDeadline->format('M d, Y g:i A') }} — set by {{ $rental->returnDeadlineSetBy ?: 'IoT park detection' }}">
+                                        <i class="bi bi-hourglass-split"></i><span data-return-countdown-text>&mdash;</span>
+                                    </div>
+                                @endif
                             </td>
                             <td>
                                 @if($rental->bicycle && $rental->bicycle->status === 'available')
@@ -782,23 +812,6 @@
                                                 title="Process Return">
                                             <i class="bi bi-clipboard-check"></i> Process Return
                                         </button>
-                                        @if($rental->status === 'awaiting_return')
-                                            <button type="button" class="rv-btn rv-btn--process"
-                                                    data-return-deadline-open
-                                                    data-rental-id="{{ $rental->id }}"
-                                                    data-rental-code="{{ $rental->rentalId }}"
-                                                    data-rider="{{ $rental->rider->name ?? $rental->riderName ?? 'Unknown' }}"
-                                                    data-bike="{{ $rental->bicycle->name ?? $rental->bicycleName ?? 'Unknown' }}"
-                                                    data-expected-end="{{ $rental->expectedEndTime?->format('M d, Y g:i A') }}"
-                                                    data-expired-at="{{ $rental->expiredAt?->format('M d, Y g:i A') }}"
-                                                    data-status="{{ $rental->status }}"
-                                                    data-current-deadline="{{ $rental->returnDeadline?->format('Y-m-d\TH:i') }}"
-                                                    data-penalty-type="{{ $rental->penaltyType }}"
-                                                    data-penalty-value="{{ $rental->penaltyValue }}"
-                                                    title="{{ $rental->returnDeadline ? 'Set or change the return deadline & penalty' : 'Set return deadline & penalty' }}">
-                                                <i class="bi bi-calendar-plus"></i>
-                                            </button>
-                                        @endif
                                     @else
                                         @php
                                             $receiptData = [
@@ -867,8 +880,10 @@
                                                             <div class="rv-kv"><dt>Duration</dt><dd>{{ $durLabel ?? '—' }}</dd></div>
                                                             @if($rental->status === 'awaiting_return' || $rental->status === 'overdue_return')
                                                                 <div class="rv-kv"><dt>Awaiting Since</dt><dd>{{ $rental->returnRequestedAt?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                                                @if($rental->returnDeadline)
-                                                                    <div class="rv-kv"><dt>Return Deadline</dt><dd>{{ $rental->returnDeadline->format('M d, Y h:i A') }}</dd></div>
+                                    @if($rental->returnDeadline)
+                                        <div class="rv-kv"><dt>Return Deadline</dt><dd>{{ $rental->returnDeadline->format('M d, Y h:i A') }}
+                                            <span class="rv-grace" data-return-countdown="{{ $rental->returnDeadline->toIso8601String() }}"><i class="bi bi-hourglass-split"></i><span data-return-countdown-text>&mdash;</span></span>
+                                        </dd></div>
                                                                 @endif
                                                                 @if($rental->status === 'overdue_return')
                                                                     <div class="rv-kv"><dt>Overdue Since</dt><dd>{{ $rental->overdueReturnAt?->format('M d, Y h:i A') ?? $rental->returnDeadline?->format('M d, Y h:i A') ?? '—' }}</dd></div>
@@ -1051,77 +1066,6 @@
             <div class="pr-modal__foot">
                 <button type="button" class="btn-admin btn-admin--secondary" data-pr-close>Cancel</button>
                 <button type="submit" class="btn-admin btn-admin--primary"><i class="bi bi-check2-circle me-1"></i>Confirm Return</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-{{-- ===== Set Return Deadline modal ===== --}}
-<div class="pr-modal" id="prDeadlineModal" data-pr-server-now="{{ now()->toIso8601String() }}">
-    <div class="pr-modal__backdrop" data-pr-deadline-close></div>
-    <div class="pr-modal__dialog" role="dialog" aria-modal="true" aria-label="Set return deadline">
-        <div class="pr-modal__head">
-            <h3><i class="bi bi-calendar-plus"></i>Set Return Deadline</h3>
-            <button type="button" class="pr-modal__close" data-pr-deadline-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
-        </div>
-        <form method="POST" id="prDeadlineForm">
-            @csrf
-            @method('PUT')
-            <div class="pr-modal__body">
-                <div class="pr-summary">
-                    <div class="pr-summary__row"><dt>Rental</dt><dd id="prDlCode">&mdash;</dd></div>
-                    <div class="pr-summary__row"><dt>Rider</dt><dd id="prDlRider">&mdash;</dd></div>
-                    <div class="pr-summary__row"><dt>Bicycle</dt><dd id="prDlBike">&mdash;</dd></div>
-                    <div class="pr-summary__row"><dt>Original Expiration</dt><dd id="prDlExpired">&mdash;</dd></div>
-                    <div class="pr-summary__row"><dt>Current Status</dt><dd id="prDlStatus">&mdash;</dd></div>
-                </div>
-
-                <div class="pr-form-field">
-                    <label for="prDlMinutes">Allowed Return Time (minutes)</label>
-                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                        <input type="number" step="1" min="1" max="1440" name="minutes" id="prDlMinutes"
-                               class="form-control @error('minutes') is-invalid @enderror" style="max-width:120px;"
-                               value="{{ old('minutes', 30) }}" required>
-                        @foreach([10, 15, 30, 60] as $preset)
-                            <button type="button" class="btn-admin btn-admin--sm" data-pr-min-chip="{{ $preset }}">{{ $preset }} min</button>
-                        @endforeach
-                    </div>
-                    @error('minutes')
-                        <div class="invalid-feedback d-block">{{ $message }}</div>
-                    @enderror
-                    <div style="margin-top:6px;font-size:12px;color:var(--text-2);">
-                        Deadline: <strong id="prDlPreview">&mdash;</strong>
-                        <span style="opacity:.75;">(exact deadline is calculated from the current server time)</span>
-                    </div>
-                </div>
-
-                <div class="pr-form-field">
-                    <label for="prDlPenaltyType">Penalty Type</label>
-                    <select name="penaltyType" id="prDlPenaltyType" class="form-select">
-                        <option value="per_minute" selected>Per Minute</option>
-                        <option value="per_hour">Per Hour</option>
-                        <option value="fixed">Fixed Amount</option>
-                    </select>
-                </div>
-
-                <div class="pr-form-field">
-                    <label for="prDlPenaltyValue">Penalty Rate (&#8369;)</label>
-                    <input type="number" step="0.01" min="0" name="penaltyValue" id="prDlPenaltyValue" value="10.00" placeholder="e.g. 10.00" required>
-                    <div style="font-size:11.5px;color:var(--text-2);margin-top:3px;">Default &#8369;10.00 per overdue minute.</div>
-                </div>
-
-                <div class="pr-form-field">
-                    <label for="prDlMessage">Message to Renter <span style="font-weight:400;color:var(--text-2);">(optional)</span></label>
-                    <textarea name="message" id="prDlMessage" rows="2" maxlength="500" placeholder="e.g. Please return the bicycle at the station before the deadline."></textarea>
-                </div>
-
-                <div class="pr-note">
-                    <i class="bi bi-info-circle me-1"></i><strong>Grant a deadline.</strong> The renter is notified with the exact return deadline and penalty rule. If the bicycle is not returned before the deadline, the rental becomes Overdue Return and the penalty accrues until you confirm the return.
-                </div>
-            </div>
-            <div class="pr-modal__foot">
-                <button type="button" class="btn-admin btn-admin--secondary" data-pr-deadline-close>Cancel</button>
-                <button type="submit" class="btn-admin btn-admin--primary"><i class="bi bi-bell-fill me-1"></i>Set Deadline &amp; Notify Renter</button>
             </div>
         </form>
     </div>
@@ -1338,94 +1282,34 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    /* ---- Set Return Deadline modal ---- */
-    const dlModal = document.getElementById('prDeadlineModal');
-    if (dlModal) {
-        const dlForm = document.getElementById('prDeadlineForm');
-        const dlMinutes = document.getElementById('prDlMinutes');
-        const dlSet = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val || '—'; };
-        const fmtDl = d => {
-            let h = d.getHours();
-            const ampm = h >= 12 ? 'PM' : 'AM';
-            h = h % 12; if (h === 0) h = 12;
-            const p = n => String(n).padStart(2, '0');
-            return (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear() + ' ' + h + ':' + p(d.getMinutes()) + ' ' + ampm;
+    /* ---- Automatic return-grace countdown ---- */
+    (function () {
+        const nodes = document.querySelectorAll('[data-return-countdown]');
+        if (!nodes.length) return;
+
+        const pad = n => String(n).padStart(2, '0');
+
+        const render = () => {
+            const now = Date.now();
+
+            nodes.forEach(node => {
+                const target = new Date(node.getAttribute('data-return-countdown'));
+                const out = node.querySelector('[data-return-countdown-text]');
+                if (!out || isNaN(target.getTime())) return;
+
+                const remaining = Math.max(0, Math.floor((target.getTime() - now) / 1000));
+                const h = Math.floor(remaining / 3600);
+                const m = Math.floor((remaining % 3600) / 60);
+                const s = remaining % 60;
+
+                out.textContent = h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+                node.classList.toggle('is-expired', remaining === 0);
+            });
         };
-        // Server clock at render time; the deadline is always server-computed,
-        // so the preview must start from the same base the controller uses.
-        const dlServerNow = (() => {
-            const raw = dlModal.getAttribute('data-pr-server-now');
-            const parsed = raw ? new Date(raw).getTime() : NaN;
-            return isNaN(parsed) ? Date.now() : parsed;
-        })();
-        // Single source of truth for the minutes value: the field, the preset
-        // chips, the preview and the submitted payload all read it through here.
-        const dlReadMinutes = () => {
-            if (!dlMinutes) return null;
-            const raw = String(dlMinutes.value || '').trim();
-            if (raw === '') return null;
-            const mins = parseInt(raw, 10);
-            return isNaN(mins) || mins < 1 ? null : mins;
-        };
-        const updatePreview = () => {
-            const pr = document.getElementById('prDlPreview');
-            if (!pr) return;
-            const mins = dlReadMinutes();
-            if (mins === null) { pr.textContent = '—'; return; }
-            // The controller floors the deadline to the minute, so mirror that.
-            const d = new Date(dlServerNow + mins * 60000);
-            d.setSeconds(0, 0);
-            pr.textContent = fmtDl(d);
-        };
-        const dlApplyMinutes = mins => { if (dlMinutes) dlMinutes.value = String(mins); updatePreview(); };
 
-        if (dlMinutes) {
-            dlMinutes.addEventListener('input', updatePreview);
-            dlMinutes.addEventListener('change', () => {
-                const mins = dlReadMinutes();
-                if (mins !== null && dlMinutes.value !== String(mins)) dlApplyMinutes(mins);
-            });
-        }
-
-        if (dlForm) {
-            dlForm.addEventListener('submit', () => {
-                // Send the exact integer the preview was rendered from so the
-                // server computes the deadline from the same number.
-                const mins = dlReadMinutes();
-                if (mins !== null) dlMinutes.value = String(mins);
-            });
-        }
-
-        document.querySelectorAll('[data-return-deadline-open]').forEach(btn => {
-            btn.addEventListener('click', function () {
-                if (dlForm) dlForm.action = "{{ route('admin.rentals.set-deadline', '__ID__') }}".replace('__ID__', this.dataset.rentalId);
-                dlSet('prDlCode', this.dataset.rentalCode || ('#' + this.dataset.rentalId));
-                dlSet('prDlRider', this.dataset.rider);
-                dlSet('prDlBike', this.dataset.bike);
-                dlSet('prDlExpired', this.dataset.expectedEnd || this.dataset.expiredAt);
-                const status = this.dataset.status;
-                dlSet('prDlStatus', status ? status.replace(/_/g, ' ').replace(/\w\S*/g, t => t.charAt(0).toUpperCase() + t.substr(1).toLowerCase()) : '');
-                dlApplyMinutes(30);
-                const pt = document.getElementById('prDlPenaltyType');
-                if (pt && this.dataset.penaltyType) pt.value = this.dataset.penaltyType;
-                const pv = document.getElementById('prDlPenaltyValue');
-                if (pv) pv.value = (this.dataset.penaltyValue && this.dataset.penaltyValue !== '0') ? this.dataset.penaltyValue : '10.00';
-                const msg = document.getElementById('prDlMessage');
-                if (msg) msg.value = '';
-                dlModal.classList.add('open');
-            });
-        });
-
-        document.querySelectorAll('[data-pr-min-chip]').forEach(chip => {
-            chip.addEventListener('click', () => {
-                dlApplyMinutes(parseInt(chip.getAttribute('data-pr-min-chip'), 10));
-            });
-        });
-
-        dlModal.querySelectorAll('[data-pr-deadline-close]').forEach(b => b.addEventListener('click', () => dlModal.classList.remove('open')));
-
-        updatePreview();
-    }
+        render();
+        setInterval(render, 1000);
+    })();
 
     function closePrModal() { prModal.classList.remove('open'); }
     prModal.querySelectorAll('[data-pr-close]').forEach(b => b.addEventListener('click', closePrModal));

@@ -10,6 +10,60 @@
         border-radius: 14px;
         overflow: hidden;
     }
+
+    /* Legend box: same visual design as the Live GPS Tracking map.
+       UI/style reference only - theft keeps its own indicators and data. */
+    .map-legend {
+        position: absolute;
+        bottom: 12px;
+        left: 12px;
+        z-index: 2;
+        background: rgba(255,255,255,0.98);
+        border-radius: 10px;
+        padding: 10px 14px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+        font-size: 0.82rem;
+        color: #1a1a1a;
+        border: 1px solid rgba(0,0,0,0.08);
+    }
+    .map-legend div {
+        display: flex;
+        align-items: center;
+        margin-bottom: 4px;
+    }
+    .map-legend div:last-child { margin-bottom: 0; }
+    .map-legend .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 8px;
+        flex-shrink: 0;
+        border: 2px solid rgba(255,255,255,0.8);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    }
+    .map-legend .legend-count {
+        display: inline-block;
+        min-width: 18px;
+        text-align: center;
+        margin-left: 6px;
+        padding: 0 5px;
+        border-radius: 9px;
+        background: rgba(0,0,0,0.07);
+        color: #555;
+        font-weight: 700;
+        font-size: 0.72rem;
+    }
+    /* Labels this module's own indicator group. */
+    .map-legend .legend-group {
+        display: block;
+        margin: 0 0 5px;
+        font-size: 0.64rem;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: #6b7280;
+    }
 </style>
 @endsection
 
@@ -41,8 +95,8 @@
     </div>
 </div>
 
-{{-- GeoLibre 3D Map (shared with Monitoring): same geofence + live bicycle markers --}}
-<x-admin.card title="Live GeoLibre 3D Map" :flush="true" bodyClass="p-0 position-relative">
+{{-- Shared live location map (same engine as Live GPS Tracking): same geofence + live bicycle markers --}}
+<x-admin.card title="Live Location Map" :flush="true" bodyClass="p-0 position-relative">
     <x-slot name="tools">
         <small class="text-muted me-3">{{ count($mapBicycles ?? []) }} bicycle(s)</small>
         <small class="text-muted">
@@ -59,12 +113,14 @@
         </button>
     </x-slot>
     <div id="theftMap"></div>
+    {{-- Same box style as the Live GPS Tracking legend, but this map's legend carries only
+         this module's own theft indicators - GPS/geofence keys live on the GPS page. --}}
     <div class="map-legend">
+        <div class="legend-group">Theft Detection</div>
         <div><span class="dot" style="background:#2ecc71;"></span>Inside Zone <span class="legend-count" data-count="safe">0</span></div>
         <div><span class="dot" style="background:#f39c12;"></span>Near Boundary <span class="legend-count" data-count="near">0</span></div>
         <div><span class="dot" style="background:#e74c3c;"></span>Outside Zone <span class="legend-count" data-count="outside">0</span></div>
-        <div><span class="dot" style="background:#27ae60;"></span>Geofence Boundary</div>
-        <div><span class="dot" style="background:#8e44ad;"></span>&#9888; Has theft alert</div>
+        <div><span class="dot" style="background:#e74c3c;"></span>&#9888; Has theft alert</div>
     </div>
 </x-admin.card>
 

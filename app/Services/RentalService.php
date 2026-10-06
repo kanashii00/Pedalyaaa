@@ -489,6 +489,113 @@ public function startRental(
     }
 
     /**
+     * Open the automatic return-grace window for a rental the bicycle's own
+     * hardware just reported as parked and locked.
+     *
+     * The window length comes from the returnGraceSeconds system setting, which
+     * mirrors the firmware's RETURN_GRACE_SECONDS (300 seconds, i.e. five
+     * minutes, by default). No administrator is involved: the deadline is
+     * computed from the authoritative server clock and the penalty rule is
+     * deliberately left unset so resolvedPenaltyRule() falls back to the global
+     * late-return rate once the window lapses.
+     *
+     * Idempotent by state: a rental that already carries a deadline keeps it,
+     * so a repeated heartbeat can neither shorten nor restart a window, and the
+     * manual setReturnDeadline() path still wins whenever an administrator used
+     * it first.
+     *
+     * @return Rental|null the refreshed rental when a window was opened, or
+     *                     null when there was nothing to do
+     */
+    public function startAutomaticReturnGrace(Rental $rental, ?Carbon $asOf = null): ?Rental
+    {
+        $asOf = $asOf ?? Carbon::now();
+
+        if ($rental->returnDeadline !== null) {
+            return null;
+        }
+
+        if (!in_array($rental->status, [
+            Rental::STATUS_ACTIVE,
+            Rental::STATUS_OVERDUE,
+            Rental::STATUS_EXPIRED,
+            Rental::STATUS_AWAITING_RETURN,
+        ], true)) {
+            return null;
+        }
+
+        $graceSeconds = max(0, (int) SystemSetting::getValue('returnGraceSeconds', 300));
+
+        if ($graceSeconds === 0) {
+            return null;
+        }
+
+        $deadline = $asOf->copy()->addSeconds($graceSeconds);
+
+        $attributes = [
+            'status' => Rental::STATUS_AWAITING_RETURN,
+            'returnDeadline' => $deadline,
+            'returnDeadlineSetBy' => 'IoT park detection',
+        ];
+
+        // The lock re-engaging while the ride is still open *is* the return, so
+        // close the ride here exactly as markRideEnded() would have. Rentals
+        // that already expired leave endTime alone: the administrator's expiry
+        // path has never set one and settlement derives the fee from the
+        // return time regardless.
+        if (in_array($rental->status, [Rental::STATUS_ACTIVE, Rental::STATUS_OVERDUE], true)) {
+            $attributes['endTime'] = $rental->endTime ?? $asOf;
+            $attributes['returnRequestedAt'] = $rental->returnRequestedAt ?? $asOf;
+        }
+
+        $rental->update($attributes);
+
+        $graceLabel = $this->describeReturnGrace($graceSeconds);
+        $deadlineLabel = $deadline->format('M d, Y g:i A');
+
+        $this->notificationService->create(
+            $rental->riderId,
+            'Return Grace Started',
+            "Bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}) was detected parked and locked. "
+                . "Return rental {$rental->rentalId} by {$deadlineLabel} - a {$graceLabel} grace window. "
+                . 'The late-return penalty starts to apply once it lapses.',
+            'rental_deadline',
+            ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
+        );
+
+        $adminIds = User::where('role', User::ROLE_ADMIN)->pluck('id')->all();
+
+        if (!empty($adminIds)) {
+            $this->notificationService->createForUsers(
+                $adminIds,
+                'Return Deadline Auto-Set',
+                "Bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}) was detected parked, so rental "
+                    . "{$rental->rentalId} automatically has until {$deadlineLabel} to be returned "
+                    . "({$graceLabel} grace, no manual deadline needed). Confirm the return to settle it.",
+                'rental_deadline',
+                ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
+            );
+        }
+
+        return $rental->fresh();
+    }
+
+    /**
+     * Human-readable length of the automatic return-grace window, used in the
+     * renter and administrator notifications.
+     */
+    private function describeReturnGrace(int $graceSeconds): string
+    {
+        if ($graceSeconds % 60 === 0) {
+            $minutes = intdiv($graceSeconds, 60);
+
+            return $minutes === 1 ? '1 minute' : "{$minutes} minutes";
+        }
+
+        return "{$graceSeconds} seconds";
+    }
+
+    /**
      * Human-readable description of the saved late-return penalty rule, used
      * in renter notifications and admin summaries. Returns '' when no rule is
      * configured (legacy global per-hour setting is then the source of truth).

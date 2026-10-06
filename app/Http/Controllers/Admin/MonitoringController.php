@@ -12,7 +12,15 @@ use Illuminate\Http\Response;
 
 class MonitoringController extends Controller
 {
-    public const SECTIONS = ['map', 'gps', 'locks', 'devices'];
+    /**
+     * The Monitoring sub-views.
+     *
+     * `gps` is the landing view: it carries the live map and position feed, so
+     * a bare /monitoring URL still resolves to something useful.
+     */
+    public const DEFAULT_SECTION = 'gps';
+
+    public const SECTIONS = ['gps', 'locks', 'devices'];
 
     public function __construct(
         private GeofenceService $geofenceService
@@ -20,12 +28,15 @@ class MonitoringController extends Controller
 
     public function index(Request $request): Response
     {
-        $section = $request->query('section', 'map');
+        // An unknown (or retired) section falls back to the default rather than
+        // to a blank page, so old bookmarked links keep working.
+        $section = $request->query('section', self::DEFAULT_SECTION);
         if (!in_array($section, self::SECTIONS, true)) {
-            $section = 'map';
+            $section = self::DEFAULT_SECTION;
         }
 
         $bicycles = Bicycle::with(['latestTelemetry', 'latestGpsLog', 'currentRiderUser'])
+
             ->where('status', '!=', 'removed')
             ->orderBy('id')
             ->get();

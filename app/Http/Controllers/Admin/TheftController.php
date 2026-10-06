@@ -34,7 +34,7 @@ class TheftController extends Controller
 
         $geofence = $this->geofenceService->getConfig();
 
-        // Exact same live bicycle feed + zone derivation as the GeoLibre 3D Map.
+        // Exact same live bicycle feed + zone derivation as the shared location map.
         $mapBicycles = Bicycle::with(['latestTelemetry', 'latestGpsLog', 'currentRiderUser'])
             ->where('status', '!=', 'removed')
             ->orderBy('id')

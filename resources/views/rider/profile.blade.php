@@ -173,9 +173,14 @@
                     @csrf
                     @method('PUT')
                     <div class="row g-3">
+                        @unless($user->password)
+                            <div class="col-12">
+                                <p class="mb-0 small text-secondary">Your account was created with Google, so you don't have a Pedalya password yet. Set one now to sign in with your email and password as well.</p>
+                            </div>
+                        @endunless
                         <div class="col-md-6">
                             <label class="form-label-pedalya">Current Password</label>
-                            <input type="password" class="form-control-pedalya" name="current_password" placeholder="Enter current password" required>
+                            <input type="password" class="form-control-pedalya" name="current_password" placeholder="Enter current password" @required($user->password)>
                         </div>
                         <div class="col-md-6"></div>
                         <div class="col-md-6">

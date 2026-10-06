@@ -159,6 +159,21 @@
         50% { box-shadow: 0 0 0 4px transparent; opacity: 0.65; }
     }
 
+    /* Live tick on the automatic return-grace window the IoT park detection
+       opened. Shown under the status badge so the deadline is visible without
+       opening the detail row. */
+    .rv-grace {
+        display: inline-flex; align-items: center; gap: 5px;
+        margin-top: 5px; padding: 3px 9px; border-radius: 999px;
+        font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+        background: var(--warning-soft); color: var(--warning);
+        border: 1px solid color-mix(in srgb, var(--warning) 24%, transparent);
+        white-space: nowrap;
+    }
+    .rv-grace i { font-size: 11px; }
+    .rv-grace.is-expired { background: var(--danger-soft); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 24%, transparent); }
+    .rv-kv .rv-grace { margin: 0 0 0 6px; vertical-align: middle; }
+
     /* Payment method */
     .rv-method {
         display: inline-flex; align-items: center; gap: 5px;
@@ -696,6 +711,13 @@
                                 @else
                                     <span class="rv-status rv-status--cancelled rv-status--dot">{{ ucfirst($rental->status) }}</span>
                                 @endif
+                                @if($rental->returnDeadline && in_array($rental->status, ['awaiting_return', 'overdue_return'], true))
+                                    <div class="rv-grace"
+                                         data-return-countdown="{{ $rental->returnDeadline->toIso8601String() }}"
+                                         title="Return deadline {{ $rental->returnDeadline->format('M d, Y g:i A') }} — set by {{ $rental->returnDeadlineSetBy ?: 'IoT park detection' }}">
+                                        <i class="bi bi-hourglass-split"></i><span data-return-countdown-text>&mdash;</span>
+                                    </div>
+                                @endif
                             </td>
                             <td>
                                 @if($rental->paymentStatus === 'paid')
@@ -791,23 +813,6 @@
                                             <i class="bi bi-stop-circle"></i>
                                         </button>
                                     @endif
-                                    @if(in_array($rental->status, ['expired', 'awaiting_return']))
-                                        <button type="button" class="rv-btn rv-btn--complete"
-                                                data-deadline-open
-                                                data-rental-id="{{ $rental->id }}"
-                                                data-rental-code="{{ $rental->rentalId }}"
-                                                data-rider="{{ $rental->rider->name ?? $rental->riderName ?? 'Unknown' }}"
-                                                data-bike="{{ $rental->bicycle->name ?? $rental->bicycleName ?? 'Unknown' }}"
-                                                data-expected-end="{{ $rental->expectedEndTime?->format('M d, Y g:i A') }}"
-                                                data-expired-at="{{ $rental->expiredAt?->format('M d, Y g:i A') }}"
-                                                data-status="{{ $rental->status }}"
-                                                data-current-deadline="{{ $rental->returnDeadline?->format('Y-m-d\TH:i') }}"
-                                                data-penalty-type="{{ $rental->penaltyType }}"
-                                                data-penalty-value="{{ $rental->penaltyValue }}"
-                                                title="{{ $rental->returnDeadline ? 'Set or change the return deadline & penalty' : 'Set return deadline & penalty' }}">
-                                            <i class="bi bi-calendar-plus"></i>
-                                        </button>
-                                    @endif
                                     @if(in_array($rental->status, ['active', 'pending', 'overdue']))
                                         <form action="{{ route('admin.rentals.cancel', $rental->id) }}" method="POST" class="d-inline">
                                             @csrf
@@ -863,7 +868,9 @@
                                                                 <div class="rv-kv"><dt>Expired At</dt><dd>{{ $rental->expiredAt->format('M d, Y h:i A') }}</dd></div>
                                                             @endif
                                                             @if($rental->returnDeadline)
-                                                                <div class="rv-kv"><dt>Return Deadline</dt><dd>{{ $rental->returnDeadline->format('M d, Y h:i A') }}</dd></div>
+                                                                <div class="rv-kv"><dt>Return Deadline</dt><dd>{{ $rental->returnDeadline->format('M d, Y h:i A') }}
+                                                                    <span class="rv-grace" data-return-countdown="{{ $rental->returnDeadline->toIso8601String() }}"><i class="bi bi-hourglass-split"></i><span data-return-countdown-text>&mdash;</span></span>
+                                                                </dd></div>
                                                             @endif
                                                             @if($rental->returnDeadlineSetBy)
                                                                 <div class="rv-kv"><dt>Deadline Set By</dt><dd>{{ $rental->returnDeadlineSetBy }}</dd></div>
@@ -960,7 +967,10 @@
 
         <div class="rv-foot">
             <span>
-                <i class="bi bi-list-ul me-1"></i>Showing {{ $rentals->total() }} record{{ $rentals->total() === 1 ? '' : 's' }}
+                {{-- $rentals->total() is the filtered page count; when filters
+                     narrow the queue it is qualified by the unfiltered total so
+                     this line still reconciles with the sidebar badge. --}}
+                <i class="bi bi-list-ul me-1"></i>Showing {{ $rentals->total() }} record{{ $rentals->total() === 1 ? '' : 's' }}@if($rentals->total() !== $activeRentalCount) of {{ $activeRentalCount }} active rental{{ $activeRentalCount === 1 ? '' : 's' }}@endif
             </span>
             @if(method_exists($rentals, 'links'))
                 {{ $rentals->withQueryString()->links() }}
@@ -1161,98 +1171,6 @@
     </div>
 </div>
 
-{{-- ===== Set Return Deadline modal ===== --}}
-<div class="rv-paid-modal" id="rvDeadlineModal" data-rv-server-now="{{ now()->toIso8601String() }}">
-    <div class="rv-paid-modal__backdrop" data-rv-deadline-close></div>
-    <div class="rv-paid-modal__dialog" role="dialog" aria-modal="true" aria-label="Set return deadline">
-        <div class="rv-paid-modal__head">
-            <h3><i class="bi bi-calendar-plus"></i>Set Return Deadline</h3>
-            <button type="button" class="rv-paid-modal__close" data-rv-deadline-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
-        </div>
-        <form method="POST" id="rvDeadlineForm" action="#">
-            @csrf
-            @method('PUT')
-        <div class="rv-paid-modal__body">
-            <p style="margin:0 0 14px;font-size:12.5px;color:var(--text-2);">
-                The rental period has ended. Grant the renter until this time to bring the bicycle back. The deadline, penalty rule, and message are saved and the renter is notified immediately.
-            </p>
-            <dl class="rv-paid-modal__list">
-                <div class="rv-paid-modal__kv rv-paid-modal__kv--wide">
-                    <dt>Rental ID</dt>
-                    <dd id="rvDlCode">&mdash;</dd>
-                </div>
-                <div class="rv-paid-modal__kv">
-                    <dt>Rider</dt>
-                    <dd id="rvDlRider">&mdash;</dd>
-                </div>
-                <div class="rv-paid-modal__kv">
-                    <dt>Bicycle</dt>
-                    <dd id="rvDlBike">&mdash;</dd>
-                </div>
-                <div class="rv-paid-modal__kv">
-                    <dt>Original Expiration</dt>
-                    <dd id="rvDlExpired">&mdash;</dd>
-                </div>
-                <div class="rv-paid-modal__kv">
-                    <dt>Current Status</dt>
-                    <dd id="rvDlStatus">&mdash;</dd>
-                </div>
-            </dl>
-
-            <div style="margin-top:14px;">
-                <label for="rvDlMinutes" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Allowed Return Time (minutes)</label>
-                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                    <input type="number" step="1" min="1" max="1440" id="rvDlMinutes" name="minutes"
-                           class="form-control @error('minutes') is-invalid @enderror" style="max-width:120px;"
-                           value="{{ old('minutes', 30) }}" required>
-                    @foreach([10, 15, 30, 60] as $preset)
-                        <button type="button" class="btn-admin btn-admin--sm" style="padding:4px 10px;"
-                                data-rv-min-chip="{{ $preset }}">{{ $preset }} min</button>
-                    @endforeach
-                </div>
-                @error('minutes')
-                    <div class="invalid-feedback d-block" style="font-size:11.5px;">{{ $message }}</div>
-                @enderror
-                <div style="margin-top:6px;font-size:12px;color:var(--text-2);">
-                    Deadline: <strong id="rvDlPreview">&mdash;</strong>
-                    <span style="opacity:.75;">(exact deadline is calculated from the current server time)</span>
-                </div>
-            </div>
-
-            <div class="row" style="margin-top:14px;">
-                <div class="col-sm-6">
-                    <label for="rvDlPenaltyType" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Penalty Type</label>
-                    <select id="rvDlPenaltyType" name="penaltyType" class="form-control form-select" style="max-width:100%;">
-                        <option value="per_minute" selected>Per Minute</option>
-                        <option value="per_hour">Per Hour</option>
-                        <option value="fixed">Fixed Amount</option>
-                    </select>
-                </div>
-                <div class="col-sm-6">
-                    <label for="rvDlPenaltyValue" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Penalty Rate (&#8369;)</label>
-                    <input type="number" step="0.01" min="0" id="rvDlPenaltyValue" name="penaltyValue" class="form-control" placeholder="e.g. 10.00" value="10.00" required>
-                    <div style="font-size:11.5px;color:var(--text-2);margin-top:3px;">Default &#8369;10.00 per overdue minute.</div>
-                </div>
-            </div>
-
-            <div style="margin-top:14px;">
-                <label for="rvDlMessage" style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">Message to Renter <span style="font-weight:400;color:var(--text-2);">(optional)</span></label>
-                <textarea id="rvDlMessage" name="message" class="form-control" rows="2" style="max-width:100%;" maxlength="500" placeholder="e.g. Please return the bicycle at the station before the deadline."></textarea>
-            </div>
-
-            <div class="rv-paid-modal__note">
-                <i class="bi bi-info-circle me-1"></i>The renter is notified with the exact deadline and penalty rule. If the bicycle is not returned before the deadline, the rental becomes Overdue Return and the penalty accrues until you confirm the return in the Returns module.
-            </div>
-        </div>
-        <div class="rv-paid-modal__foot">
-            <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-rv-deadline-close>Cancel</button>
-            <button type="submit" class="btn-admin btn-admin--success btn-admin--sm">
-                <i class="bi bi-bell-fill me-1"></i>Set Deadline &amp; Notify Renter
-            </button>
-        </div>
-        </form>
-    </div>
-</div>
 @endsection
 
 @section('scripts')
@@ -1437,121 +1355,33 @@
     });
 })();
 
-/* ==================== Set Return Deadline modal ==================== */
+/* ==================== Automatic return-grace countdown ==================== */
 (function () {
-    var modal = document.getElementById('rvDeadlineModal');
-    if (!modal) return;
+    var nodes = document.querySelectorAll('[data-return-countdown]');
+    if (!nodes.length) return;
 
-    var form = document.getElementById('rvDeadlineForm');
-    var minutesInput = document.getElementById('rvDlMinutes');
+    function pad(n) { return String(n).padStart(2, '0'); }
 
-    // Server clock at render time; the deadline is always server-computed, so
-    // the preview must start from the same base the controller will use.
-    var serverNowMs = (function () {
-        var raw = modal.getAttribute('data-rv-server-now');
-        var parsed = raw ? new Date(raw).getTime() : NaN;
-        return isNaN(parsed) ? Date.now() : parsed;
-    })();
+    function render() {
+        var now = Date.now();
 
-    function fmtDeadline(date) {
-        var p = function (n) { return String(n).padStart(2, '0'); };
-        var h = date.getHours();
-        var ampm = h >= 12 ? 'PM' : 'AM';
-        h = h % 12; if (h === 0) h = 12;
-        return (date.getMonth() + 1) + '/' + date.getDate() + '/' + date.getFullYear()
-            + ' ' + h + ':' + p(date.getMinutes()) + ' ' + ampm;
-    }
+        nodes.forEach(function (node) {
+            var target = new Date(node.getAttribute('data-return-countdown'));
+            var out = node.querySelector('[data-return-countdown-text]');
+            if (!out || isNaN(target.getTime())) return;
 
-    // Single source of truth for the minutes value: the field, the preset
-    // chips, the preview and the submitted payload all read it through here.
-    function readMinutes() {
-        if (!minutesInput) return null;
-        var raw = String(minutesInput.value || '').trim();
-        if (raw === '') return null;
-        var mins = parseInt(raw, 10);
-        if (isNaN(mins) || mins < 1) return null;
-        return mins;
-    }
+            var remaining = Math.max(0, Math.floor((target.getTime() - now) / 1000));
+            var h = Math.floor(remaining / 3600);
+            var m = Math.floor((remaining % 3600) / 60);
+            var s = remaining % 60;
 
-    function applyMinutes(mins) {
-        if (minutesInput) minutesInput.value = String(mins);
-        updatePreview();
-    }
-
-    function updatePreview() {
-        var pr = document.getElementById('rvDlPreview');
-        if (!pr) return;
-        var mins = readMinutes();
-        if (mins === null) { pr.textContent = '—'; return; }
-        // The controller floors the deadline to the minute, so mirror that.
-        var d = new Date(serverNowMs + mins * 60000);
-        d.setSeconds(0, 0);
-        pr.textContent = fmtDeadline(d);
-    }
-
-    function openModal(btn) {
-        if (form) form.action = "{{ route('admin.rentals.set-deadline', '__ID__') }}".replace('__ID__', btn.getAttribute('data-rental-id'));
-        var set = function (id, val) {
-            var node = document.getElementById(id);
-            if (node) node.textContent = val || '—';
-        };
-        set('rvDlCode', btn.getAttribute('data-rental-code') || ('#' + btn.getAttribute('data-rental-id')));
-        set('rvDlRider', btn.getAttribute('data-rider'));
-        set('rvDlBike', btn.getAttribute('data-bike'));
-        set('rvDlExpired', btn.getAttribute('data-expected-end') || btn.getAttribute('data-expired-at'));
-        var status = btn.getAttribute('data-status');
-        set('rvDlStatus', status ? status.replace(/_/g, ' ').replace(/\w\S*/g, function (t) { return t.charAt(0).toUpperCase() + t.substr(1).toLowerCase(); }) : '—');
-        applyMinutes(30);
-        var pt = btn.getAttribute('data-penalty-type');
-        if (pt) { var ptNode = document.getElementById('rvDlPenaltyType'); if (ptNode) ptNode.value = pt; }
-        var pv = btn.getAttribute('data-penalty-value');
-        var pvNode = document.getElementById('rvDlPenaltyValue');
-        if (pvNode) pvNode.value = (pv && pv !== '' && pv !== '0') ? pv : '10.00';
-        var msgNode = document.getElementById('rvDlMessage');
-        if (msgNode) msgNode.value = '';
-        modal.classList.add('open');
-    }
-
-    function closeModal() {
-        modal.classList.remove('open');
-    }
-
-    if (minutesInput) {
-        minutesInput.addEventListener('input', updatePreview);
-        minutesInput.addEventListener('change', function () {
-            var mins = readMinutes();
-            if (mins !== null && minutesInput.value !== String(mins)) applyMinutes(mins);
+            out.textContent = h > 0 ? h + ':' + pad(m) + ':' + pad(s) : m + ':' + pad(s);
+            node.classList.toggle('is-expired', remaining === 0);
         });
     }
 
-    document.querySelectorAll('[data-rv-min-chip]').forEach(function (chip) {
-        chip.addEventListener('click', function () {
-            applyMinutes(parseInt(chip.getAttribute('data-rv-min-chip'), 10));
-        });
-    });
-
-    if (form) {
-        form.addEventListener('submit', function () {
-            // Send the exact integer the preview was rendered from so the
-            // server computes the deadline from the same number.
-            var mins = readMinutes();
-            if (mins !== null) minutesInput.value = String(mins);
-        });
-    }
-
-    document.querySelectorAll('[data-deadline-open]').forEach(function (btn) {
-        btn.addEventListener('click', function () { openModal(btn); });
-    });
-
-    modal.querySelectorAll('[data-rv-deadline-close]').forEach(function (node) {
-        node.addEventListener('click', closeModal);
-    });
-
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
-    });
-
-    updatePreview();
+    render();
+    setInterval(render, 1000);
 })();
 </script>
 @endsection

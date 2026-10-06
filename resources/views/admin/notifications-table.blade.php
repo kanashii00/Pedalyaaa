@@ -23,13 +23,8 @@
                             {{ $notification->message }}
                         </td>
                         <td data-label="Type">
-                            @switch($notification->type)
-                                @case('info')<x-admin.badge type="info" label="Info"/>@break
-                                @case('warning')<x-admin.badge type="warning" label="Warning"/>@break
-                                @case('error')<x-admin.badge type="danger" label="Error"/>@break
-                                @case('success')<x-admin.badge type="success" label="Success"/>@break
-                                @default<x-admin.badge type="neutral" label="{{ ucfirst($notification->type) }}"/>@break
-                            @endswitch
+                            <x-admin.badge :type="\App\Support\NotificationType::badge($notification->type)"
+                                           :label="\App\Support\NotificationType::label($notification->type)" />
                         </td>
                         <td data-label="Sent To">
                             @if($notification->userId)

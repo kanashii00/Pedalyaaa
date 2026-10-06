@@ -133,6 +133,38 @@ class AdminOpsTest extends TestCase
             ->assertSee('Thief Bike X');
     }
 
+    public function test_theft_map_legend_shows_only_its_own_theft_indicators(): void
+    {
+        $this->adminAuth();
+        $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
+
+        $response = $this->get(route('admin.theft-alerts.index'))->assertOk();
+
+        // Same legend box design as the Live GPS Tracking map.
+        $response->assertSee('.map-legend {', false)
+            ->assertSee('position: absolute;', false)
+            ->assertSee('border-radius: 10px;', false)
+            ->assertSee('.map-legend .dot {', false);
+
+        // Only this module's theft-specific indicators.
+        $response->assertSee('Theft Detection')
+            ->assertSee('Inside Zone')
+            ->assertSee('Near Boundary')
+            ->assertSee('Outside Zone')
+            ->assertSee('Has theft alert');
+
+        // The GPS/geofence keys belong to the GPS page, not here.
+        $response->assertDontSee('GPS / Geofence')
+            ->assertDontSee('NEO-6M GPS fix available')
+            ->assertDontSee('GPS fix unavailable / last known')
+            ->assertDontSee('Geofence Boundary');
+
+        // The live zone counts this module already owns keep working.
+        $response->assertSee('data-count="safe"', false)
+            ->assertSee('data-count="near"', false)
+            ->assertSee('data-count="outside"', false);
+    }
+
     public function test_theft_live_returns_only_open_alerts(): void
     {
         $this->adminAuth();

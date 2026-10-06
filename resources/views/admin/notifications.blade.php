@@ -287,38 +287,10 @@
         });
     });
 
-    // "Mark all read" is handled globally in admin.js via [data-mark-all-read];
-    // it toasts, resets badges and dispatches pedalya:notifications-changed so
-    // the table refresh listener above runs.
-
-    // Per-row mark-as-read (admin's own notifications)
-    document.addEventListener('click', function (e) {
-        var btn = e.target.closest('[data-mark-read]');
-        if (!btn) return;
-
-        var id = btn.dataset.markRead;
-        if (!id) return;
-
-        fetch(@json(route('admin.notifications.mark-read', ['id' => 'ID_PLACEHOLDER'])).replace('ID_PLACEHOLDER', id), {
-            method: 'POST',
-            headers: {
-                'X-CSRF-TOKEN': window.Pedalya.csrfToken,
-                'Accept': 'application/json',
-            },
-        })
-        .then(function (res) {
-            if (!res.ok) throw new Error();
-            return res.json();
-        })
-        .then(function () {
-            PedalyaToast.success('Notification marked as read.');
-            if (window.PedalyaBadges) window.PedalyaBadges.refresh();
-            window.dispatchEvent(new Event('pedalya:notifications-changed'));
-        })
-        .catch(function () {
-            PedalyaToast.error('Unable to mark the notification as read.', 'Failed');
-        });
-    });
+    // "Mark all read" and per-row "Mark read" are handled globally in
+    // js/notifications.js via [data-mark-all-read] / [data-mark-read]; both
+    // toast, reset badges and dispatch pedalya:notifications-changed so the
+    // table refresh listener above runs.
 
     window.toggleRecipientFields = toggleRecipientFields;
     toggleRecipientFields();

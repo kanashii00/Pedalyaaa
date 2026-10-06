@@ -156,16 +156,16 @@
 <div class="admin-modal" id="verifyReviewModal">
     <div class="admin-modal__backdrop" data-modal-close></div>
     <div class="admin-modal__dialog admin-modal__dialog--xl">
-        {{-- Header --}}
-        <div class="admin-modal__head">
-            <div class="d-flex align-items-center gap-2">
-                <span class="vr-header-icon"><i class="bi bi-shield-check"></i></span>
-                <div>
-                    <h3 class="mb-0">Review Verification</h3>
-                    <small class="text-muted">Verify customer identity before approval</small>
-                </div>
+        {{-- Header: icon + title/subtitle as one baseline-aligned group, with a
+             fixed-size close X so nothing drifts between states. --}}
+        <div class="admin-modal__head vr-review-head">
+            <span class="vr-header-icon" aria-hidden="true"><i class="bi bi-shield-check"></i></span>
+            <div class="vr-review-head__text">
+                <h3 class="vr-review-head__title">Review Verification</h3>
+                <p class="vr-review-head__subtitle">Check the submitted ID, then approve or reject</p>
             </div>
-            <button type="button" class="btn-admin btn-admin--ghost btn-admin--sm" data-modal-close>
+            <button type="button" class="vr-review-head__close" data-modal-close
+                    aria-label="Close" title="Close">
                 <i class="bi bi-x-lg"></i>
             </button>
         </div>
@@ -236,14 +236,14 @@
             </div>
         </div>
 
-        {{-- Footer --}}
+        {{-- Footer: both buttons simply open their own styled confirmation dialog,
+             which is where the rejection reason is collected. --}}
         <div class="admin-modal__foot">
-            <form id="vrRejectForm" method="POST" action="{{ route('admin.riders.verify', '__ID__') }}" class="d-flex align-items-center gap-2 me-auto">
+            <form id="vrRejectForm" method="POST" action="{{ route('admin.riders.verify', '__ID__') }}">
                 @csrf
                 @method('PUT')
                 <input type="hidden" name="approved" value="0">
-                <input type="text" name="reason" class="form-control form-control-sm vr-reason-input" placeholder="Rejection reason (optional)">
-                <button type="submit" class="btn-admin btn-admin--danger btn-admin--sm vr-action-btn">
+                <button type="submit" class="btn-admin btn-admin--danger btn-admin--sm vr-action-btn vr-action-btn--reject">
                     <i class="bi bi-x-lg me-1"></i>Reject Verification
                 </button>
             </form>
@@ -255,6 +255,95 @@
                     <i class="bi bi-check-lg me-1"></i>Approve Verification
                 </button>
             </form>
+        </div>
+    </div>
+</div>
+
+{{-- ── Approve Verification Confirmation ─────────────────────
+         A Pedalya-styled replacement for window.confirm: it sits above the
+         review dialog, and it only closes when the server has confirmed the
+         write (the dialog is the visible progress indicator). --}}
+<div class="admin-modal admin-modal--confirm" id="verifyApproveModal"
+     role="dialog" aria-modal="true" aria-labelledby="verifyApproveTitle">
+    <div class="admin-modal__backdrop" data-modal-close></div>
+    <div class="admin-modal__dialog">
+        <div class="admin-modal__head vr-confirm-head">
+            <span class="vr-confirm-head__icon" aria-hidden="true"><i class="bi bi-person-check"></i></span>
+            <div class="vr-review-head__text">
+                <h3 class="vr-review-head__title" id="verifyApproveTitle">Approve Customer Verification</h3>
+            </div>
+            <button type="button" class="vr-review-head__close" data-modal-close
+                    aria-label="Close" title="Close">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="admin-modal__body">
+            <p class="vr-confirm-msg">
+                Approve this customer's identity verification? This marks them as
+                <strong>Verified</strong> and lets them start renting bicycles.
+            </p>
+            <div class="vr-confirm-error d-none" id="verifyApproveError" role="alert"></div>
+        </div>
+        <div class="admin-modal__foot">
+            <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" id="verifyApproveCancel">
+                Cancel
+            </button>
+            <button type="button" class="btn-admin btn-admin--success btn-admin--sm vr-action-btn vr-action-btn--approve"
+                    id="verifyApproveConfirm">
+                <span class="spinner-border spinner-border-sm me-1 d-none" id="verifyApproveSpinner" role="status"
+                      aria-hidden="true"></span>
+                <i class="bi bi-check-lg me-1" id="verifyApproveIcon"></i>
+                <span id="verifyApproveLabel">Approve Verification</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+{{-- ── Reject Verification Confirmation ──────────────────────
+         Same header layout and same staged behaviour as the approve dialog;
+         the reason field posts with vrRejectForm through its form="" owner. --}}
+<div class="admin-modal admin-modal--confirm" id="verifyRejectModal"
+     role="dialog" aria-modal="true" aria-labelledby="verifyRejectTitle">
+    <div class="admin-modal__backdrop" data-modal-close></div>
+    <div class="admin-modal__dialog">
+        <div class="admin-modal__head vr-confirm-head">
+            <span class="vr-confirm-head__icon vr-confirm-head__icon--danger" aria-hidden="true"><i class="bi bi-person-x"></i></span>
+            <div class="vr-review-head__text">
+                <h3 class="vr-review-head__title" id="verifyRejectTitle">Reject Customer Verification</h3>
+            </div>
+            <button type="button" class="vr-review-head__close" data-modal-close
+                    aria-label="Close" title="Close">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="admin-modal__body">
+            <p class="vr-confirm-msg">
+                Reject this customer's identity verification? This keeps them
+                <strong>Unverified</strong> and lets them submit a different ID.
+            </p>
+            <div class="vr-reject-reason">
+                <label class="vr-reject-reason__label" for="vrRejectReason">Rejection reason</label>
+                <textarea id="vrRejectReason" name="reason" class="vr-reject-reason__input"
+                          form="vrRejectForm" rows="3" maxlength="500"
+                          placeholder="e.g. The photo of the ID is blurry or cropped"
+                          aria-describedby="vrRejectReasonHint"></textarea>
+                <small id="vrRejectReasonHint" class="vr-reject-reason__hint">
+                    Optional — the customer sees this message with the rejection.
+                </small>
+            </div>
+            <div class="vr-confirm-error d-none" id="verifyRejectError" role="alert"></div>
+        </div>
+        <div class="admin-modal__foot">
+            <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" id="verifyRejectCancel">
+                Cancel
+            </button>
+            <button type="button" class="btn-admin btn-admin--danger btn-admin--sm vr-action-btn vr-action-btn--reject"
+                    id="verifyRejectConfirm">
+                <span class="spinner-border spinner-border-sm me-1 d-none" id="verifyRejectSpinner" role="status"
+                      aria-hidden="true"></span>
+                <i class="bi bi-x-lg me-1" id="verifyRejectIcon"></i>
+                <span id="verifyRejectLabel">Reject Verification</span>
+            </button>
         </div>
     </div>
 </div>
@@ -316,11 +405,114 @@ function closeLightbox() {
 }
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLightbox(); });
 
-document.getElementById('vrApproveForm')?.addEventListener('submit', function(e) {
-    if (!confirm('Approve this customer\'s verification? This will mark them as Verified.')) e.preventDefault();
+/* ── Approve / Reject Verification: styled confirmation dialogs ─────────────
+   Both actions replace window.confirm with a Pedalya modal that opens on the
+   form submit, stays open while the request is in flight and only closes once
+   the server confirms the write; the page then reloads so the customer list,
+   verification status and every count are re-read from the backend. */
+function wireVrConfirmAction(config) {
+    const form = document.getElementById(config.formId);
+    const modal = document.getElementById(config.modalId);
+    const confirmBtn = document.getElementById(config.confirmId);
+    const cancelBtn = document.getElementById(config.cancelId);
+    const errorEl = document.getElementById(config.errorId);
+    const spinner = document.getElementById(config.spinnerId);
+    const icon = document.getElementById(config.iconId);
+    const label = document.getElementById(config.labelId);
+    if (!form || !modal || !confirmBtn || !cancelBtn || !errorEl) return;
+    let busy = false;
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        /* admin.js locks the form in the capture phase (duplicate-submit guard),
+           which would disable the footer button before this dialog ever opened.
+           The dialog is the real gate, so undo that lock and let the user back in. */
+        delete form.dataset.submitting;
+        form.querySelectorAll('button').forEach(function(button) {
+            button.disabled = false;
+            button.classList.remove('is-loading');
+        });
+        errorEl.textContent = '';
+        errorEl.classList.add('d-none');
+        PedalyaModal.open(config.modalId);
+        (document.getElementById(config.focusId) || confirmBtn).focus();
+    });
+
+    cancelBtn.addEventListener('click', function() {
+        if (busy) return;
+        PedalyaModal.close(config.modalId);
+    });
+
+    /* While a request is in flight the dialog itself is the progress
+       indicator, so its own X and backdrop cannot dismiss it. This listener
+       sits on the element and admin.js's handler sits on document in the same
+       (bubble) phase, so stopping propagation here is enough. */
+    modal.querySelectorAll('[data-modal-close]').forEach(function(el) {
+        el.addEventListener('click', function(e) { if (busy) e.stopPropagation(); });
+    });
+
+    confirmBtn.addEventListener('click', async function() {
+        if (busy) return;
+        busy = true;
+        confirmBtn.disabled = true;
+        cancelBtn.disabled = true;
+        spinner.classList.remove('d-none');
+        icon.classList.add('d-none');
+        label.textContent = config.busyLabel;
+
+        try {
+            const response = await fetch(form.action, {
+                method: 'POST', /* the form already carries _method=PUT, _token and approved */
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                },
+                body: new FormData(form),
+            });
+
+            if (!response.ok) {
+                let message = config.errorMessage;
+                try {
+                    const data = await response.json();
+                    if (data && data.message) message = data.message;
+                } catch (parseError) { /* non-JSON error body: keep the fallback */ }
+                throw new Error(message);
+            }
+
+            PedalyaModal.close(config.modalId);
+            PedalyaModal.close('verifyReviewModal');
+            window.location.reload();
+        } catch (err) {
+            busy = false;
+            confirmBtn.disabled = false;
+            cancelBtn.disabled = false;
+            spinner.classList.add('d-none');
+            icon.classList.remove('d-none');
+            label.textContent = config.idleLabel;
+            errorEl.textContent = err.message || config.errorMessage;
+            errorEl.classList.remove('d-none');
+        }
+    });
+}
+
+wireVrConfirmAction({
+    formId: 'vrApproveForm', modalId: 'verifyApproveModal',
+    confirmId: 'verifyApproveConfirm', cancelId: 'verifyApproveCancel',
+    errorId: 'verifyApproveError', spinnerId: 'verifyApproveSpinner',
+    iconId: 'verifyApproveIcon', labelId: 'verifyApproveLabel', focusId: '',
+    idleLabel: 'Approve Verification', busyLabel: 'Approving...',
+    errorMessage: 'Could not approve this verification. Please try again.',
 });
-document.getElementById('vrRejectForm')?.addEventListener('submit', function(e) {
-    if (!confirm('Reject this customer\'s verification? This will deny their ID submission.')) e.preventDefault();
+
+wireVrConfirmAction({
+    formId: 'vrRejectForm', modalId: 'verifyRejectModal',
+    confirmId: 'verifyRejectConfirm', cancelId: 'verifyRejectCancel',
+    errorId: 'verifyRejectError', spinnerId: 'verifyRejectSpinner',
+    iconId: 'verifyRejectIcon', labelId: 'verifyRejectLabel',
+    focusId: 'vrRejectReason',
+    idleLabel: 'Reject Verification', busyLabel: 'Rejecting...',
+    errorMessage: 'Could not reject this verification. Please try again.',
 });
 </script>
 @endsection

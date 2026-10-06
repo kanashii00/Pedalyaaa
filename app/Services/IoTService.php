@@ -6,6 +6,7 @@ use App\Models\Accident;
 use App\Models\Bicycle;
 use App\Models\DeviceCommand;
 use App\Models\DeviceStatus;
+use App\Models\Rental;
 use App\Models\User;
 use Carbon\Carbon;
 
@@ -72,6 +73,8 @@ class IoTService
 
     private function handleHeartbeatForBicycle(Bicycle $bicycle, array $data, Carbon $timestamp): void
     {
+        $previousLockStatus = $bicycle->lockStatus;
+
         $bicycle->update($this->buildHeartbeatUpdateData($bicycle, $data, $timestamp));
 
         DeviceStatus::create([
@@ -85,6 +88,8 @@ class IoTService
             'eventTimestamp' => $timestamp,
         ]);
 
+        $this->detectParkedReturn($bicycle, $previousLockStatus, $timestamp);
+
         $impact = HelperService::valueOf($data, ['impact', 'impact_force', 'impactForce']);
         if ($impact !== null && (float) $impact > 0) {
             $this->handleImpactDetection($bicycle, (float) $impact, $data);
@@ -93,6 +98,59 @@ class IoTService
         if (isset($data['lat'], $data['lng'])) {
             $this->handleGeofenceCheck($bicycle, (float) $data['lat'], (float) $data['lng']);
         }
+    }
+
+    /**
+     * Open the automatic return-grace window as soon as the bicycle reports
+     * itself parked.
+     *
+     * While a rental is running the firmware holds the servo released, so a
+     * heartbeat that reports locked=true means the rider has physically
+     * re-engaged the lock - the signal that they are back. The unlock -> lock
+     * transition is what is required for a running rental, because a bicycle
+     * still carrying its parked lock state when the rental starts would look
+     * identical and would end a ride that has not begun yet.
+     *
+     * Rentals already in the return flow accept the level alone: markRideEnded()
+     * records the lock on the server before the device ever confirms it, so no
+     * transition is observable from here.
+     *
+     * RentalService is resolved lazily rather than injected: RentalService
+     * itself depends on IoTService, and a constructor cycle would never finish
+     * building either of them.
+     */
+    private function detectParkedReturn(Bicycle $bicycle, ?string $previousLockStatus, Carbon $timestamp): void
+    {
+        if ($bicycle->lockStatus !== Bicycle::LOCK_LOCKED || ! $bicycle->isInService()) {
+            return;
+        }
+
+        $rental = Rental::query()
+            ->where('bicycleId', $bicycle->id)
+            ->whereIn('status', [
+                Rental::STATUS_ACTIVE,
+                Rental::STATUS_OVERDUE,
+                Rental::STATUS_EXPIRED,
+                Rental::STATUS_AWAITING_RETURN,
+            ])
+            ->whereNull('returnDeadline')
+            ->latest('id')
+            ->first();
+
+        if ($rental === null) {
+            return;
+        }
+
+        $alreadyReturning = in_array($rental->status, [
+            Rental::STATUS_EXPIRED,
+            Rental::STATUS_AWAITING_RETURN,
+        ], true);
+
+        if (! $alreadyReturning && $previousLockStatus !== Bicycle::LOCK_UNLOCKED) {
+            return;
+        }
+
+        app(RentalService::class)->startAutomaticReturnGrace($rental, $timestamp);
     }
 
     private function buildHeartbeatUpdateData(Bicycle $bicycle, array $data, Carbon $timestamp): array

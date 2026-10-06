@@ -113,6 +113,73 @@ class AdminMaintenanceMonitoringGeofenceTest extends TestCase
         $this->actingAs($admin)->get(route('admin.monitoring.index', ['section' => 'invalid']))->assertOk();
     }
 
+    public function test_monitoring_gps_is_the_default_section(): void
+    {
+        $admin = $this->makeAdmin();
+        $this->makeBicycle(['currentLat' => 14.6, 'currentLng' => 120.99]);
+
+        $response = $this->actingAs($admin)->get(route('admin.monitoring.index'))->assertOk();
+
+        $response->assertSee('Live GPS Tracking')
+            ->assertSee('Live GPS Tracking Map')
+            ->assertSee('Live Position Feed')
+            // The retired GeoLibre 3D Map tab and its map-only fleet grid are gone.
+            ->assertDontSee('GeoLibre 3D Map')
+            ->assertDontSee('Live 3D map of the fleet')
+            ->assertDontSee('Fleet Status');
+    }
+
+    public function test_monitoring_tab_bar_links_to_theft_detection_module(): void
+    {
+        $admin = $this->makeAdmin();
+        $this->makeBicycle(['currentLat' => 14.6, 'currentLng' => 120.99]);
+
+        $response = $this->actingAs($admin)->get(route('admin.monitoring.index'))->assertOk();
+
+        // The tab sits alongside the existing sections and links to its own module.
+        $response->assertSee(route('admin.theft-alerts.index'), false)
+            ->assertSee('bi-shield-exclamation', false)
+            ->assertSee('Theft Detection');
+
+        // It must not disturb the other monitoring tabs.
+        $response->assertSee('Live GPS Tracking')
+            ->assertSee('Smart Lock Control')
+            ->assertSee('IoT Device Monitoring');
+
+        // The module it points at is still reachable.
+        $this->actingAs($admin)->get(route('admin.theft-alerts.index'))->assertOk();
+    }
+
+    public function test_monitoring_removed_map_section_falls_back_to_gps(): void
+    {
+        $admin = $this->makeAdmin();
+        $this->makeBicycle(['currentLat' => 14.6, 'currentLng' => 120.99]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.monitoring.index', ['section' => 'map']))
+            ->assertOk()
+            ->assertSee('Live GPS Tracking Map')
+            ->assertDontSee('GeoLibre 3D Map');
+    }
+
+    public function test_monitoring_sections_still_render_locks_and_devices(): void
+    {
+        $admin = $this->makeAdmin();
+        $this->makeBicycle(['currentLat' => 14.6, 'currentLng' => 120.99]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.monitoring.index', ['section' => 'locks']))
+            ->assertOk()
+            ->assertSee('Smart Lock Control')
+            ->assertDontSee('id="monitoringMap"', false);
+
+        $this->actingAs($admin)
+            ->get(route('admin.monitoring.index', ['section' => 'devices']))
+            ->assertOk()
+            ->assertSee('IoT Device Monitoring')
+            ->assertDontSee('id="monitoringMap"', false);
+    }
+
     public function test_bicycle_status_index_with_filters(): void
     {
         $admin = $this->makeAdmin();
@@ -181,6 +248,11 @@ class AdminMaintenanceMonitoringGeofenceTest extends TestCase
             ->get(route('admin.monitoring.index', ['section' => 'gps']))
             ->assertOk()
             ->assertSee('Center on bicycle GPS location')
+            ->assertSee('id="centerMapBtn"', false)
+            ->assertDontSee('id="centerMapBtn" title="Center on bicycle GPS location" disabled', false)
+            ->assertSee('id="centerMapStatus"', false)
+            ->assertSee('NEO-6M GPS fix available')
+            ->assertSee('GPS fix unavailable / last known')
             ->assertSee('GPS FIX NOT AVAILABLE');
     }
 

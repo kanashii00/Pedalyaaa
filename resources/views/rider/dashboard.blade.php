@@ -16,7 +16,7 @@
         </div>
         <div class="col-md-4 text-center mt-3 mt-md-0">
             <div class="d-inline-block p-3 rounded-circle" style="background:rgba(255,255,255,0.15);">
-                <i class="bi bi-bicycle" style="font-size:4rem;color:rgba(255,255,255,0.9);"></i>
+                <img src="{{ asset('assets/img/BIKE.png') }}" alt="Bicycle" width="64" height="64" style="width:64px;height:64px;object-fit:contain;">
             </div>
         </div>
     </div>

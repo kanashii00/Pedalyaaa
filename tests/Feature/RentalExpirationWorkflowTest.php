@@ -150,38 +150,51 @@ class RentalExpirationWorkflowTest extends TestCase
         $this->assertSame(Rental::STATUS_EXPIRED, $rental->fresh()->status);
     }
 
-    public function test_set_deadline_modal_submits_the_minutes_field_with_the_request(): void
+    public function test_manual_deadline_action_is_replaced_by_the_live_return_countdown(): void
     {
         $admin = $this->makeAdmin();
         $rider = $this->makeRider();
         $bike = $this->makeBicycle();
 
-        $this->makeRental([
+        $rental = $this->makeRental([
             'riderId' => $rider->id,
             'bicycleId' => $bike->id,
-            'status' => Rental::STATUS_EXPIRED,
+            'status' => Rental::STATUS_AWAITING_RETURN,
             'expiredAt' => now()->subHour(),
             'expectedEndTime' => now()->subHour(),
+            'returnDeadline' => now()->addMinutes(5),
+            'returnDeadlineSetBy' => 'IoT park detection',
         ]);
 
-        // The minutes input (and the preset chips driving it) must live inside
-        // the deadline form; otherwise nothing is posted and the controller
-        // rejects the request with "Specify the allowed return time ...".
-        foreach ([
-            [route('admin.rentals.index'), 'rvDeadlineForm', 'rvDlMinutes'],
-            [route('admin.rentals.returns'), 'prDeadlineForm', 'prDlMinutes'],
-        ] as [$url, $formId, $inputId]) {
+        // The five-minute return grace is opened by the bicycle's lock
+        // heartbeat, so neither admin page offers a "type your own deadline and
+        // penalty" dialog any more. The countdown that replaced it must be
+        // rendered instead, and the route itself stays wired up for the
+        // programmatic callers that still use it.
+        $urls = [
+            route('admin.rentals.returns'),
+        ];
+        foreach ($urls as $url) {
             $html = $this->actingAs($admin)->get($url)->assertOk()->getContent();
 
-            $this->assertStringContainsString('id="' . $formId . '"', $html);
-            $this->assertStringContainsString('id="' . $inputId . '"', $html);
-            $this->assertStringContainsString('name="minutes"', $html);
+            $this->assertStringNotContainsString('id="rvDeadlineForm"', $html);
+            $this->assertStringNotContainsString('id="prDeadlineForm"', $html);
+            $this->assertStringNotContainsString('data-deadline-open', $html);
+            $this->assertStringNotContainsString('data-return-deadline-open', $html);
+            $this->assertStringNotContainsString('Set return deadline', $html);
+            $this->assertStringNotContainsString('name="minutes"', $html);
 
-            $this->assertTrue(
-                $this->inputIsInsideForm($html, $inputId, $formId),
-                "Expected #{$inputId} to be nested inside #{$formId} on {$url}."
+            $this->assertStringContainsString(
+                'data-return-countdown="' . $rental->returnDeadline->toIso8601String() . '"',
+                $html
             );
+            $this->assertStringContainsString('data-return-countdown-text', $html);
         }
+
+        $this->assertStringContainsString(
+            '/admin/rentals/' . $rental->id . '/set-deadline',
+            route('admin.rentals.set-deadline', $rental->id)
+        );
     }
 
     public function test_set_deadline_route_accepts_every_preset_minutes_value(): void
@@ -232,34 +245,6 @@ class RentalExpirationWorkflowTest extends TestCase
      * True when the element carrying $inputId is a descendant of the <form>
      * carrying $formId in the rendered HTML.
      */
-    private function inputIsInsideForm(string $html, string $inputId, string $formId): bool
-    {
-        $doc = new \DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $doc->loadHTML('<?xml encoding="utf-8" ?>' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-
-        $xpath = new \DOMXPath($doc);
-
-        $inputs = $xpath->query("//*[@id='" . $inputId . "']");
-        $forms = $xpath->query("//form[@id='" . $formId . "']");
-
-        if ($inputs === false || $forms === false || $inputs->length === 0 || $forms->length === 0) {
-            return false;
-        }
-
-        $form = $forms->item(0);
-
-        for ($node = $inputs->item(0); $node !== null; $node = $node->parentNode) {
-            if ($node === $form) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     public function test_set_deadline_guard_rejects_non_eligible_statuses(): void
     {
         $admin = $this->makeAdmin();
@@ -765,7 +750,7 @@ class RentalExpirationWorkflowTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.rentals.index'))
             ->assertOk()
-            ->assertSee('Set return deadline', false)
+            ->assertDontSee('rvDeadlineForm', false)
             ->assertSee('expired', false);
 
         $this->assertDatabaseHas('rentals', [

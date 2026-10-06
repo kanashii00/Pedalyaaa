@@ -774,20 +774,149 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
    page wide or squeezing the columns until the badges wrap and misalign. */
 .admin-table-scroll { width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
 
-/* Inventory is an 11-column table; without a floor the browser compresses the
-   stacks until they wrap and every column drifts out of line. */
-.admin-table--inventory { min-width: 1570px; }
-.admin-table--inventory .col-name { width: 170px; }
-.admin-table--inventory .col-serial { width: 140px; }
-.admin-table--inventory .col-status { width: 120px; }
-.admin-table--inventory .col-renter { width: 170px; }
-.admin-table--inventory .col-rental { width: 230px; }
-.admin-table--inventory .col-battery { width: 110px; }
-.admin-table--inventory .col-lock { width: 100px; }
-.admin-table--inventory .col-condition { width: 110px; }
-.admin-table--inventory .col-rate { width: 100px; }
-.admin-table--inventory .col-updated { width: 130px; }
-.admin-table--inventory .col-actions { width: 190px; }
+/* Inventory is an 11-column table that has to fit the content area on a
+   standard laptop, so it uses a fixed layout with percentage widths: the row
+   always fills the card exactly, at any viewport, with no horizontal scroll.
+   Density is tuned here instead of globally - tighter padding, one step smaller
+   type and badges - so a full row lands around 40px tall while every value stays
+   legible. Long values (names, serials, rental facts, timestamps) truncate with
+   an ellipsis inside their own column and keep a title attribute. */
+.admin-table--inventory {
+  table-layout: fixed;
+  min-width: 0;
+  width: 100%;
+  font-size: 12px;
+}
+.admin-table--inventory .col-name { width: 11%; }
+.admin-table--inventory .col-serial { width: 7.5%; }
+.admin-table--inventory .col-status { width: 11.5%; }
+.admin-table--inventory .col-renter { width: 10%; }
+.admin-table--inventory .col-rental { width: 10.5%; }
+.admin-table--inventory .col-battery { width: 6.5%; }
+.admin-table--inventory .col-lock { width: 7.5%; }
+.admin-table--inventory .col-condition { width: 6.5%; }
+.admin-table--inventory .col-rate { width: 7.5%; }
+.admin-table--inventory .col-updated { width: 8%; }
+.admin-table--inventory .col-actions { width: 13.5%; }
+.admin-table--inventory thead th { padding: 7px 6px; font-size: 10px; }
+/* No overflow:hidden here - a cell that clips its own content also clips the
+   three-dots menu that Popper positions inside it. Truncation is handled by the
+   wrapped value itself (below), so nothing needs to be clipped at cell level. */
+.admin-table--inventory tbody td { padding: 8px 6px; }
+.admin-table--inventory .badge-admin { font-size: 9.5px; padding: 2px 6px; gap: 4px; line-height: 1.5; }
+.admin-table--inventory .cell-sub { font-size: 11px; }
+.admin-table--inventory .cell-stack { gap: 2px; line-height: 1.3; }
+.admin-table--inventory .progress { height: 5px; }
+
+/* Text that can outgrow its column truncates on the value itself instead of
+   widening the table, so a cell can keep its overflow visible. */
+.admin-table--inventory td > .cell-title,
+.admin-table--inventory td > small,
+.admin-table--inventory td > code,
+.admin-table--inventory .cell-stack { min-width: 0; }
+.admin-table--inventory td > .cell-title,
+.admin-table--inventory td > small,
+.admin-table--inventory td > code,
+.admin-table--inventory .cell-stack > * {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-table--inventory .cell-stack code { overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Row actions menu ----------
+   The three-dots menu is placed by Bootstrap + Popper. The controller in
+   js/admin.js gives it Popper's "fixed" strategy, so it is positioned against
+   the viewport rather than the table cell: it opens above or below the row,
+   stays inside the window, and is not clipped by the cell, the scroll wrapper or
+   the card, all of which hide their overflow. The rules below only give it the
+   dark Pedalya look and keep it above the table's own painting. */
+.admin-table--inventory .dropdown { position: relative; }
+.admin-table--inventory .dropdown-menu {
+  z-index: 1035;
+  min-width: 212px;
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+  padding: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+}
+.admin-table--inventory .dropdown-menu .dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.admin-table--inventory .dropdown-menu .dropdown-item i { color: inherit; }
+.admin-table--inventory .dropdown-menu .dropdown-item:hover,
+.admin-table--inventory .dropdown-menu .dropdown-item:focus {
+  color: var(--text-1);
+  background: var(--surface-3);
+}
+.admin-table--inventory .dropdown-menu .dropdown-item.disabled,
+.admin-table--inventory .dropdown-menu .dropdown-item:disabled {
+  color: var(--text-3);
+  background: none;
+  opacity: 0.65;
+}
+.admin-table--inventory .dropdown-menu .dropdown-divider {
+  margin: 6px 4px;
+  border-color: var(--border-subtle);
+  opacity: 1;
+}
+/* The lock control is a real form inside the menu: strip the browser defaults so
+   it lines up with the other items and the whole row is the hit target. */
+.admin-table--inventory .dropdown-menu form { margin: 0; }
+.admin-table--inventory .dropdown-menu button.dropdown-item {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+}
+/* Icon-only opener: no caret, and a visible open state. */
+.admin-table--inventory .dropdown-toggle::after { display: none; }
+.admin-table--inventory .dropdown.show > .dropdown-toggle {
+  color: var(--text-1);
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+/* Actions stay on a single aligned row: the column is sized for the widest row
+   (Edit, Delete, the rental action and the three-dots menu) so the buttons never
+   stack and never push the table sideways. Phones keep the wrapping behaviour
+   from the shared rule below. */
+@media (min-width: 768px) {
+  .admin-table--inventory .actions-row { flex-wrap: nowrap; gap: 4px; }
+  .admin-table--inventory .actions-row .btn-admin--sm { min-width: 26px; height: 26px; }
+}
+
+/* Wide desktops have room to breathe, so the full-size rhythm comes back. */
+@media (min-width: 1600px) {
+  .admin-table--inventory { font-size: 13px; }
+  .admin-table--inventory thead th { padding: 11px 16px; font-size: 11px; }
+  .admin-table--inventory tbody td { padding: 13px 16px; }
+  .admin-table--inventory .badge-admin { font-size: 11.5px; padding: 3px 10px; gap: 6px; }
+  .admin-table--inventory .cell-sub { font-size: 12px; }
+  .admin-table--inventory .cell-stack { gap: 3px; line-height: 1.35; }
+  .admin-table--inventory .progress { height: 6px; }
+  .admin-table--inventory .actions-row { gap: 8px; }
+  .admin-table--inventory .actions-row .btn-admin--sm { min-width: 30px; height: 30px; }
+}
+
+/* Phones render every admin table as stacked cards; the column widths above do
+   not apply there, so the fixed-layout floor has to be released. */
+@media (max-width: 767.98px) {
+  .admin-table--inventory { table-layout: auto; }
+}
 
 /* Actions column: single horizontal row, centered, evenly spaced */
 .actions-row {
@@ -998,6 +1127,78 @@ a.admin-pagination__item:hover { background: var(--surface-3); color: var(--text
   flex-shrink: 0;
 }
 
+/* Header: icon, title/subtitle and the close X share one baseline-aligned row.
+   The middle block flexes so the title can never push the X out of place. */
+.vr-review-head { gap: 14px; }
+.vr-review-head__text { flex: 1; min-width: 0; }
+.vr-review-head__title {
+  margin: 0; font-size: 16px; font-weight: 700; line-height: 1.3;
+  color: var(--text-1);
+}
+.vr-review-head__subtitle {
+  margin: 3px 0 0; font-size: 12.5px; font-weight: 400; line-height: 1.4;
+  color: var(--text-3);
+}
+.vr-review-head__close {
+  flex-shrink: 0; width: 34px; height: 34px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: 9px;
+  background: none; color: var(--text-3); font-size: 15px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.vr-review-head__close:hover {
+  background: var(--surface-3); border-color: var(--border-subtle); color: var(--text-1);
+}
+.vr-review-head__close:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* ── Approve Verification confirmation ────────────────────────── */
+/* It is opened from inside the review dialog, so it needs its own layer to sit
+   above it (both are admin modals at z-index 2000). */
+.admin-modal--confirm { z-index: 2100; }
+.vr-confirm-head__icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: 10px;
+  background: var(--success-soft); color: var(--success); font-size: 18px;
+  flex-shrink: 0;
+}
+/* The reject dialog keeps the same header geometry with a danger palette so
+   both confirmations read as one family with different intent. */
+.vr-confirm-head__icon--danger { background: var(--danger-soft); color: var(--danger); }
+.vr-confirm-msg {
+  margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--text-2);
+}
+.vr-confirm-msg strong { color: var(--text-1); font-weight: 650; }
+.vr-confirm-error {
+  margin-top: 12px; padding: 9px 12px; border-radius: 9px;
+  font-size: 12.5px; line-height: 1.5;
+  color: var(--danger); background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+/* Rejection reason, collected inside the reject confirmation so the dialog
+   carries the whole decision instead of the footer. */
+.vr-reject-reason { margin-top: 16px; }
+.vr-reject-reason__label {
+  display: block; margin-bottom: 6px;
+  font-size: 12px; font-weight: 650; color: var(--text-2);
+}
+.vr-reject-reason__input {
+  display: block; width: 100%; resize: vertical; min-height: 78px;
+  padding: 9px 12px; border-radius: 9px; font-size: 13px; line-height: 1.5;
+  color: var(--text-1); background: var(--surface-3);
+  border: 1px solid var(--border-subtle);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.vr-reject-reason__input::placeholder { color: var(--text-3); }
+.vr-reject-reason__input:focus {
+  outline: none; border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+.vr-reject-reason__hint {
+  display: block; margin-top: 6px;
+  font-size: 11.5px; color: var(--text-3);
+}
+
 /* Cards */
 .vr-card {
   background: var(--surface-2); border: 1px solid var(--border-subtle);
@@ -1068,7 +1269,8 @@ a.admin-pagination__item:hover { background: var(--surface-3); color: var(--text
 .vr-action-btn { white-space: nowrap; padding: 8px 18px !important; font-weight: 600 !important; }
 .vr-action-btn--approve { box-shadow: 0 2px 8px rgba(22, 163, 74, 0.25); }
 .vr-action-btn--approve:hover { box-shadow: 0 4px 14px rgba(22, 163, 74, 0.35); transform: translateY(-1px); }
-.vr-reason-input { width: 230px !important; }
+.vr-action-btn--reject { box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25); }
+.vr-action-btn--reject:hover { box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35); transform: translateY(-1px); }
 
 /* ── Bicycle Create Form ─────────────────────────────────────── */
 .vr-readonly-field {
