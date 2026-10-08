@@ -856,6 +856,15 @@ public function startRental(
             $rental->ratePerHour
         );
 
+        // Elapsed-time pricing is the rule, but a rider who bought extra time
+        // keeps the purchased-fee floor: returning shortly after an extension
+        // must still settle the extension fee they signed up for, exactly as
+        // an unextended rental settles its booked hours. Rentals without
+        // extensions keep the pure elapsed-time figure they always had.
+        if ($rental->hasRideExtensions()) {
+            $fees['totalFee'] = max($fees['totalFee'], (float) $rental->totalFee);
+        }
+
         $finalFee = round($fees['totalFee'] + $latePenalty, 2);
 
         return DB::transaction(function () use (
@@ -1270,6 +1279,151 @@ public function startRental(
             "Your rental {$rental->rentalId} has been cancelled." . ($reason ? " Reason: {$reason}" : ''),
             'rental_cancelled'
         );
+
+        return $rental->fresh();
+    }
+
+    /**
+     * Extend an ongoing (or just-expired) ride by buying extra time.
+     *
+     * The extension is priced with the same rule the base fee uses - whole
+     * hours, rounded up, at the rental's hourly rate - and lands on the
+     * rental's running total, so the fee the rider is shown is the fee that
+     * settles at return. The expected end time (and any return deadline that
+     * is already in force) is pushed forward by the same minutes, the rental
+     * leaves the "expired"/"overdue" state, and the whole event is logged on
+     * the rental so receipts can show staff that the ride was extended
+     * rather than reading the row as an overdue rental.
+     */
+    public function extendRental(Rental $rental, int $extraMinutes, ?User $actor = null): Rental
+    {
+        $extraMinutes = max(1, $extraMinutes);
+
+        $ratePerHour = (float) $rental->ratePerHour;
+
+        if ($ratePerHour <= 0) {
+            $ratePerHour = (float) ($rental->bicycle?->rentableHourlyRate()
+                ?? config('services.rental.rate_per_hour', 15.0));
+        }
+
+        $chargedHours = max((int) ceil($extraMinutes / 60), 1);
+        $fee = round($ratePerHour * $chargedHours, 2);
+
+        $maxHours = max(1, (int) SystemSetting::getValue('rentalMaxDurationHours', 12));
+        $maxMinutes = $maxHours * 60;
+
+        $rental = DB::transaction(function () use (
+            $rental,
+            $extraMinutes,
+            $fee,
+            $chargedHours,
+            $maxMinutes,
+            $actor
+        ) {
+            /** @var Rental $locked */
+            $locked = Rental::query()->lockForUpdate()->find($rental->id);
+
+            if ($locked === null) {
+                throw new RentalException('Rental no longer exists.');
+            }
+
+            if (! in_array($locked->status, [
+                Rental::STATUS_ACTIVE,
+                Rental::STATUS_EXPIRED,
+                Rental::STATUS_OVERDUE,
+            ], true)) {
+                throw new RentalException('Only an ongoing or expired ride can be extended.');
+            }
+
+            $startTime = $locked->startTime ?? Carbon::now();
+            $currentEnd = $locked->expectedEndTime
+                ?? $locked->endTime
+                ?? $startTime->copy()->addMinutes((int) $locked->durationMinutes);
+
+            $newEnd = $currentEnd->copy()->addMinutes($extraMinutes);
+
+            if ($newEnd->gt($startTime->copy()->addMinutes($maxMinutes))) {
+                throw new RentalException(
+                    "A rental cannot run longer than {$maxHours} hours in total, so it cannot be extended further."
+                );
+            }
+
+            $totalMinutes = (int) $locked->durationMinutes + $extraMinutes;
+
+            $log = array_values($locked->extensions ?? []);
+            $log[] = [
+                'n' => count($log) + 1,
+                'minutes' => $extraMinutes,
+                'fee' => $fee,
+                'chargedHours' => $chargedHours,
+                'at' => Carbon::now()->toIso8601String(),
+                'newExpectedEnd' => $newEnd->toIso8601String(),
+                'by' => $actor?->name ?? 'rider',
+            ];
+
+            $locked->update([
+                // An extension undoes the expired/overdue transition: the ride
+                // has paid time on it again, so it goes back to Active and the
+                // expiry markers that made it read as overdue are cleared.
+                'status' => Rental::STATUS_ACTIVE,
+                'expiredAt' => null,
+                'overdueAt' => null,
+                'isOverdue' => false,
+                'overdueReturnAt' => null,
+                'warningSentAt' => null,
+
+                'expectedEndTime' => $newEnd,
+                'returnDeadline' => $locked->returnDeadline !== null
+                    ? $locked->returnDeadline->copy()->addMinutes($extraMinutes)
+                    : null,
+
+                'durationMinutes' => $totalMinutes,
+                'durationFormatted' => $this->formatDuration($totalMinutes),
+                'chargedHours' => (int) $locked->chargedHours + $chargedHours,
+                'totalFee' => round((float) $locked->totalFee + $fee, 2),
+
+                'extensionCount' => (int) $locked->extensionCount + 1,
+                'extendedMinutes' => (int) $locked->extendedMinutes + $extraMinutes,
+                'extensionFee' => round((float) $locked->extensionFee + $fee, 2),
+                'extensions' => $log,
+                'lastExtendedAt' => Carbon::now(),
+            ]);
+
+            return $locked;
+        });
+
+        $label = intdiv($extraMinutes, 60) . 'h ' . ($extraMinutes % 60) . 'm';
+
+        // Snapshot columns can be empty on rentals created directly, so fall
+        // back to the related bicycle before writing the notification copy.
+        $bikeName = $rental->bicycleName ?: ($rental->bicycle?->name ?? 'your bicycle');
+        $bikeSerial = $rental->bicycleSerial ?: ($rental->bicycle?->serialNumber ?? '');
+        $bikeRef = $bikeSerial !== '' ? "{$bikeName} (#{$bikeSerial})" : $bikeName;
+        $riderName = $rental->riderName ?: ($rental->rider?->name ?? 'rider');
+
+        $this->notificationService->create(
+            $rental->riderId,
+            'Ride Extended',
+            "Your ride on bicycle {$bikeRef} was extended by {$label}. "
+                . 'New end time: ' . $rental->expectedEndTime->format('M d, Y g:i A') . ". "
+                . "An extra PHP {$fee} has been added to your rental fee.",
+            'rental_extended',
+            ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
+        );
+
+        $adminIds = User::where('role', User::ROLE_ADMIN)->pluck('id')->all();
+
+        if (! empty($adminIds)) {
+            $this->notificationService->createForUsers(
+                $adminIds,
+                'Ride Extended',
+                "Rental {$rental->rentalId} ({$riderName}, bicycle {$bikeRef}) "
+                    . "was extended by {$label} for an extra PHP {$fee}. "
+                    . 'The receipt shows the ride as extended, not overdue.',
+                'rental_extended',
+                ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
+            );
+        }
 
         return $rental->fresh();
     }

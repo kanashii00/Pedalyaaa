@@ -115,7 +115,7 @@ void RentalController::update(const RentalState& rental, bool serverReachable) {
     enterState(ActuatorState::Active);
 }
 
-void RentalController::enforce(const RentalState& rental) {
+void RentalController::enforce(const RentalState& rental, BoundaryStatus boundary) {
     if (ACTUATOR_CALIBRATION_MODE) {
         buzzer_.silence();
         return;
@@ -126,12 +126,18 @@ void RentalController::enforce(const RentalState& rental) {
         const char* reason = !rental.hasRental ? "idle" :
                              (rental.status == "returned" ? "returned" : "cancelled");
         const bool shouldLock = rental.bicycleLockStatus != "unlocked";
-        lock_.writePhysical(shouldLock ? SERVO_LOCK_ANGLE : SERVO_RELEASE_ANGLE, reason);
+        const bool changed = lock_.writePhysical(
+            shouldLock ? SERVO_LOCK_ANGLE : SERVO_RELEASE_ANGLE, reason);
         lock_.setLocked(shouldLock);
         lockMovementCompleted_ = false;
         buzzer_.silence();
-        Serial.printf("[SAFETY] %s -> SERVO.write(%d)\n", shouldLock ? "LOCKED" : "UNLOCKED",
-                      shouldLock ? SERVO_LOCK_ANGLE : SERVO_RELEASE_ANGLE);
+        // Enforce runs every pass, so the servo line and its log are emitted
+        // only when the target state actually flips - an idle bicycle does not
+        // rewrite the same locked angle over and over.
+        if (changed) {
+            Serial.printf("[SAFETY] %s -> SERVO.write(%d)\n", shouldLock ? "LOCKED" : "UNLOCKED",
+                          shouldLock ? SERVO_LOCK_ANGLE : SERVO_RELEASE_ANGLE);
+        }
         return;
     }
 
@@ -151,19 +157,67 @@ void RentalController::enforce(const RentalState& rental) {
             lock_.performLockMovement();
             lockMovementCompleted_ = true;
         }
-        lock_.writePhysical(SERVO_LOCK_ANGLE, "expired");
+        const bool changed = lock_.writePhysical(SERVO_LOCK_ANGLE, "expired");
         lock_.setLocked(true);
         buzzer_.drive(true, timer_.graceSecondsLeft(), true, timer_.elapsedMs());
-        Serial.printf("[SAFETY] EXPIRED -> SERVO.write(%d)\n", SERVO_LOCK_ANGLE);
+        if (changed) {
+            Serial.printf("[SAFETY] EXPIRED -> SERVO.write(%d)\n", SERVO_LOCK_ANGLE);
+        }
         return;
     }
 
-    // Both a running rental and its final warning window remain rideable.
-    lock_.writePhysical(SERVO_RELEASE_ANGLE, "active");
-    lock_.setLocked(false);
+    // A running rental and its final warning window stay rideable, but the last
+    // GRADUAL_LOCK_SECONDS are where the lock is applied. While the bicycle is
+    // still at the riding zone the servo walks from RELEASE toward LOCK in step
+    // with the countdown, so the wheel closes on the deadline instead of
+    // snapping shut; away from the zone there is nothing gentle left to
+    // protect, so the wheel is locked outright. With more time than the window,
+    // or with no deadline to count down to, the servo is released as always.
+    //
+    // Every command below goes through writePhysical's state-change guard: the
+    // pin is only re-commanded when the target angle actually changes, so a
+    // settled angle costs no PWM write and prints no log line.
+    const int64_t remaining = rental.remainingSeconds();
+    int targetAngle = SERVO_RELEASE_ANGLE;
+    const char* reason = "active";
+    bool inLockWindow = false;
+    bool forced = false;
+
+    if (rental.deadlineTs > 0 && remaining <= GRADUAL_LOCK_SECONDS) {
+        inLockWindow = true;
+        if (remaining <= 0) {
+            // Unreachable while the rental is genuinely active (expired() wins
+            // above), but a deadline in the past must never release the wheel.
+            targetAngle = SERVO_LOCK_ANGLE;
+            reason = "deadline-reached";
+            forced = true;
+        } else if (boundary == BoundaryStatus::Outside) {
+            targetAngle = SERVO_LOCK_ANGLE;
+            reason = "outside-boundary";
+            forced = true;
+        } else {
+            // Linear ramp: RELEASE at the top of the window, LOCK at zero.
+            const int64_t span = (int64_t)SERVO_RELEASE_ANGLE - (int64_t)SERVO_LOCK_ANGLE;
+            targetAngle = (int)((int64_t)SERVO_LOCK_ANGLE +
+                                span * remaining / GRADUAL_LOCK_SECONDS);
+            reason = "gradual-lock";
+        }
+    }
+
+    const bool changed = lock_.writePhysical(targetAngle, reason);
+    lock_.setLocked(targetAngle == SERVO_LOCK_ANGLE);
     lockMovementCompleted_ = false;
     buzzer_.silence();
-    Serial.println("[SAFETY] ACTIVE -> SERVO.write(0)");
+    if (changed) {
+        if (inLockWindow) {
+            Serial.printf("[SAFETY] %s remaining=%llds boundary=%s angle=%d -> SERVO.write(%d)\n",
+                          forced ? "FORCED LOCK" : "GRADUAL LOCK",
+                          (long long)remaining, boundaryStatusName(boundary),
+                          targetAngle, targetAngle);
+        } else {
+            Serial.printf("[SAFETY] ACTIVE -> SERVO.write(%d)\n", targetAngle);
+        }
+    }
 }
 
 void RentalController::maintainDuringNetworkFailure(const RentalState& rental) {

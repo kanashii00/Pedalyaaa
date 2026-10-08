@@ -120,6 +120,16 @@ public:
      * of each request so the value always describes the call just made.
      */
     int lastStatus() const { return lastStatus_; }
+
+    /**
+     * True when the SIM7600 link, not Wi-Fi, is carrying the next request.
+     *
+     * Wi-Fi always wins whenever it is associated: the cellular route exists
+     * for a bike out of range of the shop's access point, so it is only used
+     * while there is no Wi-Fi association to use instead.
+     */
+    bool cellularActive() const;
+
     bool connected();
     void begin();
     void ensureTime();
@@ -133,9 +143,11 @@ public:
     /**
      * Report a possible accident to the backend.
      *
-     * Posts to ACCIDENT_REPORT_PATH, so it is authenticated by the same
-     * per-bicycle device key as the rental, heartbeat and GPS calls, and the
-     * backend derives the bicycle from that key rather than from the payload.
+     * Posts to ACCIDENT_REPORT_PATH, which sits behind the fleet-wide device
+     * auth, so it is sent with PEDALYA_API_KEY (the backend's shared
+     * services.device_api_key) rather than this bicycle's own key; the
+     * bicycle comes from the payload's bicycle_id. The per-bicycle endpoints
+     * (rental, commands, GPS) keep using DEVICE_API_KEY.
      *
      * The coordinates are only sent when `hasFix` is true. An accident during a
      * GPS outage still has to reach the admin, so the report is posted without
@@ -167,8 +179,34 @@ public:
 private:
     bool parse(const String& body, RentalState& out, String& error);
     bool parseCommands(const String& body, DeviceCommand* commands, size_t capacity, size_t& count, String& error);
-    bool postJson(const char* path, const String& body, String& error);
+
+    /**
+     * POST one JSON payload, authenticated with `apiKey`.
+     *
+     * Defaults to this bicycle's per-bicycle key (DEVICE_API_KEY), which is
+     * what the /rental, /commands and /gps routes expect. The two fleet-wide
+     * routes - heartbeat and accident-report - are behind the backend's
+     * device.auth middleware and pass PEDALYA_API_KEY instead; sending the
+     * bicycle key there is rejected with 401 Invalid API key.
+     */
+    bool postJson(const char* path, const String& body, String& error,
+                  const char* apiKey = DEVICE_API_KEY);
     void reportFailure(int status, const String& body, String& error);
+
+    /**
+     * One GET or POST over the SIM7600 link, carrying the X-API-Key
+     * header, payload and endpoints of the Wi-Fi route.
+     *
+     * The modem is only a bearer here: nothing about the request changes, so
+     * the backend cannot tell which route the bicycle used. `apiKey` selects
+     * the credential exactly as on the Wi-Fi route.
+     */
+    bool cellularRequest(const char* method, const char* path, const String& payload,
+                         String& responseBody, String& error,
+                         const char* apiKey = DEVICE_API_KEY);
+
+    /** What the LCD shows when no transport is up at all. */
+    const char* offlineError() const;
 
     // Status of the last request, so a caller can tell a permanent rejection
     // from something worth retrying.
@@ -176,6 +214,9 @@ private:
 
     bool     timeSynced = false;
     bool     wifiConnectionAnnounced_ = false;
+    // Announced once per outage so the cellular link does not reprint itself
+    // on every poll while it stays up.
+    bool     cellularAnnounced_ = false;
     uint32_t lastNtpAttempt = 0;
     int32_t  appliedUtcOffset = -1;
     // WiFi.begin() changes the ESP32 station configuration. Calling it again

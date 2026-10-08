@@ -33,6 +33,9 @@
                     @case('cancelled')<x-admin.badge type="neutral" label="Cancelled"/>@break
                     @case('overdue')<x-admin.badge type="danger" label="Overdue"/>@break
                     @default<x-admin.badge :label="ucfirst($rental->status)"/>@endswitch
+                    @if($rental->hasRideExtensions())
+                        <x-admin.badge type="info" label="Extended"/>
+                    @endif
             </x-slot:tools>
             <div class="d-flex gap-2 flex-wrap">
                 @if($rental->status === 'pending')
@@ -83,6 +86,20 @@
             <table class="table table-sm mb-0">
                 <tbody>
                     <tr><th class="text-muted" style="width:45%">Total Fee</th><td class="fw-bold">₱{{ number_format($rental->totalFee, 2) }}</td></tr>
+                    @if($rental->hasRideExtensions())
+                        <tr>
+                            <th class="text-muted">Ride Extended</th>
+                            <td>
+                                <x-admin.badge type="info" :label="'Extended ×' . $rental->extensionCount"/>
+                                {{ $rental->extensionMinutesLabel() }} extra &middot; +₱{{ number_format((float) $rental->extensionFee, 2) }}
+                                <ul class="mb-0 mt-1" style="font-size:0.82rem;color:var(--text-2);padding-left:16px;">
+                                    @foreach($rental->extensionReceiptLines() as $extLine)
+                                        <li>{{ $extLine }}</li>
+                                    @endforeach
+                                </ul>
+                            </td>
+                        </tr>
+                    @endif
                     <tr><th class="text-muted">Payment Status</th>
                         <td>@if($rental->paymentStatus === 'paid')<x-admin.badge type="success" label="Paid"/>@else<x-admin.badge type="warning" label="Pending"/>@endif</td>
                     </tr>

@@ -1,5 +1,6 @@
 #include "PedalyaApi.h"
 
+#include "Sim7600.h"
 #include "config.h"
 
 #include <ArduinoJson.h>
@@ -11,6 +12,13 @@
 #if USE_HTTPS
 #include <WiFiClientSecure.h>
 #endif
+
+bool PedalyaApi::cellularActive() const {
+    // Cached state only: asking the modem here would block the loop on every
+    // connected() call. simIsReady() is refreshed by simConnectInternet() and
+    // by the bearer check after a failed exchange.
+    return SIM_ENABLED && simIsReady() && WiFi.status() != WL_CONNECTED;
+}
 
 bool PedalyaApi::connected() {
     const bool isConnected = WiFi.status() == WL_CONNECTED;
@@ -27,7 +35,26 @@ bool PedalyaApi::connected() {
         wifiConnectionAnnounced_ = false;
     }
 
-    return isConnected;
+    // The same announcement for the cellular route, so an operator can tell
+    // from the monitor which link the bike is actually reporting over.
+    if (cellularActive()) {
+        if (!cellularAnnounced_) {
+            Serial.println("[SIM] link up: reporting over cellular");
+            cellularAnnounced_ = true;
+        }
+    } else {
+        cellularAnnounced_ = false;
+    }
+
+    return isConnected || cellularActive();
+}
+
+const char* PedalyaApi::offlineError() const {
+    // "wifi down" is only accurate while there is no modem to blame instead.
+    if (SIM_ENABLED && simPresent()) {
+        return "link down";
+    }
+    return "wifi down";
 }
 
 void PedalyaApi::begin() {
@@ -111,10 +138,22 @@ void PedalyaApi::reportFailure(int status, const String& body, String& error) {
         case 0:
         case -1:
             error = "connect failed";
-            Serial.printf("[api] cannot reach %s:%d\n", SERVER_HOST, SERVER_PORT);
-            Serial.println("      Check the PC is on the same Wi-Fi, that php artisan serve");
-            Serial.println("      was started with --host=0.0.0.0, and that Windows Firewall");
-            Serial.println("      allows inbound TCP 8000.");
+            if (WiFi.status() != WL_CONNECTED && SIM_ENABLED && simPresent()) {
+                // No Wi-Fi association and a modem that is answering: the fault
+                // is on the cellular path, so pointing at the router would send
+                // the reader to the wrong room.
+                Serial.printf("[api] cannot reach %s:%d over the SIM7600 link\n",
+                              SERVER_HOST, SERVER_PORT);
+                Serial.println("      Check SIM_APN in pedalya_lcd/secrets.h, that the SIM has");
+                Serial.println("      a data plan, and that SERVER_HOST is a public address the");
+                Serial.println("      cellular network can route to (a LAN IP cannot be reached");
+                Serial.println("      from outside the LAN).");
+            } else {
+                Serial.printf("[api] cannot reach %s:%d\n", SERVER_HOST, SERVER_PORT);
+                Serial.println("      Check the PC is on the same Wi-Fi, that php artisan serve");
+                Serial.println("      was started with --host=0.0.0.0, and that Windows Firewall");
+                Serial.println("      allows inbound TCP 8000.");
+            }
             return;
 
         case 401:
@@ -123,14 +162,18 @@ void PedalyaApi::reportFailure(int status, const String& body, String& error) {
             if (detail.length()) {
                 Serial.printf("      server said: %s\n", detail.c_str());
             }
-            if (strlen(DEVICE_API_KEY) == 0) {
+            if (strlen(DEVICE_API_KEY) == 0 && strlen(PEDALYA_API_KEY) == 0) {
                 Serial.println("      No key was sent. Put the value printed by");
                 Serial.println("        php artisan devices:provision-key 1");
                 Serial.println("      into pedalya_lcd/secrets.h as DEVICE_API_KEY.");
             } else {
-                Serial.println("      The key was sent but rejected. It must be the key of the");
-                Serial.println("      bicycle in SERVER_PATH; a valid key for another bicycle");
-                Serial.println("      is rejected too. Reissue with --rotate if unsure.");
+                Serial.println("      The key was sent but rejected. Two keys exist and each");
+                Serial.println("      endpoint only accepts one of them:");
+                Serial.println("        per-bicycle (/rental, /commands, /gps) -> DEVICE_API_KEY");
+                Serial.println("        fleet-wide  (/heartbeat, /accident-report) -> PEDALYA_API_KEY");
+                Serial.println("      DEVICE_API_KEY must be the key of the bicycle named in the");
+                Serial.println("      path; a valid key for another bicycle is rejected too.");
+                Serial.println("      Reissue with --rotate if unsure.");
             }
             return;
 
@@ -174,6 +217,42 @@ void PedalyaApi::reportFailure(int status, const String& body, String& error) {
     }
 }
 
+bool PedalyaApi::cellularRequest(const char* method, const char* path, const String& payload,
+                                 String& responseBody, String& error, const char* apiKey) {
+    responseBody = "";
+    lastStatus_ = 0;
+
+    if (apiKey == nullptr || strlen(apiKey) == 0) {
+        error = "no api key";
+        Serial.println("[api] the API key for this endpoint is empty, so no key can be sent.");
+        Serial.println("      Add it to pedalya_lcd/secrets.h (DEVICE_API_KEY for the");
+        Serial.println("      per-bicycle routes, PEDALYA_API_KEY for heartbeat and");
+        Serial.println("      accident-report) and reflash the bike.");
+        return false;
+    }
+
+    char url[160];
+    snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, path);
+    const String authHeader = String("X-API-Key: ") + apiKey;
+    const bool isPost = (strcmp(method, "POST") == 0);
+
+    const bool ok = isPost ? simHttpPost(url, payload, &responseBody, authHeader)
+                           : simHttpGet(url, &responseBody, authHeader);
+    const int status = simLastHttpStatus();
+
+    if (status == 0) {
+        // No transport completed it: dead modem, lost bearer, or a TLS URL the
+        // modem cannot take. reportFailure() carries the diagnosis.
+        reportFailure(0, responseBody, error);
+        return false;
+    }
+    if (!ok) {
+        reportFailure(status, responseBody, error);
+        return false;
+    }
+    return true;
+}
+
 bool PedalyaApi::poll(RentalState& out, String& error) {
     // Cleared up front: this poll may fail before any HTTP status exists, and a
     // status left over from an earlier rejection would mislabel an offline bike
@@ -181,7 +260,7 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
     lastStatus_ = 0;
 
     if (!connected()) {
-        error = "wifi down";
+        error = offlineError();
         return false;
     }
 
@@ -195,13 +274,33 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
 
     ensureTime();
 
+    // Second route to the same endpoint. The Wi-Fi request below is untouched
+    // and runs whenever an association exists; this only runs when it does not.
+    if (cellularActive()) {
+        String body;
+        if (!cellularRequest("GET", SERVER_PATH, String(), body, error)) {
+            return false;
+        }
+
+        // Temporary wire-level diagnostic, identical in both routes: response
+        // body only, never the request headers.
+        Serial.println("[api] RAW RESPONSE:");
+        Serial.println(body);
+
+        if (body.length() == 0 || body.length() > (int)HTTP_RESPONSE_BUFFER) {
+            error = "bad size";
+            Serial.printf("[api] unexpected body length %u\n", (unsigned)body.length());
+            return false;
+        }
+
+        Serial.printf("[api] 200 OK over cellular from %s:%d%s\n",
+                      SERVER_HOST, SERVER_PORT, SERVER_PATH);
+        return parse(body, out, error);
+    }
+
 #if USE_HTTPS
     WiFiClientSecure client;
-    if (strlen(SERVER_FINGERPRINT) == 0) {
-        error = "no tls fingerprint";
-        return false;
-    }
-    client.setFingerprint(SERVER_FINGERPRINT);
+    client.setInsecure();
 #else
     WiFiClient client;
 #endif
@@ -250,7 +349,7 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
 bool PedalyaApi::pollCommands(DeviceCommand* commands, size_t capacity, size_t& count, String& error) {
     count = 0;
     if (!connected()) {
-        error = "wifi down";
+        error = offlineError();
         return false;
     }
 
@@ -259,13 +358,21 @@ bool PedalyaApi::pollCommands(DeviceCommand* commands, size_t capacity, size_t& 
         return false;
     }
 
+    if (cellularActive()) {
+        String body;
+        if (!cellularRequest("GET", COMMANDS_PATH, String(), body, error)) {
+            return false;
+        }
+        if (body.length() == 0 || body.length() > (int)HTTP_RESPONSE_BUFFER) {
+            error = "command size";
+            return false;
+        }
+        return parseCommands(body, commands, capacity, count, error);
+    }
+
 #if USE_HTTPS
     WiFiClientSecure client;
-    if (strlen(SERVER_FINGERPRINT) == 0) {
-        error = "no tls fingerprint";
-        return false;
-    }
-    client.setFingerprint(SERVER_FINGERPRINT);
+    client.setInsecure();
 #else
     WiFiClient client;
 #endif
@@ -302,17 +409,26 @@ bool PedalyaApi::pollCommands(DeviceCommand* commands, size_t capacity, size_t& 
 
 bool PedalyaApi::acknowledgeCommand(uint32_t commandId, bool executed, const String& result, String& error) {
     if (!connected()) {
-        error = "wifi down";
+        error = offlineError();
         return false;
+    }
+
+    if (cellularActive()) {
+        JsonDocument payload;
+        payload["status"] = executed ? "executed" : "failed";
+        payload["result"] = result;
+        String body;
+        serializeJson(payload, body);
+
+        char path[196];
+        snprintf(path, sizeof(path), "%s/%lu/ack", COMMANDS_PATH, (unsigned long)commandId);
+        String response;
+        return cellularRequest("POST", path, body, response, error);
     }
 
 #if USE_HTTPS
     WiFiClientSecure client;
-    if (strlen(SERVER_FINGERPRINT) == 0) {
-        error = "no tls fingerprint";
-        return false;
-    }
-    client.setFingerprint(SERVER_FINGERPRINT);
+    client.setInsecure();
 #else
     WiFiClient client;
 #endif
@@ -349,23 +465,28 @@ bool PedalyaApi::acknowledgeCommand(uint32_t commandId, bool executed, const Str
     return true;
 }
 
-bool PedalyaApi::postJson(const char* path, const String& payload, String& error) {
+bool PedalyaApi::postJson(const char* path, const String& payload, String& error,
+                          const char* apiKey) {
     if (!connected()) {
-        error = "wifi down";
+        error = offlineError();
         return false;
     }
-    if (strlen(DEVICE_API_KEY) == 0) {
+    if (apiKey == nullptr || strlen(apiKey) == 0) {
         error = "no api key";
+        Serial.printf("[api] no key configured for %s; nothing was sent.\n", path);
         return false;
+    }
+
+    // Heartbeat, GPS and accident uploads all flow through here, so this one
+    // branch carries every report onto the cellular route at once.
+    if (cellularActive()) {
+        String response;
+        return cellularRequest("POST", path, payload, response, error, apiKey);
     }
 
 #if USE_HTTPS
     WiFiClientSecure client;
-    if (strlen(SERVER_FINGERPRINT) == 0) {
-        error = "no tls fingerprint";
-        return false;
-    }
-    client.setFingerprint(SERVER_FINGERPRINT);
+    client.setInsecure();
 #else
     WiFiClient client;
 #endif
@@ -380,7 +501,7 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
     }
 
     http.setTimeout(REQUEST_TIMEOUT_MS);
-    http.addHeader("X-API-Key", DEVICE_API_KEY);
+    http.addHeader("X-API-Key", apiKey);
     http.addHeader("Accept", "application/json");
     http.addHeader("Content-Type", "application/json");
     const int status = http.POST(payload);
@@ -400,7 +521,10 @@ bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptime
     payload["firmware"] = "pedalya-esp32-v1";
     String body;
     serializeJson(payload, body);
-    return postJson(HEARTBEAT_PATH, body, error);
+    // Fleet-wide route: authenticated with the shared fleet key, not this
+    // bicycle's key. The backend rejects the per-bicycle key here with 401
+    // Invalid API key, which is a configuration fault rather than a bad key.
+    return postJson(HEARTBEAT_PATH, body, error, PEDALYA_API_KEY);
 }
 
 bool PedalyaApi::sendGps(double latitude, double longitude, float speedKph,
@@ -439,8 +563,8 @@ bool PedalyaApi::reportAccident(double latitude,
         payload["lng"] = longitude;
     }
 
-    // Sent for the fleet-wide endpoint's benefit. The per-bicycle endpoint
-    // derives both from the authenticated device key and ignores these.
+    // The fleet-wide endpoint has no authenticated bicycle of its own, so the
+    // bicycle has to travel in the payload; device_id records who reported it.
     payload["bicycle_id"] = (uint32_t)ACCIDENT_BICYCLE_ID;
     payload["device_id"] = ACCIDENT_DEVICE_ID;
 
@@ -462,7 +586,7 @@ bool PedalyaApi::reportAccident(double latitude,
     String body;
     serializeJson(payload, body);
     Serial.printf("[api] accident report -> %s %s\n", ACCIDENT_REPORT_PATH, body.c_str());
-    return postJson(ACCIDENT_REPORT_PATH, body, error);
+    return postJson(ACCIDENT_REPORT_PATH, body, error, PEDALYA_API_KEY);
 }
 
 bool PedalyaApi::parse(const String& body, RentalState& out, String& error) {

@@ -46,6 +46,7 @@ final class NotificationType
         'rental_deadline'       => ['Return Deadline', 'warning', 'bi-alarm', self::GROUP_RENTAL],
         'rental_warning'        => ['Rental Warning', 'warning', 'bi-hourglass-split', self::GROUP_RENTAL],
         'rental_expired'        => ['Rental Expired', 'danger', 'bi-hourglass-bottom', self::GROUP_RENTAL],
+        'rental_extended'       => ['Ride Extended', 'info', 'bi-plus-circle', self::GROUP_RENTAL],
         'rental_overdue_return' => ['Overdue Return', 'danger', 'bi-exclamation-octagon', self::GROUP_RENTAL],
         'rental_status'         => ['Rental Status', 'info', 'bi-arrow-repeat', self::GROUP_RENTAL],
         'return_requested'      => ['Return Requested', 'warning', 'bi-arrow-return-right', self::GROUP_RENTAL],

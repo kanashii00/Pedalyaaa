@@ -105,5 +105,10 @@ private:
         next.receivedAtMs = millis();
         fix_ = next;
         fixValid_ = true;
+
+        // One pair of lines per accepted RMC sentence, so the monitor shows the
+        // fix marching at ~1 Hz next to the [mpu] IMU trace in the sketch.
+        Serial.printf("[GPS] Latitude: %.6f\n", next.latitude);
+        Serial.printf("[GPS] Longitude: %.6f\n", next.longitude);
     }
 };

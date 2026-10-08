@@ -179,6 +179,9 @@
                             @else
                                 <span class="badge-status badge-cancelled"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> {{ ucfirst($rental->status) }}</span>
                             @endif
+                            @if($rental->hasRideExtensions())
+                                <br><small style="color:#1976D2;font-weight:600;" title="Extra time bought on this ride ({{ $rental->extensionMinutesLabel() }}, {{ $rental->extensionCount }} extension(s))"><i class="bi bi-plus-circle"></i> Extended &times;{{ $rental->extensionCount }}</small>
+                            @endif
                         </td>
                         <td>
                             <button class="btn btn-sm btn-outline-primary" onclick="viewRental({{ $rental->id }})"><i class="bi bi-eye"></i></button>

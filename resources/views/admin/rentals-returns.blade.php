@@ -768,6 +768,13 @@
                                 @else
                                     <span class="rv-status rv-status--cancelled rv-status--dot">{{ ucfirst($rental->status) }}</span>
                                 @endif
+                                @if($rental->hasRideExtensions())
+                                    <div class="rv-ext"
+                                         style="margin-top:3px;font-size:10.5px;font-weight:600;color:#1976D2;"
+                                         title="Ride extended {{ $rental->extensionCount }} time(s) &middot; {{ $rental->extensionMinutesLabel() }} extra &middot; extension fee &#8369;{{ number_format((float) $rental->extensionFee, 2) }} &middot; last extended {{ $rental->lastExtendedAt?->format('M d, Y g:i A') ?? '—' }}">
+                                        <i class="bi bi-plus-circle"></i>Extended &times;{{ $rental->extensionCount }} ({{ $rental->extensionMinutesLabel() }})
+                                    </div>
+                                @endif
                                 @if($rental->returnDeadline && in_array($rental->status, ['awaiting_return', 'overdue_return'], true))
                                     <div class="rv-grace"
                                          data-return-countdown="{{ $rental->returnDeadline->toIso8601String() }}"
@@ -809,6 +816,7 @@
                                                 data-penalty-rate="{{ (float) ($summary['penaltyRate'] ?? \App\Models\SystemSetting::getValue('lateReturnPenaltyPerHour', 20)) }}"
                                                 data-penalty-type="{{ $rental->penaltyType }}"
                                                 data-penalty-value="{{ $rental->penaltyValue }}"
+                                                data-purchased="{{ $rental->hasRideExtensions() ? (float) ($rental->totalFee ?? 0) : 0 }}"
                                                 title="Process Return">
                                             <i class="bi bi-clipboard-check"></i> Process Return
                                         </button>
@@ -831,6 +839,11 @@
                                                 'payStatus' => ucfirst($rental->paymentStatus ?? 'Paid'),
                                                 'reference' => $rental->paymentReference ?? ($rental->rentalId ?? ''),
                                                 'status'    => ucfirst($rental->status),
+                                                'extCount'  => (int) ($rental->extensionCount ?? 0),
+                                                'extMinutes'=> (int) ($rental->extendedMinutes ?? 0),
+                                                'extFee'    => number_format((float) ($rental->extensionFee ?? 0), 2),
+                                                'extLast'   => $rental->lastExtendedAt?->format('M d, Y \a\t h:i A') ?? '',
+                                                'extLines'  => $rental->extensionReceiptLines(),
                                                 'issued'    => now()->format('M d, Y \a\t h:i A'),
                                             ];
                                         @endphp
@@ -877,6 +890,15 @@
                                                         <dl style="margin:0;">
                                                             <div class="rv-kv"><dt>Start Time</dt><dd>{{ $rental->startTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
                                                             <div class="rv-kv"><dt>Returned At</dt><dd>{{ $rental->endTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                            @if($rental->hasRideExtensions())
+                                                                <div class="rv-kv"><dt>Ride Extended</dt>
+                                                                    <dd>{{ $rental->extensionCount }}&times; ({{ $rental->extensionMinutesLabel() }} extra) &middot; extension fee &#8369;{{ number_format((float) $rental->extensionFee, 2) }}
+                                                                        @if($rental->lastExtendedAt)
+                                                                            <br><small class="text-muted">Last extended {{ $rental->lastExtendedAt->format('M d, Y h:i A') }}</small>
+                                                                        @endif
+                                                                    </dd>
+                                                                </div>
+                                                            @endif
                                                             <div class="rv-kv"><dt>Duration</dt><dd>{{ $durLabel ?? '—' }}</dd></div>
                                                             @if($rental->status === 'awaiting_return' || $rental->status === 'overdue_return')
                                                                 <div class="rv-kv"><dt>Awaiting Since</dt><dd>{{ $rental->returnRequestedAt?->format('M d, Y h:i A') ?? '—' }}</dd></div>
@@ -1096,6 +1118,7 @@
                 </div>
                 <div class="rcpt-meta">
                     <span><i class="bi bi-clock-history me-1"></i>Issued: <strong id="rcptIssued" style="color:#111827;">&mdash;</strong></span>
+                    <span class="rcpt-chip rcpt-chip--blue" id="rcptExtChip" style="display:none;"><i class="bi bi-plus-circle"></i>Extended</span>
                     <span class="rcpt-chip rcpt-chip--green" id="rcptRideChip"><i class="bi bi-check-circle-fill"></i>Ride completed</span>
                 </div>
                 <div class="rcpt-sec">
@@ -1114,6 +1137,18 @@
                         <div class="rcpt-kv"><dt>Duration</dt><dd id="rcptDuration">&mdash;</dd></div>
                         <div class="rcpt-kv"><dt>Rate</dt><dd>&#8369;<span id="rcptRate">0.00</span> / hour</dd></div>
                     </dl>
+                </div>
+                {{-- Ride extensions: shown only when the rider bought extra time,
+                     so staff can read an extended ride instead of an overdue one. --}}
+                <div class="rcpt-sec" id="rcptExtSec" style="display:none;">
+                    <div class="rcpt-sec__label"><i class="bi bi-plus-circle"></i>Ride Extended</div>
+                    <dl class="rcpt-list">
+                        <div class="rcpt-kv"><dt>Extensions</dt><dd id="rcptExtCount">&mdash;</dd></div>
+                        <div class="rcpt-kv"><dt>Extra Time</dt><dd id="rcptExtMinutes">&mdash;</dd></div>
+                        <div class="rcpt-kv"><dt>Extension Fee</dt><dd>&#8369;<span id="rcptExtFee">0.00</span></dd></div>
+                        <div class="rcpt-kv"><dt>Last Extended</dt><dd id="rcptExtLast">&mdash;</dd></div>
+                    </dl>
+                    <ul id="rcptExtLines" style="margin:6px 0 0;padding-left:16px;font-size:10.5px;color:#6b6b6b;"></ul>
                 </div>
                 <div class="rcpt-sec">
                     <div class="rcpt-sec__label"><i class="bi bi-cash-coin"></i>Payment</div>
@@ -1176,13 +1211,30 @@ document.addEventListener('DOMContentLoaded', function () {
         return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
     }
 
-    function computeFees({ rate, startIso, expectedIso, endIso, deadlineIso, penaltyRate, penaltyType, penaltyValue }) {
+    // Accepts both the ISO key spellings (startIso/expectedIso/endIso/
+    // deadlineIso) and the dataset spellings (start/expected/end/deadline)
+    // the callers actually pass, so the preview never computes against an
+    // Invalid Date.
+    function computeFees(p) {
+        const rate = p.rate;
+        const startIso = p.startIso || p.start;
+        const expectedIso = p.expectedIso || p.expected;
+        const endIso = p.endIso || p.end;
+        const deadlineIso = p.deadlineIso || p.deadline;
+        const penaltyRate = p.penaltyRate;
+        const penaltyType = p.penaltyType;
+        const penaltyValue = p.penaltyValue;
+        const purchased = p.purchased;
         const ratePhp = Number(rate) || 0;
         const end = endIso ? new Date(endIso) : new Date(prReturnTime.value);
         const start = new Date(startIso);
         const durMin = Math.max(Math.round((end - start) / 60000), 0);
         const hours = Math.max(Math.ceil(durMin / 60), 1);
-        const base = Math.round(hours * ratePhp * 100) / 100;
+        let base = Math.round(hours * ratePhp * 100) / 100;
+        // Same floor the settlement applies to an extended ride: the extra time
+        // the rider bought is always charged, even when they return early.
+        const purchasedFloor = Math.round((Number(purchased) || 0) * 100) / 100;
+        if (purchasedFloor > base) base = purchasedFloor;
         let penalty = 0;
         if (deadlineIso) {
             const dl = new Date(deadlineIso);
@@ -1224,10 +1276,10 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('prOverdue').textContent = money(f.penalty);
         document.getElementById('prTotal').textContent = money(f.total);
         const dlNode = document.getElementById('prDeadline');
-        if (dlNode) dlNode.textContent = fmtShort(params.deadlineIso);
+        if (dlNode) dlNode.textContent = fmtShort(params.deadlineIso || params.deadline);
         const prRate = document.getElementById('prPenaltyRate');
         if (prRate) {
-            if (!params.deadlineIso) { prRate.textContent = ''; }
+            if (!(params.deadlineIso || params.deadline)) { prRate.textContent = ''; }
             else if (params.penaltyType === 'fixed') { prRate.textContent = '(fixed)'; }
             else if (params.penaltyType === 'per_minute') { prRate.textContent = '(' + money(params.penaltyValue) + '/min)'; }
             else if (params.penaltyType === 'per_hour') { prRate.textContent = '(' + money(params.penaltyValue) + '/hr)'; }
@@ -1251,6 +1303,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 penaltyRate: this.dataset.penaltyRate || 0,
                 penaltyType: this.dataset.penaltyType || '',
                 penaltyValue: this.dataset.penaltyValue || 0,
+                purchased: this.dataset.purchased || 0,
             };
             prReturnTime.value = fmtLocal(params.end);
             prReturnTime.dataset.rate = params.rate;
@@ -1260,6 +1313,7 @@ document.addEventListener('DOMContentLoaded', function () {
             prReturnTime.dataset.penaltyRate = params.penaltyRate;
             prReturnTime.dataset.penaltyType = params.penaltyType;
             prReturnTime.dataset.penaltyValue = params.penaltyValue;
+            prReturnTime.dataset.purchased = params.purchased;
             document.getElementById('prNote').value = '';
             document.querySelector('input[name="condition"][value="good"]').checked = true;
             updateFeePreview(params);
@@ -1320,6 +1374,30 @@ document.addEventListener('DOMContentLoaded', function () {
     const el = id => document.getElementById(id);
     const set = (id, val) => { const e = el(id); if (e) e.textContent = val; };
 
+    function paintExtensions(d) {
+        const count = Number(d.extCount) || 0;
+        const sec = el('rcptExtSec');
+        const extChip = el('rcptExtChip');
+        if (extChip) extChip.style.display = count > 0 ? '' : 'none';
+        if (!sec) return;
+        sec.style.display = count > 0 ? '' : 'none';
+        if (!count) return;
+        const mins = Number(d.extMinutes) || 0;
+        set('rcptExtCount', count + (count === 1 ? ' extension' : ' extensions'));
+        set('rcptExtMinutes', Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm');
+        set('rcptExtFee', d.extFee || '0.00');
+        set('rcptExtLast', d.extLast || '\u2014');
+        const list = el('rcptExtLines');
+        if (list) {
+            list.innerHTML = '';
+            (d.extLines || []).forEach(line => {
+                const li = document.createElement('li');
+                li.textContent = line;
+                list.appendChild(li);
+            });
+        }
+    }
+
     function renderReceipt(d) {
         set('rcptId', d.id); set('rcptIssued', d.issued);
         set('rcptRiderName', d.rider); set('rcptRiderContact', d.email);
@@ -1327,6 +1405,7 @@ document.addEventListener('DOMContentLoaded', function () {
         set('rcptStart', d.start); set('rcptEnd', d.hasEnd ? d.end : 'In progress');
         set('rcptDuration', d.duration || '—'); set('rcptRate', d.rate); set('rcptTotal', d.total);
         set('rcptMethod', d.method); set('rcptPayStatus', d.payStatus);
+        paintExtensions(d);
         el('rcptRideChip').className = 'rcpt-chip rcpt-chip--green';
         el('rcptRideChip').innerHTML = '<i class="bi bi-check-circle-fill"></i>' + d.status + ' · ' + d.id;
         el('rcptPayStatus').className = d.payStatus === 'Paid' ? 'rcpt-chip rcpt-chip--green' : 'rcpt-chip rcpt-chip--amber';

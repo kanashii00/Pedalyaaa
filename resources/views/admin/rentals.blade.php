@@ -711,6 +711,13 @@
                                 @else
                                     <span class="rv-status rv-status--cancelled rv-status--dot">{{ ucfirst($rental->status) }}</span>
                                 @endif
+                                @if($rental->hasRideExtensions())
+                                    <div class="rv-ext"
+                                         style="margin-top:3px;font-size:10.5px;font-weight:600;color:#1976D2;"
+                                         title="Ride extended {{ $rental->extensionCount }} time(s) &middot; {{ $rental->extensionMinutesLabel() }} extra &middot; extension fee &#8369;{{ number_format((float) $rental->extensionFee, 2) }} &middot; last extended {{ $rental->lastExtendedAt?->format('M d, Y g:i A') ?? '—' }}">
+                                        <i class="bi bi-plus-circle"></i>Extended &times;{{ $rental->extensionCount }} ({{ $rental->extensionMinutesLabel() }})
+                                    </div>
+                                @endif
                                 @if($rental->returnDeadline && in_array($rental->status, ['awaiting_return', 'overdue_return'], true))
                                     <div class="rv-grace"
                                          data-return-countdown="{{ $rental->returnDeadline->toIso8601String() }}"
@@ -753,6 +760,11 @@
                                             'payStatus' => ucfirst($rental->paymentStatus ?? 'Unpaid'),
                                             'reference' => $rental->paymentReference ?? ($rental->rentalId ?? ''),
                                             'status'    => ucfirst($rental->status),
+                                            'extCount'  => (int) ($rental->extensionCount ?? 0),
+                                            'extMinutes'=> (int) ($rental->extendedMinutes ?? 0),
+                                            'extFee'    => number_format((float) ($rental->extensionFee ?? 0), 2),
+                                            'extLast'   => $rental->lastExtendedAt?->format('M d, Y \a\t h:i A') ?? '',
+                                            'extLines'  => $rental->extensionReceiptLines(),
                                             'issued'    => now()->format('M d, Y \a\t h:i A'),
                                         ];
                                     @endphp
@@ -864,6 +876,15 @@
                                                             <div class="rv-kv"><dt>Start Time</dt><dd>{{ $rental->startTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
                                                             <div class="rv-kv"><dt>End Time</dt><dd>{{ $rental->endTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
                                                             <div class="rv-kv"><dt>Expected End Time</dt><dd>{{ $rental->expectedEndTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
+                                                            @if($rental->hasRideExtensions())
+                                                                <div class="rv-kv"><dt>Ride Extended</dt>
+                                                                    <dd>{{ $rental->extensionCount }}&times; ({{ $rental->extensionMinutesLabel() }} extra) &middot; extension fee &#8369;{{ number_format((float) $rental->extensionFee, 2) }}
+                                                                        @if($rental->lastExtendedAt)
+                                                                            <br><small class="text-muted">Last extended {{ $rental->lastExtendedAt->format('M d, Y h:i A') }}</small>
+                                                                        @endif
+                                                                    </dd>
+                                                                </div>
+                                                            @endif
                                                             @if($rental->expiredAt)
                                                                 <div class="rv-kv"><dt>Expired At</dt><dd>{{ $rental->expiredAt->format('M d, Y h:i A') }}</dd></div>
                                                             @endif
@@ -1054,6 +1075,7 @@
 
                 <div class="rcpt-meta">
                     <span><i class="bi bi-clock-history me-1"></i>Issued: <strong id="rcptIssued" style="color:#111827;">&mdash;</strong></span>
+                    <span class="rcpt-chip rcpt-chip--blue" id="rcptExtChip" style="display:none;"><i class="bi bi-plus-circle"></i>Extended</span>
                     <span class="rcpt-chip rcpt-chip--live" id="rcptRideChip"><i class="bi bi-play-fill"></i>Ride in progress</span>
                 </div>
 
@@ -1084,6 +1106,19 @@
                         </div>
                         <div class="rcpt-kv"><dt>Rate</dt><dd>&#8369;<span id="rcptRate">0.00</span> / hour</dd></div>
                     </dl>
+                </div>
+
+                {{-- Ride extensions: shown only when the rider bought extra time,
+                     so staff can read an extended ride instead of an overdue one. --}}
+                <div class="rcpt-sec" id="rcptExtSec" style="display:none;">
+                    <div class="rcpt-sec__label"><i class="bi bi-plus-circle"></i>Ride Extended</div>
+                    <dl class="rcpt-list">
+                        <div class="rcpt-kv"><dt>Extensions</dt><dd id="rcptExtCount">&mdash;</dd></div>
+                        <div class="rcpt-kv"><dt>Extra Time</dt><dd id="rcptExtMinutes">&mdash;</dd></div>
+                        <div class="rcpt-kv"><dt>Extension Fee</dt><dd>&#8369;<span id="rcptExtFee">0.00</span></dd></div>
+                        <div class="rcpt-kv"><dt>Last Extended</dt><dd id="rcptExtLast">&mdash;</dd></div>
+                    </dl>
+                    <ul id="rcptExtLines" style="margin:6px 0 0;padding-left:16px;font-size:10.5px;color:#6b6b6b;"></ul>
                 </div>
 
                 <div class="rcpt-sec">
@@ -1241,6 +1276,31 @@
 
     function chip(node, text, tone) { node.textContent = text; node.className = 'rcpt-chip ' + tone; }
 
+    /* Ride extensions: hides the section entirely for a rental that was never
+       extended, otherwise lists every extension the rider bought. */
+    function paintExtensions(d) {
+        var count = Number(d.extCount) || 0;
+        var sec = el('rcptExtSec');
+        var extChip = el('rcptExtChip');
+        if (extChip) extChip.style.display = count > 0 ? '' : 'none';
+        if (!sec) return;
+        sec.style.display = count > 0 ? '' : 'none';
+        if (!count) return;
+        el('rcptExtCount').textContent = count + (count === 1 ? ' extension' : ' extensions');
+        el('rcptExtMinutes').textContent = fmtDuration(Number(d.extMinutes) || 0);
+        el('rcptExtFee').textContent = d.extFee || '0.00';
+        el('rcptExtLast').textContent = d.extLast || '\u2014';
+        var list = el('rcptExtLines');
+        if (list) {
+            list.innerHTML = '';
+            (d.extLines || []).forEach(function (line) {
+                var li = document.createElement('li');
+                li.textContent = line;
+                list.appendChild(li);
+            });
+        }
+    }
+
     function refreshLive() {
         if (!current || current.hasEnd) return;
         var start = new Date(current.startIso).getTime();
@@ -1266,6 +1326,7 @@
         else { refreshLive(); }
         el('rcptRate').textContent = d.rate;
         el('rcptTotal').textContent = d.total;
+        paintExtensions(d);
         var refNode = el('rcptRef');
         if (refNode) refNode.textContent = d.reference || '\u2014';
         chip(el('rcptMethod'), d.method, d.method === 'GCash' ? 'rcpt-chip--blue' : 'rcpt-chip--green');

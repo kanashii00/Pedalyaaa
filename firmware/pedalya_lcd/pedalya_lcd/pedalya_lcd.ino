@@ -5,12 +5,14 @@
 #include "BuzzerAlarm.h"
 #include "CommandHandler.h"
 #include "Diagnostics.h"
+#include "Geofence.h"
 #include "GpsReceiver.h"
 #include "LcdDisplay.h"
 #include "LockActuator.h"
 #include "PedalyaApi.h"
 #include "RentalController.h"
 #include "RentalTimer.h"
+#include "Sim7600.h"
 #include "config.h"
 #include <WiFi.h>
 /*
@@ -25,7 +27,9 @@
  *   CommandHandler  the server command queue
  *   GpsReceiver     checksummed NMEA RMC reader
  *   AccidentDetector the MPU6050 on the shared I2C bus, and its verdict only
- *   PedalyaApi      WiFi, HTTP, JSON, clock
+ *   Sim7600         the SIM7600CE modem on UART2: a second route to the API,
+ *                   and nothing else (the ESP32 keeps every decision)
+ *   PedalyaApi      WiFi + cellular HTTP, JSON, clock
  *   Diagnostics     the boot banner
  *   config.h        every pin, path and timing, overridable from secrets.h
  */
@@ -202,7 +206,7 @@ static void serviceAccidentReport() {
     if ((int32_t)(now - pendingAccident.nextAttemptMs) < 0) return;
 
     if (!api.connected()) {
-        // Waiting on the WiFi reconnect path in loop(); not a failed attempt.
+        // Waiting on the WiFi/SIM reconnect paths in loop(); not a failed attempt.
         pendingAccident.nextAttemptMs = now + ACCIDENT_REPORT_RETRY_MS;
         return;
     }
@@ -267,6 +271,7 @@ static const uint32_t BUZZER_LOOP_MAX_SLEEP_MS = 500;
 
 static uint32_t lastPollMs = 0;
 static uint32_t lastWifiRetry = 0;
+static uint32_t lastSimRetry = 0;
 static uint32_t lastHeartbeatMs = 0;
 static uint32_t lastGpsReportMs = 0;
 static bool everSynced = false;
@@ -357,6 +362,7 @@ void setup() {
     Diagnostics::printBanner();
 
     gps.begin();
+    simInit();
     connectWifi();
 
     // The IMU shares the I²C bus with the LCD, which has already claimed it in
@@ -392,6 +398,21 @@ void loop() {
         // stays enforced until the server is reachable again.
         controller.maintainDuringNetworkFailure(state);
         if (now - lastWifiRetry > WIFI_RETRY_INTERVAL_MS) connectWifi();
+
+        // Bring up the cellular route in parallel with the Wi-Fi retry: the
+        // SIM link is a second way to reach the same server, so neither wait
+        // blocks the other. lastSimRetry == 0 (the first offline pass) attaches
+        // immediately, so a bike that boots out of Wi-Fi range does not sit on
+        // "connecting..." for a whole retry interval. Bounded by SIM_APN
+        // absence (fail fast), a missing modem (one AT probe of
+        // SIM_CMD_TIMEOUT_MS), or a slow attach; the worst-case blocking
+        // exchange here matches the existing HTTP timeouts.
+        if (SIM_ENABLED && !simIsReady() && (lastSimRetry == 0 ||
+            now - lastSimRetry > SIM_RETRY_INTERVAL_MS)) {
+            lastSimRetry = now;
+            simConnectInternet(SIM_APN);
+        }
+
         if (!wifiAnnounced) {
             display.showWifiConnecting();
             wifiAnnounced = true;
@@ -402,8 +423,10 @@ void loop() {
 
     if (!everSynced) {
         display.showWifiConnecting();
-        Serial.print("[ip] ");
-        Serial.println(WiFi.localIP());
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.print("[ip] ");
+            Serial.println(WiFi.localIP());
+        }
         everSynced = true;
     }
 
@@ -448,25 +471,31 @@ void loop() {
     // server cannot move the physical lock.
     if (polledThisPass) lock.attachAfterServerSync();
 
-    // 3. Apply actuator safety from the freshly polled state.
+    // 3. Apply actuator safety from the freshly polled state. The geofence is
+    //    re-evaluated from the live fix on every pass: only the rental's final
+    //    window uses it, and it must reflect where the bicycle is now rather
+    //    than where it was at the last poll. Without a fresh fix the status is
+    //    UNKNOWN, which keeps the gradual lock rather than forcing it.
+    const BoundaryStatus boundary =
+        evaluateBoundary(gps.hasFreshFix(), gps.fix().latitude, gps.fix().longitude);
     controller.update(state, serverReachable);
-    controller.enforce(state);
+    controller.enforce(state, boundary);
 
     // 4. Process server commands.
     if (polledThisPass) commands.pollAndExecute(state);
 
     // 5. Apply actuator safety AGAIN, so no command can leave a timed-out wheel
     //    unlocked or silent, whatever it asked for.
-    controller.enforce(state);
+    controller.enforce(state, boundary);
 
     reportTelemetry();
     paintScreen();
 
     // The countdown beeps are timed in milliseconds. Sleep to the next beep edge
-    // so the pattern stays exact, but never longer than this: the servo write in
-    // enforce() re-asserts on every pass, and so does polling, and neither may be
-    // starved for a whole beep gap. Everything else in the loop is second-scale,
-    // so this only matters while the beeps play.
+    // so the pattern stays exact, but never longer than this: actuator safety in
+    // enforce() and the rental poll both re-evaluate on every pass, and neither
+    // may be starved for a whole beep gap. Everything else in the loop is
+    // second-scale, so this only matters while the beeps play.
     if (buzzer.patternRunning()) {
         uint32_t sleepMs = buzzer.nextEdgeInMs();
         // Never delay(0): a misconfigured zero gap must not become a hot loop.

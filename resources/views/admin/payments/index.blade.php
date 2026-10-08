@@ -187,6 +187,9 @@
                                 <a href="{{ route('admin.rentals.show', $payment->rental) }}" class="text-decoration-none">
                                     <i class="bi bi-key me-1"></i>{{ $payment->rental->id }}
                                     <span class="badge-admin badge-admin--success badge-admin--plain ms-1">{{ ucfirst($payment->rental->status) }}</span>
+                                    @if($payment->rental->hasRideExtensions())
+                                        <span class="badge-admin badge-admin--info badge-admin--plain ms-1" title="Ride extended {{ $payment->rental->extensionCount }} time(s) &middot; {{ $payment->rental->extensionMinutesLabel() }} extra &middot; extension fee &#8369;{{ number_format((float) $payment->rental->extensionFee, 2) }}">Extended &times;{{ $payment->rental->extensionCount }}</span>
+                                    @endif
                                 </a>
                             @else
                                 <span class="text-muted">—</span>

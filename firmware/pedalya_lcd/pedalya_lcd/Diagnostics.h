@@ -14,6 +14,9 @@ namespace Diagnostics {
 /** Whether DEVICE_API_KEY is configured, without exposing any part of it. */
 bool apiKeyConfigured();
 
+/** Whether PEDALYA_API_KEY (the fleet-wide key) is configured. */
+bool fleetKeyConfigured();
+
 /** Server, paths, pin assignment and alarm timing. */
 void printBanner();
 

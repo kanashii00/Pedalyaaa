@@ -32,26 +32,28 @@
 #define SERVER_PATH "/api/iot/bicycle/1/rental"
 #endif
 
-// All four per-bicycle paths must name the same bicycle as DEVICE_API_KEY.
+// The three per-bicycle paths below must name the same bicycle as
+// DEVICE_API_KEY. The fleet-wide paths (HEARTBEAT_PATH, ACCIDENT_REPORT_PATH)
+// authenticate with PEDALYA_API_KEY instead.
 #ifndef COMMANDS_PATH
 #define COMMANDS_PATH "/api/iot/bicycle/1/commands"
 #endif
 
 #ifndef HEARTBEAT_PATH
-#define HEARTBEAT_PATH "/api/iot/bicycle/1/heartbeat"
+#define HEARTBEAT_PATH "/api/iot/heartbeat"
 #endif
 
 #ifndef GPS_PATH
 #define GPS_PATH "/api/iot/bicycle/1/gps"
 #endif
 
-// Accident reports go to the per-bicycle endpoint so they use the same device
-// key as every other call above, instead of the fleet-wide shared key.
+// Accident reports go to the fleet-wide endpoint, which authenticates with the
+// shared fleet key (PEDALYA_API_KEY below) rather than the per-bicycle one.
 #ifndef ACCIDENT_REPORT_PATH
-#define ACCIDENT_REPORT_PATH "/api/iot/bicycle/1/accident-report"
+#define ACCIDENT_REPORT_PATH "/api/iot/accident-report"
 #endif
 
-// Kept in step with the "1" in the four paths above.
+// Kept in step with the "1" in the per-bicycle paths above.
 #ifndef ACCIDENT_BICYCLE_ID
 #define ACCIDENT_BICYCLE_ID 1
 #endif
@@ -71,8 +73,21 @@
 #define SERVER_FINGERPRINT ""
 #endif
 
+// The per-bicycle key is a secret: it lives only in the gitignored secrets.h
+// and stays empty here, so a copied or committed config.h cannot authenticate.
 #ifndef DEVICE_API_KEY
 #define DEVICE_API_KEY ""
+#endif
+
+// Second credential, for the endpoints that are shared by the whole fleet:
+// /api/iot/heartbeat and /api/iot/accident-report sit behind the backend's
+// device.auth middleware, which compares against services.device_api_key (the
+// DEVICE_API_KEY entry of the backend's .env) instead of a bicycle's own key.
+// Sending the bicycle key there is rejected as "Invalid API key"; putting the
+// fleet value here is the configuration fix. The per-bicycle value above stays
+// DEVICE_API_KEY for /rental, /commands and /gps.
+#ifndef PEDALYA_API_KEY
+#define PEDALYA_API_KEY ""
 #endif
 
 #ifndef I2C_ADDRESS
@@ -106,7 +121,8 @@
 // LED_BUILTIN is not defined on every ESP32 core/board pairing, so the pin is
 // named explicitly. 2 is the onboard RGB LED on the DevKit V1.
 #ifndef STATUS_LED_PIN
-// GPIO2 is used by the GPS UART in this prototype.
+// GPIO2 is free now that the GPS moved off it onto GPIO25/GPIO26, but the LED
+// stays off (-1) exactly as in the prototype; set it in secrets.h to use it.
 #define STATUS_LED_PIN -1
 #endif
 
@@ -123,11 +139,11 @@
 #endif
 
 #ifndef SERVO_RELEASE_ANGLE
-#define SERVO_RELEASE_ANGLE 0
+#define SERVO_RELEASE_ANGLE 100
 #endif
 
 #ifndef SERVO_LOCK_ANGLE
-#define SERVO_LOCK_ANGLE 80
+#define SERVO_LOCK_ANGLE 0
 #endif
 
 #ifndef SERVO_FREQUENCY_HZ
@@ -142,16 +158,58 @@
 #define SERVO_MAX_PULSE_US 2400
 #endif
 
+/* ------------------------------------------------------------------------
+ *  Gradual lock and the geofence it is judged against
+ *
+ *  With more than GRADUAL_LOCK_SECONDS left the wheel is simply released.
+ *  Inside that window the servo walks from RELEASE toward LOCK in step with
+ *  the countdown while the bicycle is still at the riding zone, and snaps to
+ *  LOCK at once when it is not. Every write goes through the state-change
+ *  guard in LockActuator::writePhysical, so a settled angle is never
+ *  re-commanded and the serial log shows only real moves.
+ * ------------------------------------------------------------------------ */
+
+// Length of the graduated lock window, in seconds before the return deadline.
+#ifndef GRADUAL_LOCK_SECONDS
+#define GRADUAL_LOCK_SECONDS 10
+#endif
+
+// The active riding zone, mirroring the `geofences` row the backend enforces
+// (circle zone "Azuela Cove Riding Zone"). Keep these in step with the
+// database when the zone is edited - override them in secrets.h per bicycle
+// rather than editing this fallback.
+#ifndef GEOFENCE_CENTER_LAT
+#define GEOFENCE_CENTER_LAT 7.1994902
+#endif
+
+#ifndef GEOFENCE_CENTER_LNG
+#define GEOFENCE_CENTER_LNG 125.6247171
+#endif
+
+// Radius of that circle, in metres.
+#ifndef GEOFENCE_RADIUS_M
+#define GEOFENCE_RADIUS_M 110.0
+#endif
+
+// The zone's warning threshold, in metres: how far past the edge a bicycle
+// still counts as NEAR the boundary rather than OUTSIDE it.
+#ifndef GEOFENCE_NEAR_MARGIN_M
+#define GEOFENCE_NEAR_MARGIN_M 35.0
+#endif
+
 #ifndef BUZZER_PIN
 #define BUZZER_PIN 19
 #endif
 
+// NEO-6M on UART1: the module's TXD feeds ESP32 RX (GPIO25), the module's RXD
+// is driven by ESP32 TX (GPIO26). GPIO1/GPIO3 stay reserved for the USB-UART0
+// monitor, and GPIO4/GPIO2 are released by this move.
 #ifndef GPS_RX_PIN
-#define GPS_RX_PIN 4
+#define GPS_RX_PIN 25
 #endif
 
 #ifndef GPS_TX_PIN
-#define GPS_TX_PIN 2
+#define GPS_TX_PIN 26
 #endif
 
 #ifndef GPS_BAUD_RATE
@@ -164,6 +222,69 @@
 
 #ifndef GPS_FIX_STALE_MS
 #define GPS_FIX_STALE_MS 30000UL
+#endif
+
+/* ------------------------------------------------------------------------
+ *  SIM7600CE cellular modem (UART2)
+ *
+ *  The modem is only a bearer. Every Pedalya decision, payload, endpoint and
+ *  device key stays in PedalyaApi and the sketch; the SIM link is a second
+ *  route to the same HTTP API, used whenever Wi-Fi is not associated.
+ *
+ *  Wiring (never GPIO1/GPIO3, those are the USB-UART0 monitor pins):
+ *      SIM7600 TXD -> ESP32 RX2 GPIO16 (SIM_RX_PIN)
+ *      SIM7600 RXD -> ESP32 TX2 GPIO17 (SIM_TX_PIN)
+ *      SIM7600 GND -> ESP32 GND
+ *
+ *  Every timeout below bounds one blocking AT exchange, so a modem that is
+ *  absent or dead costs one bounded wait instead of parking the main loop.
+ * ------------------------------------------------------------------------ */
+
+#ifndef SIM_ENABLED
+#define SIM_ENABLED 1
+#endif
+
+#ifndef SIM_RX_PIN
+#define SIM_RX_PIN 16
+#endif
+
+#ifndef SIM_TX_PIN
+#define SIM_TX_PIN 17
+#endif
+
+#ifndef SIM_BAUD_RATE
+#define SIM_BAUD_RATE 115200
+#endif
+
+// Carrier APN of the SIM in the modem. Never guess: ask the carrier and put
+// the real value in secrets.h. The placeholder is rejected on purpose so an
+// unconfigured unit fails loudly instead of dialling the wrong network.
+#ifndef SIM_APN
+#define SIM_APN "internet.globe.com.ph"
+#endif
+
+
+// One ordinary AT exchange (AT, AT+CGDCONT, AT+HTTPPARA, ...).
+#ifndef SIM_CMD_TIMEOUT_MS
+#define SIM_CMD_TIMEOUT_MS 2000UL
+#endif
+
+// Network attach and PDP activation, which are genuinely slower than a local
+// AT command.
+#ifndef SIM_NET_TIMEOUT_MS
+#define SIM_NET_TIMEOUT_MS 8000UL
+#endif
+
+// One HTTP round trip (AT+HTTPACTION) over LTE, bounded so a hung request
+// cannot starve GPS, LCD, buzzer or accident detection for longer than this.
+#ifndef SIM_HTTP_TIMEOUT_MS
+#define SIM_HTTP_TIMEOUT_MS 10000UL
+#endif
+
+// Gap between background bearer reconnect attempts while the modem answers
+// but the data link is down.
+#ifndef SIM_RETRY_INTERVAL_MS
+#define SIM_RETRY_INTERVAL_MS 30000UL
 #endif
 
 /* ------------------------------------------------------------------------
@@ -328,8 +449,9 @@
 #endif
 
 // Length of the final window in which the rider is warned before the rental
-// expires. The servo stays RELEASED for the whole window; only the timer runs
-// down to zero.
+// expires. The timer runs down to zero through it; the servo is governed by
+// GRADUAL_LOCK_SECONDS instead, which starts walking the wheel toward LOCK
+// before this window opens when the bicycle is still at the geofence.
 #ifndef EXPIRY_WARNING_SECONDS
 #define EXPIRY_WARNING_SECONDS 5
 #endif

@@ -24,3 +24,21 @@
 #ifndef DEVICE_API_KEY
 #define DEVICE_API_KEY ""
 #endif
+
+// Fleet-wide key for the shared endpoints (/api/iot/heartbeat and
+// /api/iot/accident-report). Its value is the backend's own DEVICE_API_KEY
+// entry in .env (services.device_api_key), NOT a per-bicycle key: those two
+// routes sit behind the fleet auth and reject the bicycle key with 401
+// Invalid API key. Left empty so a copied template reports a missing key.
+#ifndef PEDALYA_API_KEY
+#define PEDALYA_API_KEY ""
+#endif
+
+// APN of the SIM in the SIM7600 modem, needed only for the cellular fallback
+// path. Ask the carrier for the exact value (e.g. from the plan confirmation
+// or SIM pack); never guess one, a wrong APN simply refuses to attach.
+// The modem is left in its "no data link yet" state while this placeholder is
+// in place, and the monitor logs a reminder instead of dialling the wrong net.
+#ifndef SIM_APN
+#define SIM_APN "YOUR_APN_HERE"
+#endif

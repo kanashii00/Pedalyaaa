@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "BuzzerAlarm.h"
+#include "Geofence.h"
 #include "LockActuator.h"
 #include "PedalyaApi.h"
 #include "RentalTimer.h"
@@ -35,16 +36,26 @@ public:
      * Physically synchronise both actuators with the latest known rental state.
      *
      * Expired  -> servo LOCKED, buzzer sounding in the shape the alarm picks.
-     * Not expired -> servo RELEASED, buzzer OFF.
+     * Active, more than GRADUAL_LOCK_SECONDS left -> servo RELEASED.
+     * Active, GRADUAL_LOCK_SECONDS or less left -> servo walks from RELEASE
+     *     toward LOCK in step with the countdown while `boundary` is Inside or
+     *     Near the geofence, and is forced straight to LOCK when it is Outside.
+     * Not expired -> buzzer OFF.
      *
-     * No early return is permitted before the writes: software can claim an
-     * actuator has already moved even when a loose servo horn, a brownout, or a
-     * previous command left the real hardware somewhere else. The main loop calls
-     * this after the poll, after the server commands, and once more after those
-     * commands, so neither a queued command nor a missed update can leave a
-     * timed-out wheel unlocked or silent.
+     * `boundary` is the caller's classification of the current GPS fix against
+     * the configured geofence (see evaluateBoundary); it only ever affects the
+     * final window, never the rental, timer or alarm logic.
+     *
+     * No early return is permitted before the actuator commands: the main loop
+     * calls this after the poll, after the server commands, and once more after
+     * those commands, so neither a queued command nor a missed update can leave
+     * a timed-out wheel unlocked or silent. The pin itself is re-commanded only
+     * when the target angle changes (LockActuator::writePhysical holds that
+     * guard), since the servo keeps its PWM running between calls; a reboot or
+     * a servo re-attach clears the guard, so the first pass after either always
+     * reaches the hardware again.
      */
-    void enforce(const RentalState& rental);
+    void enforce(const RentalState& rental, BoundaryStatus boundary);
 
     /**
      * The same safety rule during a network outage.

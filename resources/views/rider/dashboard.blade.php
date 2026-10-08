@@ -112,6 +112,27 @@
                                 @else
                                     <p class="mt-2 mb-0 fw-bold text-primary">&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</p>
                                 @endif
+                                @if($activeRental->hasRideExtensions())
+                                    <span class="badge-status mt-1" style="background:#E3F2FD;color:#1976D2;" title="This ride was extended {{ $activeRental->extensionCount }} time(s) by {{ $activeRental->extendedMinutes }} extra minutes ({{ $activeRental->extensionMinutesLabel() }}) worth &#8369;{{ number_format((float) $activeRental->extensionFee, 2) }}.">
+                                        <i class="bi bi-plus-circle me-1" style="font-size:0.5rem;"></i>Extended &times;{{ $activeRental->extensionCount }} ({{ $activeRental->extensionMinutesLabel() }})
+                                    </span>
+                                @endif
+                                @php
+                                    // The same ceiling the server enforces: an extension can never
+                                    // push the rental past the configured maximum rental length.
+                                    $extMaxMinutes = (int) \App\Models\SystemSetting::getValue('rentalMaxDurationHours', 12) * 60;
+                                    $extRate = (float) ($activeRental->ratePerHour ?? 15);
+                                    $extOptions = array_values(array_filter([30, 60, 120, 180], function ($m) use ($activeRental, $extMaxMinutes) {
+                                        return ($activeRental->durationMinutes ?? 0) + $m <= $extMaxMinutes;
+                                    }));
+                                @endphp
+                                @if($extOptions && in_array($activeRental->status, ['active', 'expired'], true))
+                                    <div class="mt-2">
+                                        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#extendRideModal">
+                                            <i class="bi bi-plus-circle me-1"></i>Extend Ride
+                                        </button>
+                                    </div>
+                                @endif
                                 @if($isReturnFlow)
                                     <form action="{{ route('rider.rentals.return', $activeRental->id) }}" method="POST" class="mt-2">
                                         @csrf
@@ -240,6 +261,58 @@
     </div>
     @endif
 </div>
+
+{{-- Extend Ride: buy extra time on the ongoing ride. The options, the fee per
+     option and the maximum length are all derived from the same settings the
+     server re-checks, so the price a rider sees here is the price recorded. --}}
+@if($activeRental && $extOptions && in_array($activeRental->status, ['active', 'expired'], true))
+<div class="modal fade" id="extendRideModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" action="{{ route('rider.rentals.extend', $activeRental->id) }}" method="POST">
+            @csrf
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-clock-history me-2"></i>Extend Ride</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3" style="font-size:0.88rem;color:#6b6b6b;">
+                    Bicycle <strong>{{ $activeRental->bicycle->serialNumber ?? 'N/A' }}</strong> &middot;
+                    current fee <strong>&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</strong>.
+                    Extra time is charged at <strong>&#8369;{{ number_format($extRate, 2) }}/hour</strong>
+                    (part of an hour counts as a full hour) and is added to your rental fee, payable on return.
+                </p>
+                <div class="d-grid gap-2">
+                    @foreach($extOptions as $extMinutes)
+                        @php
+                            $extHours = max((int) ceil($extMinutes / 60), 1);
+                            $extFee = round($extRate * $extHours, 2);
+                            $extLabel = $extMinutes < 60
+                                ? $extMinutes . ' minutes'
+                                : ($extMinutes % 60 === 0
+                                    ? ($extMinutes / 60) . ' hour' . ((int) ($extMinutes / 60) > 1 ? 's' : '')
+                                    : intdiv($extMinutes, 60) . 'h ' . ($extMinutes % 60) . 'm');
+                        @endphp
+                        <label class="d-flex justify-content-between align-items-center rounded border p-2 mb-0" style="cursor:pointer;font-size:0.9rem;">
+                            <span>
+                                <input type="radio" name="extensionMinutes" value="{{ $extMinutes }}" required class="me-2">
+                                <strong>+ {{ $extLabel }}</strong>
+                            </span>
+                            <span class="fw-bold">+&#8369;{{ number_format($extFee, 2) }}</span>
+                        </label>
+                    @endforeach
+                </div>
+                <small class="text-muted d-block mt-3">
+                    <i class="bi bi-info-circle me-1"></i>Extending also updates your countdown, and the extension shows on your receipt.
+                </small>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-plus-circle me-1"></i>Confirm Extension</button>
+            </div>
+        </form>
+    </div>
+</div>
+@endif
 @endsection
 
 @section('scripts')

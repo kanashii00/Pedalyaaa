@@ -139,6 +139,11 @@ class Rental extends Model
         'durationMinutes',
         'durationFormatted',
         'chargedHours',
+        'extensionCount',
+        'extendedMinutes',
+        'extensionFee',
+        'extensions',
+        'lastExtendedAt',
         'totalDistance',
         'paymentStatus',
         'paidAt',
@@ -185,6 +190,8 @@ class Rental extends Model
             'returnRequestedAt' => 'datetime',
             'returnProcessedAt' => 'datetime',
             'paidAt' => 'datetime',
+            'lastExtendedAt' => 'datetime',
+            'extensions' => 'array',
             'isOverdue' => 'boolean',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
@@ -197,7 +204,62 @@ class Rental extends Model
             'penaltyAccrued' => 'decimal:2',
             'durationMinutes' => 'integer',
             'chargedHours' => 'integer',
+            'extensionCount' => 'integer',
+            'extendedMinutes' => 'integer',
+            'extensionFee' => 'decimal:2',
         ];
+    }
+
+    /**
+     * Whether the rider ever bought extra time on this rental.
+     *
+     * The Active Rentals queue, the receipts and the rider's own dashboard all
+     * gate their "Extended" presentation on this one method, so they can never
+     * disagree about whether a ride was extended.
+     */
+    public function hasRideExtensions(): bool
+    {
+        return (int) ($this->extensionCount ?? 0) > 0;
+    }
+
+    /**
+     * Total extra time bought, as a "+1h 30m" label (empty when never extended).
+     */
+    public function extensionMinutesLabel(): string
+    {
+        $minutes = (int) ($this->extendedMinutes ?? 0);
+
+        if ($minutes <= 0) {
+            return '';
+        }
+
+        return '+' . intdiv($minutes, 60) . 'h ' . ($minutes % 60) . 'm';
+    }
+
+    /**
+     * One printable line per extension, newest last, for the receipt's
+     * "Ride Extensions" section. Plain strings so the Blade receipt JSON and
+     * the printed receipt can never describe an extension differently.
+     *
+     * @return array<int, string>
+     */
+    public function extensionReceiptLines(): array
+    {
+        $lines = [];
+
+        foreach (($this->extensions ?? []) as $log) {
+            $n = $log['n'] ?? (count($lines) + 1);
+            $minutes = (int) ($log['minutes'] ?? 0);
+            $fee = number_format((float) ($log['fee'] ?? 0), 2);
+            $label = intdiv($minutes, 60) . 'h ' . ($minutes % 60) . 'm';
+            $at = isset($log['at']) && $log['at']
+                ? \Carbon\Carbon::parse($log['at'])->format('M d, Y g:i A')
+                : '';
+
+            $lines[] = "Extension #{$n}: +{$label} — PHP {$fee}" . ($at ? " ({$at})" : '');
+        }
+
+        return $lines;
     }
 
     public function bicycle(): BelongsTo

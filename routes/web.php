@@ -162,6 +162,9 @@ Route::middleware(['auth', 'role:rider'])->prefix('rider')->name('rider.')->grou
     // Rent bicycle
     Route::get('/rent', [RiderRent::class, 'index'])->middleware('rental.sync')->name('rentals.create');
     Route::post('/rent', [RiderRent::class, 'store'])->name('rent.store');
+    // Extend an ongoing ride: adds paid extra time, reopens an expired ride,
+    // and records the extension on the rental so receipts show it.
+    Route::post('/rent/{id}/extend', [RiderRent::class, 'extendRental'])->middleware('rental.sync')->name('rentals.extend');
     Route::post('/rent/{id}/return', [RiderRent::class, 'returnRental'])->middleware('rental.sync')->name('rentals.return');
 
     // Rental history

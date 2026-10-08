@@ -218,6 +218,46 @@ class RentController extends Controller
         ));
     }
 
+    /**
+     * Extend an ongoing ride by buying extra time (the "Extend Ride" button).
+     *
+     * The extension is priced and recorded by RentalService, which also reopens
+     * an expired ride and notifies both the rider and the administrators.
+     */
+    public function extendRental(Request $request, int $id): RedirectResponse
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'extensionMinutes' => ['required', 'integer', 'min:15', 'max:720'],
+        ], [
+            'extensionMinutes.required' => 'Please choose how long you want to extend the ride.',
+            'extensionMinutes.integer'   => 'The extension must be a whole number of minutes.',
+            'extensionMinutes.min'       => 'The extension must be at least 15 minutes.',
+            'extensionMinutes.max'       => 'The extension cannot exceed 720 minutes.',
+        ]);
+
+        $rental = Rental::where('id', $id)
+            ->where('riderId', $user->id)
+            ->first();
+
+        if ($rental === null) {
+            abort(404);
+        }
+
+        try {
+            $this->rentalService->extendRental($rental, (int) $request->extensionMinutes, $user);
+
+            return redirect()->route('rider.dashboard')
+                ->with('success', 'Ride extended! The extra time has been added to your rental fee.');
+        } catch (RentalException $e) {
+            return back()->withErrors(['extension' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            Log::error('Rider failed to extend rental', ['error' => $e->getMessage(), 'rentalId' => $id]);
+            return back()->withErrors(['extension' => 'Unable to extend the ride. Please try again.']);
+        }
+    }
+
     public function returnRental(Request $request, int $id): RedirectResponse
     {
         $user = $request->user();

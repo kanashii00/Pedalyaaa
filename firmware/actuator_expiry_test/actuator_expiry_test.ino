@@ -2,8 +2,8 @@
 
 static constexpr int SERVO_PIN = 18;
 static constexpr int BUZZER_PIN = 19;
-static constexpr int SERVO_RELEASE_ANGLE = 0;
-static constexpr int SERVO_LOCK_ANGLE = 100;
+static constexpr int SERVO_RELEASE_ANGLE = 100;
+static constexpr int SERVO_LOCK_ANGLE = 0;
 static constexpr int SERVO_MIN_PULSE_US = 500;
 static constexpr int SERVO_MAX_PULSE_US = 2400;
 static constexpr int BUZZER_FREQUENCY_HZ = 2000;

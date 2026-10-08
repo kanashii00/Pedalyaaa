@@ -238,6 +238,15 @@
                             <span class="detail-label">Total Fee</span>
                             <span class="detail-value fw-semibold text-success">₱{{ number_format($payment->rental->totalFee, 2) }}</span>
                         </div>
+                        @if($payment->rental->hasRideExtensions())
+                            <div class="detail-row">
+                                <span class="detail-label">Ride Extended</span>
+                                <span class="detail-value">
+                                    <span class="badge-admin badge-admin--info">Extended &times;{{ $payment->rental->extensionCount }}</span>
+                                    {{ $payment->rental->extensionMinutesLabel() }} extra &middot; +₱{{ number_format((float) $payment->rental->extensionFee, 2) }}
+                                </span>
+                            </div>
+                        @endif
                         <div class="detail-row">
                             <span class="detail-label">Duration</span>
                             <span class="detail-value">{{ $payment->rental->startedAt && $payment->rental->endsAt ? $payment->rental->startedAt->diffInHours($payment->rental->endsAt) : '—' }} hours</span>
