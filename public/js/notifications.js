@@ -113,8 +113,17 @@
         });
     }
 
-    function changed() {
-        window.dispatchEvent(new Event('pedalya:notifications-changed'));
+    function changed(detail) {
+        // CustomEvent carries the payload type for live-sync listeners (e.g.
+        // the rider return watcher); plain Event keeps ancient browsers going.
+        // Existing listeners observe the type only and keep working as before.
+        var event;
+        try {
+            event = new CustomEvent('pedalya:notifications-changed', { detail: detail || null });
+        } catch (e) {
+            event = new Event('pedalya:notifications-changed');
+        }
+        window.dispatchEvent(event);
     }
 
     /* ---------- Dropdowns (bell + profile) ---------- */
@@ -241,7 +250,7 @@
             payload = payload || {};
             toast(payload.message || 'You have a new notification.', 'info', payload.title || 'Notification');
             refreshBadge();
-            changed();
+            changed({ type: payload.type || null });
         });
     }
 

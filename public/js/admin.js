@@ -185,25 +185,65 @@
     });
   }
 
-  /* ---------- Toast system ---------- */
+  /* ---------- Toast system ----------
+     Compact dark overlay in the top-right corner. The stack is
+     position:fixed, so a toast never shifts page content. Same
+     PedalyaToast.success/error/warning/info API as before. */
   const toasts = $('#adminToasts');
+  const TOAST_TYPES = ['success', 'error', 'warning', 'info'];
   function toast(title, msg, type) {
     if (!toasts) return;
-    const t = document.createElement('div');
-    t.className = 'admin-toast admin-toast--' + (type || 'info');
+    const variant = TOAST_TYPES.includes(type) ? type : 'info';
     const icons = { success: 'bi-check-circle-fill', error: 'bi-x-circle-fill', warning: 'bi-exclamation-triangle-fill', info: 'bi-info-circle-fill' };
-    t.innerHTML =
-      '<i class="bi ' + (icons[type] || icons.info) + ' admin-toast__icon"></i>' +
-      '<div><div class="admin-toast__title">' + (title || '') + '</div>' +
-      '<div class="admin-toast__msg">' + (msg || '') + '</div></div>' +
-      '<button class="admin-toast__close" aria-label="Close"><i class="bi bi-x-lg"></i></button>';
+    const t = document.createElement('div');
+    t.className = 'admin-toast admin-toast--' + variant;
+    t.setAttribute('role', 'status');
+    t.setAttribute('aria-live', 'polite');
+
+    const iconWrap = document.createElement('span');
+    iconWrap.className = 'admin-toast__iconwrap';
+    const icon = document.createElement('i');
+    icon.className = 'bi ' + (icons[variant] || icons.info) + ' admin-toast__icon';
+    icon.setAttribute('aria-hidden', 'true');
+    iconWrap.appendChild(icon);
+
+    const body = document.createElement('div');
+    body.className = 'admin-toast__body';
+    const titleEl = document.createElement('div');
+    titleEl.className = 'admin-toast__title';
+    titleEl.textContent = title || '';
+    const msgEl = document.createElement('div');
+    msgEl.className = 'admin-toast__msg';
+    msgEl.textContent = msg || '';
+    body.appendChild(titleEl);
+    body.appendChild(msgEl);
+
+    const close = document.createElement('button');
+    close.className = 'admin-toast__close';
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Dismiss notification');
+    const closeIcon = document.createElement('i');
+    closeIcon.className = 'bi bi-x-lg';
+    closeIcon.setAttribute('aria-hidden', 'true');
+    close.appendChild(closeIcon);
+
+    t.appendChild(iconWrap);
+    t.appendChild(body);
+    t.appendChild(close);
     toasts.appendChild(t);
-    requestAnimationFrame(() => t.classList.add('show'));
-    const remove = () => { t.classList.remove('show'); setTimeout(() => t.remove(), 320); };
-    t.querySelector('.admin-toast__close').addEventListener('click', remove);
-    setTimeout(remove, type === 'error' ? 7000 : 4200);
+    requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('show')));
+    let dismissed = false;
+    const remove = () => {
+      if (dismissed) return;
+      dismissed = true;
+      clearTimeout(timer);
+      t.classList.remove('show');
+      setTimeout(() => t.remove(), 320);
+    };
+    close.addEventListener('click', remove);
+    const timer = setTimeout(remove, 5000);
   }
-  window.PedalyaToast = { success: (m, t) => toast(t || 'Success', m, 'success'), error: (m, t) => toast(t || 'Error', m, 'error'), warning: (m, t) => toast(t || 'Warning', m, 'warning'), info: (m, t) => toast(t || 'Info', m, 'info') };
+  window.PedalyaToast = { toast, success: (m, t) => toast(t || 'Success', m, 'success'), error: (m, t) => toast(t || 'Error', m, 'error'), warning: (m, t) => toast(t || 'Warning', m, 'warning'), info: (m, t) => toast(t || 'Info', m, 'info') };
 
   /* ---------- Confirm dialog ---------- */
   const confirmModal = $('#adminConfirm');

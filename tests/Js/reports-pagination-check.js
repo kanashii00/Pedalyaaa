@@ -86,10 +86,13 @@ function assert(condition, message) {
 }
 function count(haystack, needle) { return haystack.split(needle).length - 1; }
 
-/* The <li> wrapping a control, so its disabled/active state can be checked. */
-function liFor(html, marker) {
-  const index = html.lastIndexOf('<li', html.indexOf(marker));
-  return index === -1 ? '' : html.slice(index, html.indexOf('</li>', index));
+/* The opening tag of the control holding a marker, so its
+   disabled/active state can be checked. */
+function ctrlFor(html, marker) {
+  const index = html.indexOf(marker);
+  if (index === -1) return '';
+  const open = Math.max(html.lastIndexOf('<a', index), html.lastIndexOf('<span', index));
+  return open === -1 ? '' : html.slice(open, html.indexOf('>', index) + 1);
 }
 
 function customers(n) {
@@ -136,43 +139,44 @@ function loadScript() {
   let html = container.innerHTML;
   console.log('\n-- page 1 of 11 records at 10 per page --');
   assert(fetchCalls >= 1, 'report loaded from the server');
-  assert(html.includes('Showing 1-10 of 11'), 'range reads "Showing 1-10 of 11"');
+  assert(html.includes('Showing 1&ndash;10 of 11 records'), 'range reads "Showing 1-10 of 11 records"');
   assert(count(html, '<table') === 1, 'exactly one table (got ' + count(html, '<table') + ')');
+  assert(count(html, 'admin-table-wrap') === 1, 'table and footer share one card (got ' + count(html, 'admin-table-wrap') + ')');
   assert(count(html, '<tr>') === 11, 'header row + 10 data rows (got ' + count(html, '<tr>') + ')');
   assert(html.includes('Customer 1') && html.includes('Customer 10'), 'records 1-10 are shown');
   assert(!html.includes('Customer 11'), 'record 11 is not shown on page 1');
-  assert(liFor(html, '&laquo;').includes('disabled'), 'Previous (<<) is disabled on page 1');
-  assert(!liFor(html, '&raquo;').includes('disabled'), 'Next (>>) is enabled on page 1');
+  assert(ctrlFor(html, 'Previous').includes('is-disabled'), 'Previous is disabled on page 1');
+  assert(ctrlFor(html, 'Next').startsWith('<a') && !ctrlFor(html, 'Next').includes('is-disabled'), 'Next is enabled on page 1');
   assert(html.includes("paginateTable('customer',2)"), 'page number 2 generated from the total');
-  assert(liFor(html, '>1</a>').includes('active'), 'page 1 is marked active');
+  assert(html.includes('<span class="admin-pagination__item is-active" aria-current="page">1</span>'), 'page 1 is marked active');
 
-  console.log('\n-- Next (>>) to page 2 --');
+  console.log('\n-- Next to page 2 --');
   const callsBeforePaging = fetchCalls;
   t.paginateTable('customer', 2);
   html = container.innerHTML;
   assert(fetchCalls === callsBeforePaging, 'paging serves cached records without a new request');
-  assert(html.includes('Showing 11-11 of 11'), 'range reads "Showing 11-11 of 11"');
+  assert(html.includes('Showing 11&ndash;11 of 11 records'), 'range reads "Showing 11-11 of 11 records"');
   assert(count(html, '<table') === 1, 'still exactly one table (no duplicate)');
   assert(count(html, '<tr>') === 2, 'header row + 1 data row (got ' + count(html, '<tr>') + ')');
   assert(html.includes('Customer 11'), 'only record 11 is shown');
   assert(!html.includes('Customer 10'), 'page 1 rows are gone');
-  assert(!liFor(html, '&laquo;').includes('disabled'), 'Previous (<<) is enabled on page 2');
-  assert(liFor(html, '&raquo;').includes('disabled'), 'Next (>>) is disabled on page 2');
-  assert(liFor(html, '>2</a>').includes('active'), 'page 2 is marked active');
+  assert(ctrlFor(html, 'Previous').startsWith('<a') && !ctrlFor(html, 'Previous').includes('is-disabled'), 'Previous is enabled on page 2');
+  assert(ctrlFor(html, 'Next').includes('is-disabled'), 'Next is disabled on page 2');
+  assert(html.includes('<span class="admin-pagination__item is-active" aria-current="page">2</span>'), 'page 2 is marked active');
   assert(t.state().page === 2, 'internal page state is 2');
 
   console.log('\n-- page number 1 back to the first page --');
   t.paginateTable('customer', 1);
   html = container.innerHTML;
-  assert(html.includes('Showing 1-10 of 11'), 'range reads "Showing 1-10 of 11" again');
+  assert(html.includes('Showing 1&ndash;10 of 11 records'), 'range reads "Showing 1-10 of 11 records" again');
   assert(count(html, '<table') === 1, 'still exactly one table');
   assert(html.includes('Customer 1'), 'first record shown again');
 
   console.log('\n-- out-of-range targets are clamped --');
   t.paginateTable('customer', 99);
-  assert(container.innerHTML.includes('Showing 11-11 of 11'), 'page 99 clamps to the last page');
+  assert(container.innerHTML.includes('Showing 11&ndash;11 of 11 records'), 'page 99 clamps to the last page');
   t.paginateTable('customer', -4);
-  assert(container.innerHTML.includes('Showing 1-10 of 11'), 'negative page clamps to page 1');
+  assert(container.innerHTML.includes('Showing 1&ndash;10 of 11 records'), 'negative page clamps to page 1');
 
   console.log('\n-- a filter narrows the result set to 5 records --');
   const callsBeforeFilter = fetchCalls;
@@ -186,7 +190,7 @@ function loadScript() {
   html = container.innerHTML;
   assert(fetchCalls === callsBeforeFilter + 1, 'the filter issued exactly one new request');
   assert(t.state().page === 1, 'filters reset paging back to page 1');
-  assert(html.includes('Showing 1-5 of 5'), 'range recalculated to "Showing 1-5 of 5"');
+  assert(html.includes('Showing 1&ndash;5 of 5 records'), 'range recalculated to "Showing 1-5 of 5 records"');
   assert(!html.includes('paginateTable'), 'single page renders no page controls');
   assert(count(html, '<table') === 1, 'one table after the filter reload');
 

@@ -18,6 +18,7 @@
     <div class="admin-table-toolbar">
         <div class="grow"><i class="bi bi-search"></i><input type="text" data-table-search placeholder="Search accident reports..."></div>
     </div>
+    <div class="table-responsive">
     <table class="admin-table">
         <thead>
             <tr>
@@ -28,7 +29,7 @@
                 <th class="sortable">Location <span class="sort-ind"></span></th>
                 <th class="sortable">Timestamp <span class="sort-ind"></span></th>
                 <th class="sortable">Acknowledged <span class="sort-ind"></span></th>
-                <th>Actions</th>
+                <th class="col-actions">Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -76,9 +77,9 @@
                         <x-admin.badge type="warning" label="Pending"/>
                     @endif
                 </td>
-                <td data-label="Actions">
-                    <div class="d-flex gap-1">
-                        <button class="btn-admin btn-admin--secondary btn-admin--sm" title="View Details"
+                <td data-label="Actions" class="col-actions">
+                    <div class="actions-row">
+                        <button class="btn-admin btn-admin--secondary btn-admin--sm" title="View Details" aria-label="View Details"
                             data-id="{{ $accident->id }}"
                             data-bicycle="{{ $accident->bicycle->name ?? $accident->bicycleId }}"
                             data-type="{{ $accident->type }}"
@@ -93,7 +94,7 @@
                         @unless($accident->acknowledged)
                         <form action="{{ route('admin.accidents.acknowledge', $accident->id) }}" method="POST" class="d-inline">
                             @csrf
-                            <button type="submit" class="btn-admin btn-admin--soft btn-admin--sm" title="Acknowledge"
+                            <button type="submit" class="btn-admin btn-admin--soft btn-admin--sm" title="Acknowledge" aria-label="Acknowledge"
                                 data-confirm="Acknowledge this accident report?">
                                 <i class="bi bi-check-lg"></i>
                             </button>
@@ -111,6 +112,7 @@
             @endforelse
         </tbody>
     </table>
+    </div>
 </div>
 
 <!-- Detail Modal -->

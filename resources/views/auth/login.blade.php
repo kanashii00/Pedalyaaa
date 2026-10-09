@@ -18,23 +18,24 @@
         </div>
 
         @if(session('error'))
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                <i class="bi bi-exclamation-triangle me-2"></i>{{ session('error') }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            <div class="auth-alert-error alert-dismissible fade show" role="alert">
+                <span class="auth-alert-icon" aria-hidden="true"><i class="bi bi-info"></i></span>
+                <div class="auth-alert-text">{{ session('error') }}</div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         @endif
 
         @if($errors->any())
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                <i class="bi bi-exclamation-triangle me-2"></i>
-                <div>
-                    <ul class="mb-0" style="padding-left: 18px;">
+            <div class="auth-alert-error alert-dismissible fade show" role="alert">
+                <span class="auth-alert-icon" aria-hidden="true"><i class="bi bi-info"></i></span>
+                <div class="auth-alert-text">
+                    <ul>
                         @foreach($errors->all() as $error)
                             <li>{{ $error }}</li>
                         @endforeach
                     </ul>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         @endif
 
@@ -46,7 +47,7 @@
                 <div class="input-group">
                     <span class="input-group-text"><i class="bi bi-envelope"></i></span>
                     <input type="email" class="form-control form-control-pedalya" id="email" name="email"
-                           value="{{ old('email') }}" required autofocus autocomplete="email" placeholder="you@example.com">
+                           value="{{ old('email', request()->cookie('remember_email')) }}" required autofocus autocomplete="email" placeholder="you@example.com">
                 </div>
             </div>
 
@@ -66,7 +67,8 @@
 
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="remember" id="remember">
+                    <input class="form-check-input" type="checkbox" name="remember" id="remember" value="1"
+                           @checked(old('remember', request()->cookie('remember_email')))>
                     <label class="form-check-label" for="remember">Remember me</label>
                 </div>
             </div>

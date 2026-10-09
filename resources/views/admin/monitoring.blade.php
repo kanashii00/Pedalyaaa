@@ -20,7 +20,7 @@
     $sectionIcons = ['gps' => 'bi-geo-alt', 'locks' => 'bi-lock', 'devices' => 'bi-cpu'];
 @endphp
 
-@section('title', ($sectionTitles[$section] ?? 'Monitoring') . ' � Pedalya Admin')
+@section('title', ($sectionTitles[$section] ?? 'Monitoring') . ' — Pedalya Admin')
 
 @section('styles')
 <style>
@@ -114,6 +114,12 @@
     .bike-status-dot.online { background: var(--success); }
     .bike-status-dot.stale { background: var(--warning); }
     .bike-status-dot.offline { background: var(--text-3); }
+    /* Placeholder for bicycles without a registered device: visibly not live. */
+    .bike-monitor-card--unregistered {
+        border-style: dashed;
+        background: var(--surface-2);
+    }
+    .bike-monitor-card--unregistered:hover { transform: none; }
 </style>
 @endsection
 
@@ -332,77 +338,113 @@
 @endif
 
 @if($section === 'devices')
-{{-- IoT Device Monitoring --}}
+{{-- IoT Device Monitoring.
+     Only bicycles carrying a genuinely registered physical device (fitted
+     hardware + stored device credential) render a live card. Every other row
+     renders an explicit "No IoT device registered" placeholder instead of
+     fabricated telemetry. No battery or RFID tiles: the deployed firmware
+     reports neither, so there is nothing truthful to show. --}}
+@php
+    $registeredBicycles = $bicycles->filter(fn ($b) => $b->hasRegisteredDevice());
+@endphp
 <div class="row align-items-center mb-3">
     <div class="col"><h5 class="mb-0">IoT Device Monitoring</h5></div>
     <div class="col-auto">
-        <small class="text-muted">Firmware, telemetry and device health</small>
+        <small class="text-muted">Firmware, telemetry and device health · <span id="deviceRegisteredCount">{{ $registeredBicycles->count() }} registered</span></small>
     </div>
 </div>
-<div class="row g-3">
+@if($registeredBicycles->isEmpty() && $bicycles->isNotEmpty())
+    <div class="alert alert-pedalya alert-info alert-dismissible fade show" role="alert">
+        <i class="bi bi-info-circle-fill me-2"></i>No IoT devices registered. Key a physical device to a bicycle to begin monitoring.
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+@endif
+<div class="row g-3" id="deviceGrid">
     @forelse($bicycles as $bike)
-        @php
-            $tel = $bike->latestTelemetry;
-            $battery = is_array($tel?->battery) ? $tel->battery : null;
-            $online = ($bike->lastHeartbeat?->diffInMinutes(now()) ?? 999) <= 5;
-        @endphp
-        <div class="col-xl-3 col-lg-4 col-md-6">
-            <div class="bike-monitor-card" data-bike-id="{{ $bike->id }}">
-                <div class="d-flex align-items-center justify-content-between mb-2">
-                    <div class="d-flex align-items-center">
-                        <span class="bike-status-dot {{ $online ? 'online' : 'offline' }}"></span>
-                        <span class="fw-semibold ms-2">{{ $bike->name }}</span>
+        @if($bike->hasRegisteredDevice())
+            @php
+                $tel = $bike->latestTelemetry;
+                $cmd = $bike->latestCommand;
+                // Three distinct connection states: a device that never checked
+                // in reads differently from one that went quiet.
+                $hbState = $bike->lastHeartbeat === null
+                    ? 'never'
+                    : (($bike->lastHeartbeat->diffInMinutes(now()) <= 5) ? 'online' : 'offline');
+                $hbLabel = $hbState === 'online' ? 'Online' : ($hbState === 'offline' ? 'Offline' : 'Never connected');
+            @endphp
+            <div class="col-xl-3 col-lg-4 col-md-6">
+                <div class="bike-monitor-card" data-bike-id="{{ $bike->id }}" data-device-card="{{ $bike->id }}">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <div class="d-flex align-items-center">
+                            <span class="bike-status-dot {{ $hbState === 'online' ? 'online' : 'offline' }}" data-dev="conn-dot"></span>
+                            <span class="fw-semibold ms-2">{{ $bike->name }} <small class="text-muted">{{ $bike->serialNumber }}</small></span>
+                        </div>
+                        <span class="text-muted small"><i class="bi bi-cpu"></i> <span data-dev="version">{{ $tel?->deviceVersion ?? '—' }}</span></span>
                     </div>
-                    <span class="text-muted small"><i class="bi bi-cpu"></i> {{ $tel?->deviceVersion ?? '�' }}</span>
-                </div>
+                    <div class="mb-2"><span class="badge-admin badge-admin--plain {{ $hbState === 'online' ? 'badge-admin--success' : 'badge-admin--neutral' }}" data-dev="conn">{{ $hbLabel }}</span></div>
 
-                <div class="row g-2 mt-1">
-                    <div class="col-6">
-                        <small class="text-muted d-block">Battery</small>
-                        <small class="fw-semibold">{{ $battery['pct'] ?? $bike->batteryLevel }}%{{ isset($battery['charging']) && $battery['charging'] ? ' ?' : '' }}</small>
+                    <div class="row g-2 mt-1">
+                        <div class="col-6">
+                            <small class="text-muted d-block">Uptime</small>
+                            <small class="fw-semibold" data-dev="uptime">{{ $tel?->uptime !== null ? gmdate('H:i:s', (int) $tel->uptime) : '—' }}</small>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted d-block">Lock</small>
+                            <span data-dev="lock">
+                                @if($bike->lockStatus === 'locked')
+                                    <small class="fw-semibold text-danger"><i class="bi bi-lock-fill me-1"></i>Locked</small>
+                                @else
+                                    <small class="fw-semibold text-success"><i class="bi bi-unlock me-1"></i>Unlocked</small>
+                                @endif
+                            </span>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted d-block">Last GPS fix</small>
+                            <small class="fw-semibold" data-dev="gps">{{ $bike->latestGpsLog?->created_at->diffForHumans() ?? 'No fix yet' }}</small>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted d-block">Last lock action</small>
+                            <small class="fw-semibold" data-dev="lock-action">{{ $bike->lastLockAction?->diffForHumans() ?? 'Never' }}</small>
+                        </div>
                     </div>
-                    <div class="col-6">
-                        <small class="text-muted d-block">Uptime</small>
-                        <small class="fw-semibold">{{ $tel?->uptime ? gmdate('H:i:s', $tel->uptime) : '�' }}</small>
+
+                    <hr class="my-2" style="border-color:#f0f0f0;">
+
+                    <div class="row g-1">
+                        <div class="col-6">
+                            <small class="text-muted d-block">Last Heartbeat</small>
+                            <small class="fw-semibold" data-dev="heartbeat">{{ $bike->lastHeartbeat?->diffForHumans() ?? 'Never' }}</small>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted d-block">Last Telemetry</small>
+                            <small class="fw-semibold" data-dev="telemetry">{{ $tel?->eventTimestamp?->diffForHumans() ?? 'Never' }}</small>
+                        </div>
                     </div>
-                    <div class="col-6">
-                        <small class="text-muted d-block">Lock</small>
-                        @if($bike->lockStatus === 'locked')
-                            <small class="fw-semibold text-danger"><i class="bi bi-lock-fill me-1"></i>Locked</small>
+
+                    <div class="mt-2 p-2 rounded" data-dev="command" style="background:#f6f7fb; font-size:11.5px;">
+                        @if($cmd)
+                            <strong>Last command:</strong> {{ $cmd->command }}
+                            <span class="text-muted"> · {{ $cmd->status }}@if($cmd->response) — “{{ \Illuminate\Support\Str::limit($cmd->response, 60) }}”@endif · {{ $cmd->updated_at?->diffForHumans() }}</span>
                         @else
-                            <small class="fw-semibold text-success"><i class="bi bi-unlock me-1"></i>Unlocked</small>
+                            <span class="text-muted">No lock commands recorded.</span>
                         @endif
                     </div>
-                    <div class="col-6">
-                        <small class="text-muted d-block">RFID</small>
-                        <small class="fw-semibold">{{ $tel?->rfid ? \Illuminate\Support\Str::limit($tel->rfid, 10) : '�' }}</small>
-                    </div>
                 </div>
-
-                <hr class="my-2" style="border-color:#f0f0f0;">
-
-                <div class="row g-1">
-                    <div class="col-6">
-                        <small class="text-muted d-block">Last Heartbeat</small>
-                        <small class="fw-semibold">{{ $bike->lastHeartbeat?->diffForHumans() ?? 'Never' }}</small>
-                    </div>
-                    <div class="col-6">
-                        <small class="text-muted d-block">Last Telemetry</small>
-                        <small class="fw-semibold">{{ $tel?->eventTimestamp?->diffForHumans() ?? 'Never' }}</small>
-                    </div>
-                </div>
-
-                @if($tel?->command)
-                    <div class="mt-2 p-2 rounded" style="background:#f6f7fb; font-size:11.5px;">
-                        <strong>Last command:</strong> {{ $tel->command }}
-                        <span class="text-muted"> ? {{ $tel->result ?? ($tel->status ?? 'sent') }}</span>
-                    </div>
-                @endif
             </div>
-        </div>
+        @else
+            <div class="col-xl-3 col-lg-4 col-md-6">
+                <div class="bike-monitor-card bike-monitor-card--unregistered" data-unregistered-card="{{ $bike->id }}">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="fw-semibold">{{ $bike->name }} <small class="text-muted">{{ $bike->serialNumber }}</small></span>
+                    </div>
+                    <span class="badge-admin badge-admin--neutral badge-admin--plain"><i class="bi bi-cpu me-1"></i>No IoT device registered</span>
+                    <small class="text-muted d-block mt-2">Telemetry, lock commands and health appear here once a physical device is keyed to this bicycle.</small>
+                </div>
+            </div>
+        @endif
     @empty
         <div class="col-12">
-            <x-admin.empty-state icon="bi-cpu" title="No devices to monitor"/>
+            <x-admin.empty-state icon="bi-cpu" title="No IoT devices registered"/>
         </div>
     @endforelse
 </div>
@@ -512,6 +554,155 @@
             updateGpsFeed(data);
         }
     });
+})();
+</script>
+@endif
+@if($section === 'devices')
+<script>
+/* IoT devices live patch: refreshes the registered-device cards from the
+   monitoring live feed every 15s (same cadence as the GPS map) without a
+   page reload. Only real device reports are ever painted; unregistered
+   placeholders are never touched. Singleton-guarded; timers die with the
+   page, and bfcache restores simply resume the interval. */
+(function () {
+    if (window.PedalyaDeviceLive) return;
+    var liveUrl = {!! json_encode(route('admin.monitoring.live')) !!};
+    var POLL_MS = 15000;
+    var ONLINE_SECONDS = 300;
+    var destroyed = false;
+    var timer = 0;
+    var inflight = false;
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+
+    function ago(iso) {
+        if (!iso) return null;
+        var t = new Date(iso).getTime();
+        if (isNaN(t)) return null;
+        var s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+        if (s < 60) return s + 's ago';
+        var m = Math.floor(s / 60);
+        if (m < 60) return m + 'm ago';
+        var h = Math.floor(m / 60);
+        if (h < 48) return h + 'h ago';
+        return Math.floor(h / 24) + 'd ago';
+    }
+
+    function fmtUptime(seconds) {
+        if (seconds === null || seconds === undefined) return null;
+        var s = Math.max(0, parseInt(seconds, 10) || 0);
+        // Matches PHP gmdate('H:i:s'): hours wrap at 24.
+        return pad(Math.floor(s / 3600) % 24) + ':' + pad(Math.floor(s / 60) % 60) + ':' + pad(s % 60);
+    }
+
+    function setText(card, field, text) {
+        var node = card.querySelector('[data-dev="' + field + '"]');
+        if (node && node.textContent !== text) node.textContent = text;
+    }
+
+    function paintLock(card, lockStatus) {
+        if (card.dataset.lockState === lockStatus) return;
+        card.dataset.lockState = lockStatus;
+        var host = card.querySelector('[data-dev="lock"]');
+        if (!host) return;
+        host.innerHTML = '';
+        var small = document.createElement('small');
+        var icon = document.createElement('i');
+        if (lockStatus === 'locked') {
+            small.className = 'fw-semibold text-danger';
+            icon.className = 'bi bi-lock-fill me-1';
+            small.appendChild(icon);
+            small.appendChild(document.createTextNode('Locked'));
+        } else {
+            small.className = 'fw-semibold text-success';
+            icon.className = 'bi bi-unlock me-1';
+            small.appendChild(icon);
+            small.appendChild(document.createTextNode('Unlocked'));
+        }
+        host.appendChild(small);
+    }
+
+    function paintCommand(card, cmd) {
+        var sig = cmd ? [cmd.command, cmd.status, cmd.response, cmd.at].join('|') : 'none';
+        if (card.dataset.cmdSig === sig) return;
+        card.dataset.cmdSig = sig;
+        var host = card.querySelector('[data-dev="command"]');
+        if (!host) return;
+        host.innerHTML = '';
+        if (!cmd) {
+            var none = document.createElement('span');
+            none.className = 'text-muted';
+            none.textContent = 'No lock commands recorded.';
+            host.appendChild(none);
+            return;
+        }
+        var strong = document.createElement('strong');
+        strong.textContent = 'Last command: ' + cmd.command + ' ';
+        var meta = document.createElement('span');
+        meta.className = 'text-muted';
+        meta.textContent = '· ' + cmd.status
+            + (cmd.response ? ' — “' + cmd.response + '”' : '')
+            + (cmd.at && ago(cmd.at) ? ' · ' + ago(cmd.at) : '');
+        host.appendChild(strong);
+        host.appendChild(meta);
+    }
+
+    function paintCard(card, bike) {
+        var hbAgo = ago(bike.last_heartbeat);
+        var online = bike.last_heartbeat
+            && (Date.now() - new Date(bike.last_heartbeat).getTime()) <= ONLINE_SECONDS * 1000;
+        var dot = card.querySelector('[data-dev="conn-dot"]');
+        var conn = card.querySelector('[data-dev="conn"]');
+        var label = !bike.last_heartbeat ? 'Never connected' : (online ? 'Online' : 'Offline');
+        if (dot) dot.className = 'bike-status-dot ' + (online ? 'online' : 'offline');
+        if (conn && conn.textContent !== label) {
+            conn.textContent = label;
+            conn.className = 'badge-admin badge-admin--plain ' + (online ? 'badge-admin--success' : 'badge-admin--neutral');
+        }
+        setText(card, 'heartbeat', hbAgo || 'Never');
+        var telAgo = ago(bike.last_telemetry);
+        setText(card, 'telemetry', telAgo || 'Never');
+        var gpsAgo = ago(bike.last_gps_update);
+        setText(card, 'gps', gpsAgo || 'No fix yet');
+        var lockAgo = ago(bike.last_lock_action);
+        setText(card, 'lock-action', lockAgo || 'Never');
+        setText(card, 'version', bike.device_version || '—');
+        var up = fmtUptime(bike.device_uptime);
+        setText(card, 'uptime', up || '—');
+        paintLock(card, bike.lock_status);
+        paintCommand(card, bike.last_command);
+    }
+
+    function poll() {
+        if (destroyed || inflight || document.hidden) return;
+        if (document.querySelector('.admin-modal.open, .pr-modal.open, .rcpt-modal.open')) return;
+        inflight = true;
+        fetch(liveUrl, { headers: { Accept: 'application/json' }, credentials: 'same-origin', cache: 'no-store' })
+            .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+            .then(function (data) {
+                if (destroyed) return;
+                (data.bicycles || []).forEach(function (bike) {
+                    if (!bike.has_registered_device) return;
+                    var card = document.querySelector('[data-device-card="' + bike.id + '"]');
+                    if (card) paintCard(card, bike);
+                });
+            })
+            .catch(function () { /* next tick retries */ })
+            .finally(function () { inflight = false; });
+    }
+
+    window.PedalyaDeviceLive = {
+        destroy: function () {
+            destroyed = true;
+            if (timer) clearInterval(timer);
+            if (window.PedalyaDeviceLive === this) window.PedalyaDeviceLive = null;
+        },
+        refresh: poll,
+    };
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && !destroyed) poll();
+    });
+    timer = setInterval(poll, POLL_MS);
 })();
 </script>
 @endif

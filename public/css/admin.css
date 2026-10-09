@@ -918,12 +918,24 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
   .admin-table--inventory { table-layout: auto; }
 }
 
-/* Actions column: single horizontal row, centered, evenly spaced */
+/* Actions column: fixed floor so every row lines up, buttons contained.
+   The column keeps a minimum width for up to three icon buttons, the row is
+   a single vertically-centered horizontal flex group with a uniform gap, and
+   every button shares one box (border-box, fixed 30px square, 13px icon) so
+   rows look identical no matter how many actions they offer. The inventory
+   table keeps its own denser sizing and is excluded from the fixed box. */
+.admin-table th.col-actions { width: 132px; min-width: 132px; }
+.admin-table td.col-actions { padding-right: 18px; }
 .actions-row {
   display: flex;
   flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
+}
+.actions-row > * {
+  box-sizing: border-box;
+  min-width: 0;
 }
 .actions-row > form {
   display: inline-flex;
@@ -933,11 +945,11 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
   margin: 0;
   padding: 0;
 }
-.actions-row > button {
+.actions-row > button,
+.actions-row > a {
   flex-shrink: 0;
   line-height: 1;
   margin: 0;
-  padding: 0;
 }
 .actions-row .btn-admin--sm {
   min-width: 30px;
@@ -945,10 +957,20 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+}
+.admin-table:not(.admin-table--inventory) .actions-row .btn-admin--sm {
+  width: 30px;
+}
+.actions-row .btn-admin--sm i {
+  font-size: 13px;
+  line-height: 1;
 }
 
-/* Mobile: allow wrapping */
+/* Mobile: rows stack full-width (see the global stacked-table rules), so the
+   fixed column floor is released and the group may wrap instead of clipping. */
 @media (max-width: 767.98px) {
+  .admin-table th.col-actions { width: auto; min-width: 0; }
   .actions-row { flex-wrap: wrap; }
 }
 
@@ -1334,34 +1356,76 @@ a.admin-pagination__item:hover { background: var(--surface-3); color: var(--text
 .admin-drawer__body { flex: 1; overflow-y: auto; padding: 20px 22px; }
 .admin-drawer__foot { padding: 15px 22px; border-top: 1px solid var(--border-subtle); }
 
-/* Toasts */
-.admin-toasts { position: fixed; top: calc(var(--topbar-h) + 14px); right: 18px; z-index: 3000; display: flex; flex-direction: column; gap: 10px; max-width: 360px; }
-.admin-toast {
+/* Toasts — compact, dark, top-right overlay (never shifts page content) */
+.admin-toasts {
+  position: fixed;
+  top: calc(var(--topbar-h) + 14px);
+  right: 18px;
+  z-index: 3000;
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  background: var(--surface);
-  border: 1px solid var(--border-subtle);
-  border-left: 4px solid var(--brand);
-  border-radius: 12px;
-  box-shadow: var(--shadow-pop);
-  padding: 13px 16px;
-  transform: translateX(120%);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  flex-direction: column;
+  gap: 10px;
+  width: min(360px, calc(100vw - 36px));
+  pointer-events: none;
 }
-.admin-toast.show { transform: translateX(0); }
-.admin-toast--success { border-left-color: var(--success); }
-.admin-toast--error { border-left-color: var(--danger); }
-.admin-toast--warning { border-left-color: var(--warning); }
-.admin-toast--info { border-left-color: var(--info); }
-.admin-toast__icon { font-size: 17px; flex-shrink: 0; margin-top: 1px; }
-.admin-toast--success .admin-toast__icon { color: var(--success); }
-.admin-toast--error .admin-toast__icon { color: var(--danger); }
-.admin-toast--warning .admin-toast__icon { color: var(--warning); }
-.admin-toast--info .admin-toast__icon { color: var(--info); }
-.admin-toast__title { font-weight: 650; font-size: 13px; color: var(--text-1); }
-.admin-toast__msg { font-size: 12.5px; color: var(--text-2); }
-.admin-toast__close { margin-left: auto; color: var(--text-3); cursor: pointer; background: none; border: none; font-size: 14px; }
+.admin-toast {
+  pointer-events: auto;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 360px;
+  background: #101828;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 12px 12px 12px 14px;
+  transform: translateX(120%);
+  opacity: 0;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease;
+}
+.admin-toast.show { transform: translateX(0); opacity: 1; }
+.admin-toast__iconwrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 14px;
+  margin-top: 1px;
+}
+.admin-toast--success .admin-toast__iconwrap { color: #4ADE80; background: rgba(74, 222, 128, 0.12); }
+.admin-toast--error .admin-toast__iconwrap { color: #F87171; background: rgba(248, 113, 113, 0.12); }
+.admin-toast--warning .admin-toast__iconwrap { color: #FBBF24; background: rgba(251, 191, 36, 0.13); }
+.admin-toast--info .admin-toast__iconwrap { color: #38BDF8; background: rgba(56, 189, 248, 0.13); }
+.admin-toast__icon { font-size: 14px; line-height: 1; }
+.admin-toast__body { min-width: 0; flex: 1; }
+.admin-toast__title { font-weight: 650; font-size: 13px; line-height: 1.3; color: #FFFFFF; margin: 0 0 2px; }
+.admin-toast__msg { font-size: 12.5px; line-height: 1.45; color: #A8B3C7; overflow-wrap: anywhere; }
+.admin-toast__close {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #7C8AA0;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  transition: color 0.15s, background 0.15s;
+}
+.admin-toast__close:hover { color: #FFFFFF; background: rgba(255, 255, 255, 0.08); }
+.admin-toast__close:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.4); outline-offset: 1px; }
+@media (max-width: 560px) {
+  .admin-toasts { top: 12px; right: 12px; left: 12px; width: auto; }
+  .admin-toast { max-width: none; }
+}
 
 /* Skeleton */
 .skeleton { position: relative; overflow: hidden; background: var(--surface-3); border-radius: 8px; }

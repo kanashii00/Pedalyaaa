@@ -50,10 +50,10 @@ void printBanner() {
     Serial.printf("[cfg] gps     UART1 (GPIO%d, GPIO%d)\n", GPS_RX_PIN, GPS_TX_PIN);
     if (SIM_ENABLED) {
         const bool placeholder = strcmp(SIM_APN, "YOUR_APN_HERE") == 0;
-        Serial.printf("[cfg] sim7600 UART2 (GPIO%d, GPIO%d) APN: %s\n", SIM_RX_PIN, SIM_TX_PIN,
+        Serial.printf("[cfg] EC20F UART2 (GPIO%d, GPIO%d) APN: %s\n", SIM_RX_PIN, SIM_TX_PIN,
                       placeholder ? "<not set>" : SIM_APN);
     } else {
-        Serial.println("[cfg] sim7600 disabled (SIM_ENABLED 0)");
+        Serial.println("[cfg] EC20F disabled (SIM_ENABLED 0)");
     }
 }
 

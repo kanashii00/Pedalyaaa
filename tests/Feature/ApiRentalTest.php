@@ -200,6 +200,47 @@ class ApiRentalTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_store_accepts_boundary_durations(): void
+    {
+        $rider = $this->makeRider();
+        Sanctum::actingAs($rider);
+
+        $bike = $this->makeBicycle();
+
+        $rentals = [
+            $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => Rental::STATUS_ACTIVE]),
+            $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => Rental::STATUS_ACTIVE]),
+        ];
+
+        $service = Mockery::mock(RentalService::class);
+        $service->shouldReceive('startRental')
+            ->twice()
+            ->andReturn(...$rentals);
+        $this->app->instance(RentalService::class, $service);
+
+        foreach ([1, 720] as $minutes) {
+            $this->postJson('/api/rentals', [
+                'bicycle_id' => $bike->id,
+                'duration_minutes' => $minutes,
+            ])->assertStatus(201);
+        }
+    }
+
+    public function test_store_rejects_durations_outside_1_to_720(): void
+    {
+        $rider = $this->makeRider();
+        Sanctum::actingAs($rider);
+
+        $bike = $this->makeBicycle();
+
+        foreach ([0, -30, 721, 1000, 'abc', '12.5'] as $bad) {
+            $this->postJson('/api/rentals', [
+                'bicycle_id' => $bike->id,
+                'duration_minutes' => $bad,
+            ])->assertStatus(422);
+        }
+    }
+
     public function test_return_rental_succeeds_for_owner(): void
     {
         $rider = $this->makeRider();

@@ -89,21 +89,26 @@ class AdminReportTest extends TestCase
         $this->assertStringContainsString("case 'customer': return renderCustomerTable(records, target);", $js);
 
         // paginateTable must rebuild the results area, not splice a new table in
-        // beside the old one (that produced two stacked tables).
-        $this->assertStringContainsString("container.innerHTML = (_summaryHtml[type] || '') + renderTable(type, records, target);", $js);
+        // beside the old one (that produced two stacked tables). Table and
+        // footer share one rounded card so pagination spans the full width.
+        $this->assertStringContainsString("container.innerHTML = (_summaryHtml[type] || '') + '<div class=\"admin-table-wrap report-table-wrap\">' + renderTable(type, records, target) + '</div>';", $js);
         $this->assertStringNotContainsString('summaryEl.parentElement.outerHTML', $js);
 
         // Range text is always shown, page buttons appear once there are 2+ pages.
-        $this->assertStringContainsString(">Showing ' + from + '-' + to + ' of ' + total", $js);
+        $this->assertStringContainsString(">Showing ' + from + '&ndash;' + to + ' of ' + total + ' records", $js);
         $this->assertStringContainsString('if (totalPages <= 1) return html', $js);
 
-        // Page numbers are generated from the record count, the Previous link
-        // is dead on page 1, the Next link is dead on the last page, and a
-        // stray page argument can never index outside the record set.
+        // Page numbers are generated from the record count, Previous is dead
+        // on page 1, Next is dead on the last page, and a stray page argument
+        // can never index outside the record set.
         $this->assertStringContainsString('for (var p = pStart; p <= pEnd; p++)', $js);
-        $this->assertStringContainsString("(currentPage === 1 ? ' disabled' : '')", $js);
-        $this->assertStringContainsString("(currentPage === totalPages ? ' disabled' : '')", $js);
+        $this->assertStringContainsString('aria-disabled="true"', $js);
+        $this->assertStringContainsString('aria-current="page"', $js);
         $this->assertStringContainsString('Math.min(Math.max(parseInt(page, 10) || 1, 1), totalPages)', $js);
+
+        // Dark shared pagination pattern — no Bootstrap white buttons.
+        $this->assertStringContainsString('admin-pagination', $js);
+        $this->assertStringNotContainsString('page-link', $js);
 
         // Fixed page size of 10, and filters reset paging back to page 1.
         $this->assertStringContainsString('var _pageSize = 10;', $js);
@@ -127,10 +132,10 @@ class AdminReportTest extends TestCase
         $this->assertStringContainsString('ALL CHECKS PASSED', $log);
 
         // The example the screen promises: 11 records, 10 per page.
-        $this->assertStringContainsString('range reads "Showing 1-10 of 11"', $log);
-        $this->assertStringContainsString('range reads "Showing 11-11 of 11"', $log);
-        $this->assertStringContainsString('Previous (<<) is disabled on page 1', $log);
-        $this->assertStringContainsString('Next (>>) is disabled on page 2', $log);
+        $this->assertStringContainsString('range reads "Showing 1-10 of 11 records"', $log);
+        $this->assertStringContainsString('range reads "Showing 11-11 of 11 records"', $log);
+        $this->assertStringContainsString('Previous is disabled on page 1', $log);
+        $this->assertStringContainsString('Next is disabled on page 2', $log);
         $this->assertStringContainsString('paging serves cached records without a new request', $log);
         $this->assertStringContainsString('filters reset paging back to page 1', $log);
     }

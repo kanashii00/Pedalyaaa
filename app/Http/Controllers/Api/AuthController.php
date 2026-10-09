@@ -48,13 +48,31 @@ class AuthController extends Controller
 
     public function register(Request $request): JsonResponse
     {
+        $request->merge([
+            'name' => preg_replace('/\s+/', ' ', trim((string) $request->input('name', ''))),
+            'email' => trim((string) $request->input('email', '')),
+            'phoneNumber' => trim((string) $request->input('phoneNumber', '')) === ''
+                ? null
+                : trim((string) $request->input('phoneNumber', '')),
+        ]);
+
         $validated = $request->validate([
-            'name'        => ['required', 'string', 'max:255'],
+            'name'        => ['required', 'string', 'min:2', 'max:100', 'regex:/^(?=.*\pL)[\pL\pM\s.\'’\-]+$/u'],
             'email'       => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'phoneNumber' => ['nullable', 'string', 'max:20'],
+            'phoneNumber' => ['nullable', 'string', 'min:7', 'max:15', 'regex:/^[0-9]+$/'],
             'address'     => ['nullable', 'string', 'max:500'],
-            'password'    => ['required', 'string', 'confirmed', Password::defaults()],
+            'password'    => ['required', 'string', 'min:8', 'confirmed', Password::defaults()],
             'device_name' => ['nullable', 'string', 'max:255'],
+        ], [
+            'name.regex' => 'Please enter a valid full name.',
+            'name.min' => 'Please enter a valid full name.',
+            'name.max' => 'Please enter a valid full name.',
+            'email.email' => 'Please enter a valid email address.',
+            'phoneNumber.regex' => 'Please enter a valid phone number.',
+            'phoneNumber.min' => 'Please enter a valid phone number.',
+            'phoneNumber.max' => 'Please enter a valid phone number.',
+            'password.min' => 'Password must be at least 8 characters.',
+            'password.confirmed' => 'Passwords do not match.',
         ]);
 
         $user = User::create([

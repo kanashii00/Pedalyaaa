@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Bicycle;
 use App\Models\Rental;
 use App\Models\SystemSetting;
+use App\Models\User;
 use App\Services\RentalService;
 use App\Services\RiderCacheService;
 use App\Services\RiderOperatingAreaService;
 use App\Services\NotificationService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -77,6 +79,77 @@ class DashboardController extends Controller
             'totalRentals' => $summary['totalRentals'],
             'totalSpent' => $summary['totalSpent'],
             'unreadCount' => $summary['unreadCount'],
+        ]);
+    }
+
+    /**
+     * Live dashboard state for the return-confirmation watcher.
+     *
+     * The dashboard is server-rendered, so after the rider submits a return
+     * the pending card would sit stale until a manual reload: the admin
+     * confirms in a separate session. The browser re-reads the authoritative
+     * state here and swaps to the normal (no active rental) UI in place.
+     *
+     * Everything is read fresh from the database — never from the cached
+     * summary — so a confirmation is visible on the very next poll. The
+     * notification created at confirmation already bumps the user's cache
+     * version, so a later full page load agrees with what this endpoint
+     * reported.
+     */
+    public function state(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $now = now();
+
+        $activeRental = $this->operatingArea->liveRentalFor($user);
+
+        $recentRentals = $user->rentals()
+            ->with('bicycle')
+            ->latest()
+            ->limit(5)
+            ->get();
+
+        $freshUser = User::query()->find($user->id);
+
+        $lastSettled = $user->rentals()
+            ->whereIn('status', [Rental::STATUS_RETURNED, Rental::STATUS_COMPLETED])
+            ->latest('id')
+            ->first();
+
+        return response()->json([
+            'activeRental' => $activeRental ? [
+                'id' => $activeRental->id,
+                'status' => $activeRental->status,
+                'returnSubmitted' => $activeRental->returnRequestedAt !== null
+                    || in_array($activeRental->status, [
+                        Rental::STATUS_AWAITING_RETURN,
+                        Rental::STATUS_OVERDUE_RETURN,
+                    ], true),
+            ] : null,
+            'stats' => [
+                'totalRentals' => $user->rentals()->count(),
+                'activeCount' => $activeRental ? 1 : 0,
+                'totalSpent' => (float) ($freshUser?->totalSpent ?? 0),
+            ],
+            'recentRentals' => $recentRentals->map(fn (Rental $rental) => [
+                'id' => $rental->id,
+                'serial' => $rental->bicycle->serialNumber ?? 'N/A',
+                'dateLabel' => $rental->startTime?->format('M d') ?? '—',
+                'durationLabel' => $rental->durationMinutes
+                    ? floor($rental->durationMinutes / 60).'h '.($rental->durationMinutes % 60).'m'
+                    : '—',
+                'cost' => (float) ($rental->totalFee ?? 0),
+                'status' => $rental->status,
+            ])->values(),
+            'lastSettled' => $lastSettled ? [
+                'rentalId' => $lastSettled->rentalId,
+                'finalFee' => (float) ($lastSettled->finalFee ?? $lastSettled->totalFee ?? 0),
+            ] : null,
+            'serverTime' => $now->toIso8601String(),
+        ])->withHeaders([
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
         ]);
     }
 

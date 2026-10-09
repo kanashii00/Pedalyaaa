@@ -111,6 +111,7 @@
     </x-slot:tools>
 
     <div class="admin-table-wrap">
+        <div class="table-responsive">
         <table class="admin-table">
             <thead>
                 <tr>
@@ -122,7 +123,7 @@
                     <th>Status</th>
                     <th>Rental</th>
                     <th>Date</th>
-                    <th>Actions</th>
+                    <th class="col-actions">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -200,18 +201,18 @@
                                 <div class="text-success">Paid: {{ $payment->paidAt->format('g:i A') }}</div>
                             @endif
                         </td>
-                        <td>
-                            <div class="d-flex gap-1">
-                                <a href="{{ route('admin.payments.show', $payment) }}" class="btn-admin btn-admin--ghost btn-admin--sm" title="View Details">
+                        <td data-label="Actions" class="col-actions">
+                            <div class="actions-row">
+                                <a href="{{ route('admin.payments.show', $payment) }}" class="btn-admin btn-admin--ghost btn-admin--sm" title="View Details" aria-label="View Details">
                                     <i class="bi bi-eye"></i>
                                 </a>
                                 @if($payment->status === 'paid')
-                                    <a href="{{ route('admin.payments.receipt', $payment) }}" class="btn-admin btn-admin--ghost btn-admin--sm" title="View Receipt" target="_blank">
+                                    <a href="{{ route('admin.payments.receipt', $payment) }}" class="btn-admin btn-admin--ghost btn-admin--sm" title="View Receipt" aria-label="View Receipt" target="_blank">
                                         <i class="bi bi-receipt"></i>
                                     </a>
                                 @endif
                                 @if($payment->status === 'pending' || $payment->status === 'processing')
-                                    <a href="{{ route('admin.payments.verify', $payment) }}" class="btn-admin btn-admin--ghost btn-admin--sm" title="Verify with PayMongo">
+                                    <a href="{{ route('admin.payments.verify', $payment) }}" class="btn-admin btn-admin--ghost btn-admin--sm" title="Verify with PayMongo" aria-label="Verify with PayMongo">
                                         <i class="bi bi-arrow-clockwise"></i>
                                     </a>
                                 @endif
@@ -225,6 +226,7 @@
                 @endforelse
             </tbody>
         </table>
+        </div>
     </div>
 
     <div class="admin-table-foot">

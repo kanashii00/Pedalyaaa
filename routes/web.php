@@ -74,6 +74,9 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::get('/rentals', [AdminRental::class, 'index'])->middleware('rental.sync')->name('rentals.index');
     Route::get('/rentals/history', [AdminRental::class, 'history'])->middleware('rental.sync')->name('rentals.history');
     Route::get('/rentals/returns', [AdminRental::class, 'returns'])->middleware('rental.sync')->name('rentals.returns');
+    // Versioned live snapshot for the admin rental sync (registered before
+    // /rentals/{id} so "feed" is never captured as an id).
+    Route::get('/rentals/feed', [AdminRental::class, 'feed'])->middleware('rental.sync')->name('rentals.feed');
     Route::get('/rentals/{id}', [AdminRental::class, 'show'])->middleware('rental.sync')->name('rentals.show');
     Route::put('/rentals/{id}/approve', [AdminRental::class, 'approve'])->name('rentals.approve');
     Route::put('/rentals/{id}/verify-gcash', [AdminRental::class, 'verifyGcashPayment'])->name('rentals.verify-gcash');
@@ -155,9 +158,20 @@ Route::post('/theft/{id}/acknowledge', [AdminTheft::class, 'acknowledge'])->name
 Route::middleware(['auth', 'role:rider'])->prefix('rider')->name('rider.')->group(function () {
     Route::get('/dashboard', [RiderDashboard::class, 'index'])->middleware('rental.sync')->name('dashboard');
 
+    // Live dashboard state polled while a return awaits admin confirmation
+    // so the renter dashboard settles itself without a page reload.
+    // rental.sync runs first so promotions are visible immediately.
+    Route::get('/dashboard/state', [RiderDashboard::class, 'state'])->middleware('rental.sync')->name('dashboard.state');
+
     // Live operating area for the rider's own rental. The bicycle is resolved
     // from the rider's rental, so this cannot be pointed at another bicycle.
-    Route::get('/operating-area/live', [RiderOperatingArea::class, 'live'])->name('operating-area.live');
+    Route::get('/operating-area/live', [RiderOperatingArea::class, 'live'])->middleware('rental.sync')->name('operating-area.live');
+
+    // Live rental state polled once when the dashboard countdown reaches zero
+    // so the Return button appears without a page reload. rental.sync promotes
+    // an expired rental before the state is read, making the backend the
+    // source of truth for expiration.
+    Route::get('/rentals/active-status', [RiderRent::class, 'activeStatus'])->middleware('rental.sync')->name('rentals.active-status');
 
     // Rent bicycle
     Route::get('/rent', [RiderRent::class, 'index'])->middleware('rental.sync')->name('rentals.create');

@@ -50,6 +50,14 @@ class ReconcileFleetServiceCommand extends Command
 
         $this->line("In-service unit: <info>{$inService->serialNumber} - {$inService->name}</info> (id {$inService->id})");
 
+        // A fitted unit with no stored credential cannot authenticate its
+        // ESP32, so it would never appear as an IoT-monitored bicycle. The
+        // plaintext lives only in the firmware secrets, so this command can
+        // only report the gap: issuing a key stays a deliberate admin step.
+        if (! $inService->hasDeviceKey()) {
+            $this->warn("  {$inService->serialNumber}: no device credential stored - issue a device key and flash it to the firmware before monitoring can go live.");
+        }
+
         $changes = 0;
 
         // The in-service unit: provisioned, and Available whenever it is not

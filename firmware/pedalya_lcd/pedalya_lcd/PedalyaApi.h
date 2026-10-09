@@ -122,7 +122,7 @@ public:
     int lastStatus() const { return lastStatus_; }
 
     /**
-     * True when the SIM7600 link, not Wi-Fi, is carrying the next request.
+     * True when the EC20F link, not Wi-Fi, is carrying the next request.
      *
      * Wi-Fi always wins whenever it is associated: the cellular route exists
      * for a bike out of range of the shop's access point, so it is only used
@@ -194,7 +194,7 @@ private:
     void reportFailure(int status, const String& body, String& error);
 
     /**
-     * One GET or POST over the SIM7600 link, carrying the X-API-Key
+     * One GET or POST over the EC20F link, carrying the X-API-Key
      * header, payload and endpoints of the Wi-Fi route.
      *
      * The modem is only a bearer here: nothing about the request changes, so

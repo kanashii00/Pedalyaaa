@@ -26,3 +26,12 @@ Broadcast::channel('geofence-alerts', function (User $user) {
 Broadcast::channel('App.Models.User.{id}', function (?User $user, int $id) {
     return $user !== null && (int) $user->id === $id;
 });
+
+/**
+ * Admin-only rental lifecycle feed. Carries no rental data itself (clients
+ * refetch the versioned feed), so the only thing guarded here is who gets
+ * told that something changed.
+ */
+Broadcast::channel('rentals-feed', function (?User $user) {
+    return $user !== null && $user->isAdmin();
+});

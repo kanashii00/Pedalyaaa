@@ -52,7 +52,7 @@
                 <th class="sortable">Scheduled <span class="sort-ind"></span></th>
                 <th class="sortable">Technician <span class="sort-ind"></span></th>
                 <th class="sortable">Est. Cost <span class="sort-ind"></span></th>
-                <th>Actions</th>
+                <th class="col-actions">Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -97,7 +97,7 @@
                 <td data-label="Scheduled">{{ $m->scheduledDate ? \Carbon\Carbon::parse($m->scheduledDate)->format('M d, Y') : '—' }}</td>
                 <td data-label="Technician">{{ $m->technician ?? '—' }}</td>
                 <td data-label="Est. Cost" class="fw-semibold">{{ $m->estimatedCost !== null ? '₱' . number_format($m->estimatedCost, 2) : '—' }}</td>
-                <td data-label="Actions">
+                <td data-label="Actions" class="col-actions">
                     <div class="dropdown">
                         <button class="btn-admin btn-admin--soft btn-admin--sm dropdown-toggle" type="button"
                             data-bs-toggle="dropdown" aria-expanded="false">

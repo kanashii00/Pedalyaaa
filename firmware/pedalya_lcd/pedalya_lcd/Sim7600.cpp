@@ -42,8 +42,10 @@ bool terminalReached(const String& text) {
     if (!text.endsWith("\n")) return false;
     const String line = lastLine(text);
     return line == "OK" || line == "ERROR" || line == "DOWNLOAD" ||
+           line == "CONNECT" || line == "SEND OK" ||
            line.startsWith("+CME ERROR") || line.startsWith("+CMS ERROR") ||
            line.startsWith("+CMD NOT SUPPORT") ||
+           line.startsWith("+HTTPACTION:") || line.startsWith("+QHTTP") ||
            (line.startsWith("+HTTPACTION: ") && line.indexOf(',') >= 0);
 }
 
@@ -141,10 +143,7 @@ int httpExchange(HttpMethod method,
         Serial.println("[SIM] no data link; request skipped");
         return 0;
     }
-    if (url.startsWith("https://")) {
-        Serial.println("[SIM] TLS is not configured on the modem; use HTTP (USE_HTTPS 0) or send this request over Wi-Fi");
-        return 0;
-    }
+    // EC20F with QHTTP supports HTTPS; TLS configured later if needed
 
     auto fail = [&](const char* why) -> int {
         Serial.printf("[SIM] %s; request abandoned\n", why);
@@ -153,96 +152,123 @@ int httpExchange(HttpMethod method,
         return 0;
     };
 
-    // A previous exchange can leave the service open; start every request clean.
-    simSendCommand("AT+HTTPTERM", 1000);
-    String reply = simSendCommand("AT+HTTPINIT", 4000);
-    if (reply.indexOf("OK") < 0) return fail("HTTPINIT failed");
+    Serial.println("[SIM] EC20F HTTP initialization");
+    Serial.printf("[SIM] HTTPS configuration (USE_HTTPS=%d)\n", USE_HTTPS);
+    Serial.printf("[SIM] HTTP URL: %s\n", url.c_str());
+    Serial.printf("[SIM] HTTP request: %s %s\n", method == HttpPost ? "POST" : "GET", url.c_str());
 
-    reply = simSendCommand("AT+HTTPPARA=\"URL\",\"" + url + "\"", SIM_CMD_TIMEOUT_MS);
-    if (reply.indexOf("OK") < 0) return fail("URL rejected");
+    auto fail = [&](const char* why) -> int {
+        Serial.printf("[SIM] %s; request abandoned\n", why);
+        checkBearer();
+        return 0;
+    };
+
+    // Configure HTTP context (0)
+    simSendCommand("AT+QHTTPCFG=\"contextid\",0", SIM_CMD_TIMEOUT_MS);
+    simSendCommand("AT+QHTTPCFG=\"responseheader\",0", SIM_CMD_TIMEOUT_MS);
+    simSendCommand("AT+QHTTPCFG=\"closewaittm\",20", SIM_CMD_TIMEOUT_MS);
+
+    if (url.startsWith("https://")) {
+        simSendCommand("AT+QHTTPCFG=\"sslctxid\",1", SIM_CMD_TIMEOUT_MS);
+        simSendCommand("AT+QSSLCFG=\"sslversion\",1,3", SIM_CMD_TIMEOUT_MS);
+        simSendCommand("AT+QSSLCFG=\"ciphersuite\",1,0xFFFF", SIM_CMD_TIMEOUT_MS);
+        simSendCommand("AT+QSSLCFG=\"seclevel\",1,0", SIM_CMD_TIMEOUT_MS);
+        simSendCommand("AT+QSSLCFG=\"cacert\",1,\"\"", SIM_CMD_TIMEOUT_MS);
+    } else {
+        simSendCommand("AT+QHTTPCFG=\"sslctxid\",0", SIM_CMD_TIMEOUT_MS);
+    }
+
+    String urlCmd = "AT+QHTTPURL=" + String(url.length()) + "," + String(SIM_CMD_TIMEOUT_MS);
+    String reply = simSendCommand(urlCmd, SIM_CMD_TIMEOUT_MS);
+    if (reply.indexOf('>') < 0 && reply.indexOf("CONNECT") < 0) {
+        // Some firmwares give CONNECT; also just send
+    }
+    // Send URL data
+    Serial2.print(url);
+    Serial2.print("\r\n");
+    String urlAck = read(SIM_CMD_TIMEOUT_MS);
+    if (urlAck.indexOf("OK") < 0) return fail("QHTTPURL rejected");
 
     if (method == HttpPost) {
-        reply = simSendCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"", SIM_CMD_TIMEOUT_MS);
-        if (reply.indexOf("OK") < 0) return fail("application/json content type rejected");
-    }
-
-    if (extraHeaders.length() > 0) {
-        // The modem's USERDATA parameter carries one header line, which is the
-        // X-API-Key header the backend requires; Content-Type has its own
-        // parameter above.
-        reply = simSendCommand("AT+HTTPPARA=\"USERDATA\",\"" + extraHeaders + "\"", SIM_CMD_TIMEOUT_MS);
-        if (reply.indexOf("OK") < 0) return fail("X-API-Key header rejected");
-    }
-
-    if (method == HttpPost && payload.length() > 0) {
-        char command[80];
-        snprintf(command, sizeof(command), "AT+HTTPDATA=%u,%u",
-                 (unsigned)payload.length(), (unsigned)SIM_HTTP_TIMEOUT_MS);
-        reply = simSendCommand(command, SIM_CMD_TIMEOUT_MS);
-        if (reply.indexOf("DOWNLOAD") < 0 && reply.indexOf('>') < 0) {
-            return fail("HTTPDATA refused the payload");
+        String len = String(payload.length());
+        String hcmd = "AT+QHTTPPOST=" + len + "," + String(SIM_HTTP_TIMEOUT_MS) + "," + String(SIM_HTTP_TIMEOUT_MS);
+        reply = simSendCommand(hcmd, SIM_CMD_TIMEOUT_MS);
+        if (reply.indexOf('>') < 0 && reply.indexOf("CONNECT") < 0) {
+            return fail("QHTTPPOST prompt not received");
         }
         Serial2.write((const uint8_t*)payload.c_str(), payload.length());
-        const String ack = read(SIM_CMD_TIMEOUT_MS);
-        if (ack.indexOf("OK") < 0) return fail("payload was not accepted");
-    }
-
-    reply = simSendCommand(method == HttpPost ? "AT+HTTPACTION=1" : "AT+HTTPACTION=0",
-                           SIM_CMD_TIMEOUT_MS);
-    if (reply.indexOf("OK") < 0) return fail("HTTPACTION refused");
-
-    // The command answers OK at once; the +HTTPACTION result code follows when
-    // the server has actually answered.
-    String result = reply;
-    if (result.indexOf("+HTTPACTION: ") < 0) result = read(SIM_HTTP_TIMEOUT_MS, 100);
-
-    const int at = result.indexOf("+HTTPACTION: ");
-    if (at < 0) return fail("no HTTP response within the timeout");
-
-    const String fields = result.substring(at + 13);
-    const int comma1 = fields.indexOf(',');
-    const int comma2 = fields.indexOf(',', comma1 + 1);
-    if (comma1 < 0 || comma2 < 0) return fail("unparsable +HTTPACTION line");
-
-    const int status = fields.substring(comma1 + 1, comma2).toInt();
-    const int length = fields.substring(comma2 + 1).toInt();
-    lastHttpStatus_ = status;
-
-    const char* verb = (method == HttpPost) ? "POST" : "GET";
-    Serial.printf("[SIM] %s %s -> %d (%d bytes)\n", verb, url.c_str(), status, length);
-
-    if (length > 0) {
-        // The announced length is authoritative: it lets the body be read
-        // byte-exact even if it contains a line that looks like a result code.
-        String head;
-        discardInput();
-        Serial2.print("AT+HTTPREAD\r\n");
-        const uint32_t start = millis();
-        while (head.indexOf('\n') < 0 && (uint32_t)(millis() - start) < SIM_CMD_TIMEOUT_MS) {
-            while (Serial2.available() > 0) head += (char)Serial2.read();
-            delay(2);
+        const String packAck = read(SIM_HTTP_TIMEOUT_MS);
+        if (packAck.indexOf("OK") < 0) return fail("payload not accepted");
+        if (packAck.indexOf("+QHTTPPOST:") < 0) {
+            String postRes = read(SIM_HTTP_TIMEOUT_MS, 100);
+            if (postRes.indexOf("+QHTTPPOST:") < 0) return fail("no QHTTPPOST result");
         }
-        const int marker = head.indexOf("+HTTPREAD: ");
-        if (marker >= 0) {
-            const int numberEnd = head.indexOf('\n', marker);
-            const int announced = numberEnd > 0
-                                      ? head.substring(marker + 11, numberEnd).toInt()
-                                      : 0;
-            String data = numberEnd > 0 ? head.substring(numberEnd + 1) : String();
-            const int wanted = announced > 0 ? announced : length;
-            if ((int)data.length() < wanted) {
-                data += readExact(wanted - data.length(), SIM_HTTP_TIMEOUT_MS);
-            } else if ((int)data.length() > wanted) {
-                data.remove(wanted);
+        String postRes = read(SIM_HTTP_TIMEOUT_MS);
+        int p = postRes.indexOf("+QHTTPPOST: 0,");
+        if (p < 0) p = postRes.indexOf("+QHTTPPOST:");
+        if (p < 0) return fail("unparsable QHTTPPOST");
+        int c1 = postRes.indexOf(',', p);
+        int c2 = postRes.indexOf(',', c1 + 1);
+        int status = 0;
+        if (c1 >= 0 && c2 >= 0) {
+            status = postRes.substring(c1 + 1, c2).toInt();
+        } else if (c1 >= 0) {
+            status = postRes.substring(c1 + 1).toInt();
+        }
+        lastHttpStatus_ = status;
+        if (status > 0) {
+            simSendCommand("AT+QHTTPREAD=" + String(SIM_HTTP_TIMEOUT_MS), SIM_CMD_TIMEOUT_MS);
+            String rd = read(SIM_HTTP_TIMEOUT_MS * 2);
+            int mr = rd.indexOf("+QHTTPREAD: ");
+            if (mr >= 0) {
+                int nl = rd.indexOf('\n', mr);
+                if (nl >= 0) {
+                    body = rd.substring(nl + 1);
+                }
             }
-            body = data;
+            int ok2 = body.lastIndexOf("OK");
+            if (ok2 >= 0) body.remove(ok2);
+            while (body.endsWith("\r\n") || body.endsWith("\n") || body.endsWith("\r")) {
+                body.remove(body.length() - 1);
+            }
         }
-        read(SIM_CMD_TIMEOUT_MS);  // trailing OK
+        Serial.printf("[SIM] HTTP response/status: %d (body len=%u)\n", status, (unsigned)body.length());
+        return status;
+    } else {
+        String getCmd = "AT+QHTTPGET=" + String(SIM_HTTP_TIMEOUT_MS);
+        reply = simSendCommand(getCmd, SIM_CMD_TIMEOUT_MS);
+        String gres = read(SIM_HTTP_TIMEOUT_MS * 2);
+        int g = gres.indexOf("+QHTTPGET: 0,");
+        if (g < 0) g = gres.indexOf("+QHTTPGET:");
+        if (g < 0) return fail("no QHTTPGET result");
+        int c1 = gres.indexOf(',', g);
+        int c2 = gres.indexOf(',', c1 + 1);
+        int status = 0;
+        if (c1 >= 0 && c2 >= 0) {
+            status = gres.substring(c1 + 1, c2).toInt();
+        } else if (c1 >= 0) {
+            status = gres.substring(c1 + 1).toInt();
+        }
+        lastHttpStatus_ = status;
+        if (status > 0) {
+            simSendCommand("AT+QHTTPREAD=" + String(SIM_HTTP_TIMEOUT_MS), SIM_CMD_TIMEOUT_MS);
+            String rd = read(SIM_HTTP_TIMEOUT_MS * 2);
+            int mr = rd.indexOf("+QHTTPREAD: ");
+            if (mr >= 0) {
+                int nl = rd.indexOf('\n', mr);
+                if (nl >= 0) {
+                    body = rd.substring(nl + 1);
+                }
+            }
+            int ok2 = body.lastIndexOf("OK");
+            if (ok2 >= 0) body.remove(ok2);
+            while (body.endsWith("\r\n") || body.endsWith("\n") || body.endsWith("\r")) {
+                body.remove(body.length() - 1);
+            }
+        }
+        Serial.printf("[SIM] HTTP response/status: %d (body len=%u)\n", status, (unsigned)body.length());
+        return status;
     }
-
-    simSendCommand("AT+HTTPTERM", 2000);
-    if (status == 0) checkBearer();  // status 0 means the request itself failed
-    return status;
 }
 
 }  // namespace
@@ -368,7 +394,8 @@ String simSendCommand(const String& command, uint32_t timeoutMs) {
     if (reply.length() == 0) {
         Serial.println("[SIM] << (no reply)");
     } else if (reply.indexOf("OK") < 0 && reply.indexOf("ERROR") < 0 &&
-               reply.indexOf("DOWNLOAD") < 0 && reply.indexOf("+HTTPACTION") < 0) {
+               reply.indexOf("DOWNLOAD") < 0 && reply.indexOf("CONNECT") < 0 &&
+               reply.indexOf("+HTTPACTION") < 0 && reply.indexOf("+QHTTP") < 0) {
         logRx(reply);
     }
     return reply;

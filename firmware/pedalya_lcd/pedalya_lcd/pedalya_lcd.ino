@@ -27,8 +27,7 @@
  *   CommandHandler  the server command queue
  *   GpsReceiver     checksummed NMEA RMC reader
  *   AccidentDetector the MPU6050 on the shared I2C bus, and its verdict only
- *   Sim7600         the SIM7600CE modem on UART2: a second route to the API,
- *                   and nothing else (the ESP32 keeps every decision)
+ *   Sim7600/EC20F   Quectel EC20F modem on UART2: cellular route to API
  *   PedalyaApi      WiFi + cellular HTTP, JSON, clock
  *   Diagnostics     the boot banner
  *   config.h        every pin, path and timing, overridable from secrets.h

@@ -133,6 +133,7 @@
         <div class="admin-table-toolbar">
             <div class="grow"><i class="bi bi-search"></i><input type="text" data-table-search placeholder="Search alerts..."></div>
         </div>
+        <div class="table-responsive">
         <table class="admin-table">
             <thead>
                 <tr>
@@ -143,7 +144,7 @@
                     <th class="sortable">Status <span class="sort-ind"></span></th>
                     <th class="sortable">Timestamp <span class="sort-ind"></span></th>
                     <th class="sortable">Acknowledged <span class="sort-ind"></span></th>
-                    <th>Actions</th>
+                    <th class="col-actions">Actions</th>
                 </tr>
             </thead>
             <tbody id="theftTableBody">
@@ -208,11 +209,11 @@
                                 <x-admin.badge type="warning" label="Pending" />
                             @endif
                         </td>
-                        <td data-label="Actions">
+                        <td data-label="Actions" class="col-actions">
                             @if(!$alert->acknowledged)
                                 <form action="{{ route('admin.theft-alerts.acknowledge', $alert->id) }}" method="POST" class="d-inline">
                                     @csrf
-                                    <button type="submit" class="btn-admin btn-admin--soft btn-admin--sm" title="Acknowledge" data-confirm="Mark this theft alert as acknowledged?">
+                                     <button type="submit" class="btn-admin btn-admin--soft btn-admin--sm" title="Acknowledge" aria-label="Acknowledge" data-confirm="Mark this theft alert as acknowledged?">
                                         <i class="bi bi-check-lg me-1"></i>Acknowledge
                                     </button>
                                 </form>
@@ -230,6 +231,7 @@
                 @endforelse
             </tbody>
         </table>
+        </div>
     </div>
     @if(method_exists($alerts, 'links'))
         <div class="admin-table-foot">
@@ -290,7 +292,7 @@
             '<td data-label="Acknowledged">' + (a.acknowledged
                 ? '<span class="badge-admin badge-admin--success">Acknowledged</span>'
                 : '<span class="badge-admin badge-admin--warning">Pending</span>') + '</td>' +
-            '<td data-label="Actions">' + (a.acknowledged
+            '<td data-label="Actions" class="col-actions">' + (a.acknowledged
                 ? '<span class="text-muted"><small>Handled</small></span>'
                 : '<button type="button" class="btn-admin btn-admin--soft btn-admin--sm" data-ack="' + a.id + '" title="Acknowledge"><i class="bi bi-check-lg me-1"></i>Acknowledge</button>') + '</td>' +
             '</tr>';

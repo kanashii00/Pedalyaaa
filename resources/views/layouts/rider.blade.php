@@ -134,13 +134,6 @@
 
         <!-- Content Area -->
         <div class="content-area">
-            @if(session('success'))
-                <div class="alert alert-pedalya alert-success alert-dismissible fade show" role="alert">
-                    <i class="bi bi-check-circle-fill me-2"></i>{{ session('success') }}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                </div>
-            @endif
-
             @if(session('error'))
                 <div class="alert alert-pedalya alert-danger alert-dismissible fade show" role="alert">
                     <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ session('error') }}
@@ -242,4 +235,25 @@
     };
 </script>
 <script src="{{ asset('js/notifications.js') }}"></script>
+{{-- Success flashes surface as an auto-dismissing toast (bottom-right,
+      bottom-center on mobile) instead of a full-width banner, so the message
+      never pushes or resizes page content. The shared toast runtime renders
+      the success icon, the slide/fade animation and the close button; the
+      message is JSON-encoded and injected as text, never as HTML. --}}
+@if(session('success'))
+<script>
+    (function () {
+        function showSuccessToast() {
+            if (window.PedalyaNotifications && window.PedalyaNotifications.toast) {
+                window.PedalyaNotifications.toast(@json(session('success')), 'success', 'Success');
+            }
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', showSuccessToast);
+        } else {
+            showSuccessToast();
+        }
+    })();
+</script>
+@endif
 @endsection

@@ -11,6 +11,7 @@ use App\Services\GeofenceService;
 use App\Services\RentalService;
 use App\Services\RiderCacheService;
 use App\Services\RiderOperatingAreaService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -55,12 +56,17 @@ class RentController extends Controller
      * The administrator configures the ceiling in hours (System Settings), so
      * it is converted here rather than duplicated as a second setting. This is
      * the single source for both the form hint and the server-side check.
+     *
+     * Hard-capped at MAX_DURATION_MINUTES (12 hours): a misconfigured setting
+     * above that must never reopen longer bookings through this endpoint.
      */
+    public const MAX_DURATION_MINUTES = 720;
+
     private function maxDurationMinutes(): int
     {
         $maxHours = (int) SystemSetting::getValue('rentalMaxDurationHours', 12);
 
-        return max(1, $maxHours) * 60;
+        return min(max(1, $maxHours) * 60, self::MAX_DURATION_MINUTES);
     }
 
     /**
@@ -164,6 +170,82 @@ class RentController extends Controller
         }
 
         return $redirect;
+    }
+
+    /**
+     * Live rental state for the rider dashboard countdown.
+     *
+     * The dashboard is server-rendered, so by the time its countdown reaches
+     * zero the row may already have transitioned (active -> expired via the
+     * rental.sync middleware on this route). The browser re-reads the
+     * authoritative state here instead of guessing from its own clock, then
+     * swaps the Return / Extend actions in place without a full-page reload.
+     *
+     * Never cached: Cache-Control no-store plus a cache-busting query string
+     * from the caller, so neither the browser nor any proxy can serve a stale
+     * status that hides the Return button.
+     */
+    public function activeStatus(Request $request): JsonResponse
+    {
+        $rental = $this->operatingArea->liveRentalFor($request->user());
+        $now = now();
+
+        if ($rental === null) {
+            return response()->json([
+                'rental' => null,
+                'serverTime' => $now->toIso8601String(),
+            ])->withHeaders([
+                'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+                'Pragma' => 'no-cache',
+                'Expires' => '0',
+            ]);
+        }
+
+        // Same precedence as RentalService::rentalClockFor() and the dashboard
+        // countdown target, so every surface counts down to the same instant.
+        $deadline = $rental->returnDeadline
+            ?? $rental->expectedEndTime
+            ?? $rental->endTime;
+
+        $returnSubmitted = $rental->returnRequestedAt !== null
+            || in_array($rental->status, [
+                Rental::STATUS_AWAITING_RETURN,
+                Rental::STATUS_OVERDUE_RETURN,
+            ], true);
+
+        $canReturn = ! $returnSubmitted && in_array($rental->status, [
+            Rental::STATUS_ACTIVE,
+            Rental::STATUS_OVERDUE,
+            Rental::STATUS_EXPIRED,
+            Rental::STATUS_AWAITING_RETURN,
+            Rental::STATUS_OVERDUE_RETURN,
+        ], true);
+
+        $canExtend = in_array($rental->status, [
+            Rental::STATUS_ACTIVE,
+            Rental::STATUS_OVERDUE,
+            Rental::STATUS_EXPIRED,
+        ], true);
+
+        return response()->json([
+            'rental' => [
+                'id' => $rental->id,
+                'rentalId' => $rental->rentalId,
+                'status' => $rental->status,
+                'returnRequestedAt' => optional($rental->returnRequestedAt)->toIso8601String(),
+                'deadline' => optional($deadline)->toIso8601String(),
+                'returnDeadline' => optional($rental->returnDeadline)->toIso8601String(),
+                'expectedEndTime' => optional($rental->expectedEndTime)->toIso8601String(),
+                'canReturn' => $canReturn,
+                'canExtend' => $canExtend,
+                'returnSubmitted' => $returnSubmitted,
+            ],
+            'serverTime' => $now->toIso8601String(),
+        ])->withHeaders([
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
+        ]);
     }
 
     public function history(Request $request): View
@@ -274,7 +356,13 @@ class RentController extends Controller
             ->firstOrFail();
 
         try {
-            $this->rentalService->returnRental(
+            // Two-phase return: this only submits the return for inspection.
+            // The rental moves to awaiting_return (persisted with
+            // returnRequestedAt) and stays visible until an administrator
+            // confirms it via processReturn(). A repeat submission is an
+            // idempotent no-op in the service, so report it as such instead
+            // of claiming another return was recorded.
+            $result = $this->rentalService->returnRental(
                 $rental,
                 $user,
                 $request->input('end_lat'),
@@ -284,8 +372,13 @@ class RentController extends Controller
                 $request->input('notes'),
             );
 
+            if (($result['requested'] ?? true) === false) {
+                return redirect()->route('rider.dashboard')
+                    ->with('success', 'Return already submitted — awaiting admin confirmation. Please wait for an administrator to inspect and confirm the return.');
+            }
+
             return redirect()->route('rider.dashboard')
-                ->with('success', 'Rental returned successfully.');
+                ->with('success', 'Your bicycle has been marked as returned. Please wait for an administrator to inspect and confirm the return.');
         } catch (RentalException $e) {
             return back()->withErrors(['return' => $e->getMessage()]);
         } catch (\Throwable $e) {

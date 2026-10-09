@@ -30,6 +30,7 @@
         </form>
     </div>
 
+    <div class="table-responsive">
     <table class="admin-table">
         <thead>
             <tr>
@@ -41,7 +42,7 @@
                 <th class="sortable">Verified <span class="sort-ind"></span></th>
                 <th class="sortable text-center">Rentals <span class="sort-ind"></span></th>
                 <th class="sortable text-center">Spent <span class="sort-ind"></span></th>
-                <th>Actions</th>
+                <th class="col-actions">Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -79,10 +80,11 @@
                     </td>
                     <td class="text-center" data-label="Rentals">{{ $rider->totalRentals ?? 0 }}</td>
                     <td class="text-center" data-label="Spent">₱{{ number_format($rider->totalSpent ?? 0, 2) }}</td>
-                    <td data-label="Actions">
+                    <td data-label="Actions" class="col-actions">
                         <div class="actions-row">
                             <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm"
                                     title="View Customer"
+                                    aria-label="View Customer"
                                     onclick="openVerifiedView(this)"
                                     data-id="{{ $rider->id }}"
                                     data-name="{{ $rider->name }}"
@@ -103,7 +105,7 @@
                                 @csrf
                                 @method('PUT')
                                 <input type="hidden" name="status" value="inactive">
-                                <button type="submit" class="btn-admin btn-admin--danger btn-admin--sm" title="Blacklist" data-confirm="Blacklist this customer? They will be moved to Blacklisted Customers.">
+                                <button type="submit" class="btn-admin btn-admin--danger btn-admin--sm" title="Blacklist" aria-label="Blacklist" data-confirm="Blacklist this customer? They will be moved to Blacklisted Customers.">
                                     <i class="bi bi-slash-circle"></i>
                                 </button>
                             </form>
@@ -119,6 +121,7 @@
             @endforelse
         </tbody>
     </table>
+    </div>
 
     <div class="admin-table-foot">
         <span>Showing {{ method_exists($riders, 'total') ? $riders->total() : $riders->count() }} verified customers</span>

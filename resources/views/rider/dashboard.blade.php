@@ -26,15 +26,15 @@
 <div class="rider-stats mb-4">
     <div class="rider-stat-card fade-in-up">
         <div class="stat-icon-lg" style="background:#E8F5E9;color:#2E7D32;"><i class="bi bi-bicycle"></i></div>
-        <div><div class="stat-value">{{ $totalRentals }}</div><div class="stat-label">Total Rentals</div></div>
+        <div><div class="stat-value" id="statTotalRentals">{{ $totalRentals }}</div><div class="stat-label">Total Rentals</div></div>
     </div>
     <div class="rider-stat-card fade-in-up" style="animation-delay:0.1s;">
         <div class="stat-icon-lg" style="background:#E3F2FD;color:#1976D2;"><i class="bi bi-play-circle"></i></div>
-        <div><div class="stat-value">{{ $activeRental ? 1 : 0 }}</div><div class="stat-label">Active Rental</div></div>
+        <div><div class="stat-value" id="statActiveRental">{{ $activeRental ? 1 : 0 }}</div><div class="stat-label">Active Rental</div></div>
     </div>
     <div class="rider-stat-card fade-in-up" style="animation-delay:0.2s;">
         <div class="stat-icon-lg" style="background:#FFF3E0;color:#F57C00;"><i class="bi bi-cash"></i></div>
-        <div><div class="stat-value">₱{{ number_format($totalSpent, 2) }}</div><div class="stat-label">Total Spent</div></div>
+        <div><div class="stat-value" id="statTotalSpent">₱{{ number_format($totalSpent, 2) }}</div><div class="stat-label">Total Spent</div></div>
     </div>
     <div class="rider-stat-card fade-in-up" style="animation-delay:0.3s;">
         <div class="stat-icon-lg" style="background:#E8F5E9;color:#2E7D32;"><i class="bi bi-shield-check"></i></div>
@@ -51,6 +51,12 @@
                 @if($activeRental)
 @php
     $isReturnFlow = in_array($activeRental->status, ['expired', 'awaiting_return', 'overdue_return'], true);
+    // Persisted pending state: once the rider submits the return the rental
+    // carries returnRequestedAt (and/or sits in awaiting_return /
+    // overdue_return) until an admin confirms it. While set, the Return
+    // Bicycle button stays hidden so another request cannot be submitted.
+    $returnSubmitted = $activeRental->returnRequestedAt !== null
+        || in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true);
     $penaltyRuleText = null;
     if (in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true)) {
         if ($activeRental->penaltyType === 'per_hour') {
@@ -80,7 +86,7 @@
                                             <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-cash-stack me-1" style="font-size:0.5rem;"></i> Penalty so far: &#8369;{{ number_format($currentPenalty, 2) }}</span>
                                         @endif
                                     @elseif($activeRental->status === 'awaiting_return')
-                                        <span class="badge-status" style="background:#E8F5E9;color:#2E7D32;"><i class="bi bi-check2-circle me-1" style="font-size:0.5rem;"></i> Awaiting admin return confirmation</span>
+                                        <span class="badge-status" style="background:#E8F5E9;color:#2E7D32;"><i class="bi bi-check2-circle me-1" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>
                                         @if($penaltyRuleText)
                                             <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-info-circle me-1" style="font-size:0.5rem;"></i> Return by the deadline &mdash; {{ $penaltyRuleText }}</span>
                                         @endif
@@ -108,9 +114,11 @@
                                     <div class="countdown-item"><span class="countdown-value" id="cdSecs">00</span><span class="countdown-label">Sec</span></div>
                                 </div>
                                 @if($activeRental->status === 'expired')
-                                    <p class="mt-2 mb-0 fw-bold" style="color:#E65100;">Waiting for deadline</p>
+                                    <p class="mt-2 mb-0 fw-bold" id="deadlineNoteLine" style="color:#E65100;">Waiting for deadline</p>
+                                    <p class="mt-2 mb-0 fw-bold text-primary" id="rentalFeeLine" hidden style="display:none;">&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</p>
                                 @else
-                                    <p class="mt-2 mb-0 fw-bold text-primary">&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</p>
+                                    <p class="mt-2 mb-0 fw-bold" id="deadlineNoteLine" style="color:#E65100;display:none;" hidden>Waiting for deadline</p>
+                                    <p class="mt-2 mb-0 fw-bold text-primary" id="rentalFeeLine">&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</p>
                                 @endif
                                 @if($activeRental->hasRideExtensions())
                                     <span class="badge-status mt-1" style="background:#E3F2FD;color:#1976D2;" title="This ride was extended {{ $activeRental->extensionCount }} time(s) by {{ $activeRental->extendedMinutes }} extra minutes ({{ $activeRental->extensionMinutesLabel() }}) worth &#8369;{{ number_format((float) $activeRental->extensionFee, 2) }}.">
@@ -126,19 +134,35 @@
                                         return ($activeRental->durationMinutes ?? 0) + $m <= $extMaxMinutes;
                                     }));
                                 @endphp
-                                @if($extOptions && in_array($activeRental->status, ['active', 'expired'], true))
-                                    <div class="mt-2">
+                                {{-- All three action states are rendered so the countdown script can
+                                     swap between them in place when the deadline passes, without
+                                     a page reload. Visibility is server-driven on first paint;
+                                     the return form stays disabled until its state is confirmed
+                                     (server render, or a live status refetch at zero). --}}
+                                <div class="mt-2" id="extendActionWrap"@if(!($extOptions && in_array($activeRental->status, ['active', 'expired'], true) && !$returnSubmitted)) hidden style="display:none;"@endif>
+                                    @if($extOptions)
                                         <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#extendRideModal">
                                             <i class="bi bi-plus-circle me-1"></i>Extend Ride
                                         </button>
-                                    </div>
-                                @endif
-                                @if($isReturnFlow)
-                                    <form action="{{ route('rider.rentals.return', $activeRental->id) }}" method="POST" class="mt-2">
-                                        @csrf
-                                        <button type="submit" class="btn btn-sm btn-pedalya"><i class="bi bi-arrow-return-left me-1"></i>Return Bicycle</button>
-                                    </form>
-                                @endif
+                                    @endif
+                                </div>
+                                <div class="mt-2 p-2 rounded border" id="pendingReturnBox" role="status" style="background:#FFF8E1;border-color:#FFE0B2 !important;text-align:left;@if(!$returnSubmitted)display:none;@endif"@if(!$returnSubmitted) hidden@endif>
+                                    <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split me-1" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>
+                                    <p class="mb-1 mt-1 fw-bold" style="font-size:0.8rem;color:#E65100;">Return submitted &mdash; awaiting admin confirmation.</p>
+                                    <p class="mb-0 text-muted" style="font-size:0.78rem;">Your bicycle has been marked as returned. Please wait for an administrator to inspect and confirm the return.</p>
+                                </div>
+                                <form action="{{ route('rider.rentals.return', $activeRental->id) }}" method="POST" class="mt-2" id="returnActionForm" data-return-form@if(!($isReturnFlow && !$returnSubmitted)) hidden style="display:none;"@endif>
+                                    @csrf
+                                    <button type="submit" class="btn btn-sm btn-pedalya" data-return-button@if(!($isReturnFlow && !$returnSubmitted)) disabled@endif><i class="bi bi-arrow-return-left me-1"></i>Return Bicycle</button>
+                                </form>
+                                {{-- Static warning badges the countdown clones when the rental
+                                     transitions client-side (active -> expired / awaiting). --}}
+                                <template id="expiredWarningTemplate">
+                                    <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split me-1" style="font-size:0.5rem;"></i> Expired &mdash; an administrator will set your return deadline</span>
+                                </template>
+                                <template id="awaitingWarningTemplate">
+                                    <span class="badge-status" style="background:#E8F5E9;color:#2E7D32;"><i class="bi bi-check2-circle me-1" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>
+                                </template>
                             </div>
                         </div>
                     </div>
@@ -152,6 +176,16 @@
             </div>
         </div>
     </div>
+
+    {{-- Settled-state markup for the return watcher: byte-identical to the
+         no-rental branch above so the in-place transition matches a reload. --}}
+    <template id="noActiveRentalTemplate">
+        <div class="text-center py-4">
+            <i class="bi bi-bicycle" style="font-size:3rem;color:var(--gray-300);"></i>
+            <p class="text-muted mt-2 mb-0">No active rental</p>
+            <a href="{{ route('rider.rentals.create') }}" class="btn btn-sm btn-pedalya mt-2"><i class="bi bi-bicycle me-1"></i> Rent Now</a>
+        </div>
+    </template>
 
     <!-- Recent History -->
     <div class="col-lg-6">
@@ -171,7 +205,7 @@
                             <th>Status</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="recentRentalsBody">
                         @forelse($recentRentals as $rental)
                             <tr>
                                 <td><strong>{{ $rental->bicycle->serialNumber ?? 'N/A' }}</strong></td>
@@ -183,6 +217,8 @@
                                         <span class="badge-status badge-active"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Active</span>
                                     @elseif($rental->status === 'completed')
                                         <span class="badge-status badge-completed"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Completed</span>
+                                    @elseif(in_array($rental->status, ['awaiting_return', 'overdue_return'], true))
+                                        <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>
                                     @else
                                         <span class="badge-status badge-cancelled"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> {{ ucfirst($rental->status) }}</span>
                                     @endif
@@ -220,10 +256,10 @@
     <div class="card-pedalya-header d-flex justify-content-between align-items-center">
         <span>
             <i class="bi bi-geo-alt-fill text-primary me-2"></i>
-            <strong>{{ $activeRental ? 'Your Riding Area' : 'Riding Area' }}</strong>
+            <strong id="ridingAreaTitle">{{ $activeRental ? 'Your Riding Area' : 'Riding Area' }}</strong>
         </span>
         @if($activeRental)
-        <span class="d-flex align-items-center gap-2">
+        <span class="d-flex align-items-center gap-2" id="zoneBadgeWrap">
             <span id="zoneBadge" class="badge rounded-pill px-3 py-2" style="background:{{ $zone['color'] }};font-size:0.78rem;">
                 <i class="bi {{ $zone['icon'] }} me-1"></i><span id="zoneBadgeText">{{ $zone['label'] }}</span>
             </span>
@@ -317,6 +353,197 @@
 
 @section('scripts')
 <script src="{{ asset('js/geolibre-map.js') }}"></script>
+<script>
+    (function() {
+        // Return watcher: while a return awaits admin confirmation the card
+        // would sit stale until a manual reload, because the confirmation
+        // happens in a separate (admin) session. Poll the authoritative
+        // dashboard state and swap to the normal UI in place when the rental
+        // settles. Singleton-guarded; fully torn down after settling.
+        if (window.PedalyaReturnWatch) {
+            window.PedalyaReturnWatch.destroy();
+        }
+        var stateUrl = @json(route('rider.dashboard.state'));
+        var hasActiveRental = @json((bool) $activeRental);
+        var pending = @json($activeRental ? ($activeRental->returnRequestedAt !== null) : false);
+        var settled = false;
+        var destroyed = false;
+        var inflight = false;
+        var pollTimer = 0;
+        var echoConfirmSeen = false;
+        var POLL_MS = 12000;
+        var RENTAL_TYPES = ['rental_started', 'rental_approved', 'rental_returned',
+            'return_requested', 'rental_completed', 'rental_expired',
+            'rental_overdue_return', 'rental_deadline', 'rental_extended'];
+
+        function esc(s) {
+            var d = document.createElement('div');
+            d.textContent = s === null || s === undefined ? '' : String(s);
+            return d.innerHTML;
+        }
+        function money(n) {
+            return '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        function setText(id, value) {
+            var node = document.getElementById(id);
+            if (node) node.textContent = value;
+        }
+
+        function badgeFor(status) {
+            if (status === 'active') {
+                return '<span class="badge-status badge-active"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Active</span>';
+            }
+            if (status === 'completed') {
+                return '<span class="badge-status badge-completed"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Completed</span>';
+            }
+            if (status === 'awaiting_return' || status === 'overdue_return') {
+                return '<span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>';
+            }
+            var label = esc(status.charAt(0).toUpperCase() + status.slice(1));
+            return '<span class="badge-status badge-cancelled"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> ' + label + '</span>';
+        }
+
+        function renderRecent(rows) {
+            var tbody = document.getElementById('recentRentalsBody');
+            if (!tbody) return;
+            if (!rows || !rows.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No rental history yet</td></tr>';
+                return;
+            }
+            tbody.innerHTML = rows.map(function (r) {
+                return '<tr>' +
+                    '<td><strong>' + esc(r.serial) + '</strong></td>' +
+                    '<td>' + esc(r.dateLabel) + '</td>' +
+                    '<td>' + esc(r.durationLabel) + '</td>' +
+                    '<td>' + money(r.cost) + '</td>' +
+                    '<td>' + badgeFor(r.status) + '</td>' +
+                '</tr>';
+            }).join('');
+        }
+
+        function settleDashboard(data) {
+            settled = true;
+            stop();
+            if (window.PedalyaRentalCountdown) {
+                try { window.PedalyaRentalCountdown.destroy(); } catch (e) { /* already gone */ }
+            }
+            // Active card -> normal empty state (same markup as a reload).
+            var card = document.getElementById('activeRentalCard');
+            var tpl = document.getElementById('noActiveRentalTemplate');
+            if (card && tpl && ('content' in tpl)) {
+                card.innerHTML = '';
+                card.appendChild(tpl.content.cloneNode(true));
+            }
+            // Stats: active count to 0, totals refreshed from the backend.
+            setText('statTotalRentals', String(data.stats.totalRentals));
+            setText('statActiveRental', String(data.stats.activeCount));
+            setText('statTotalSpent', money(data.stats.totalSpent));
+            renderRecent(data.recentRentals);
+            // Map header back to the pre-rental state.
+            setText('ridingAreaTitle', 'Riding Area');
+            var badgeWrap = document.getElementById('zoneBadgeWrap');
+            if (badgeWrap) badgeWrap.style.display = 'none';
+            if (window.PedalyaNotifications && window.PedalyaNotifications.refreshBadge) {
+                try { window.PedalyaNotifications.refreshBadge(); } catch (e) { /* badge keeps stale count */ }
+            }
+            // The Echo toast already announced confirmations that arrived
+            // live; only announce ones discovered by polling.
+            if (!echoConfirmSeen && window.PedalyaNotifications && window.PedalyaNotifications.toast) {
+                var fee = data.lastSettled ? money(data.lastSettled.finalFee) : null;
+                var msg = data.lastSettled
+                    ? 'Your rental ' + data.lastSettled.rentalId + ' has been confirmed. Final fee: ' + fee + '.'
+                    : 'Your bicycle return has been confirmed by an administrator.';
+                try { window.PedalyaNotifications.toast(msg, 'success', 'Return confirmed'); } catch (e) { /* toast is best-effort */ }
+            }
+        }
+
+        function applyState(data) {
+            inflight = false;
+            if (destroyed || settled || !data) return;
+            // Backend is the source of truth: only a settled (non-live)
+            // rental may clear the card — never a clock or a guess.
+            if (hasActiveRental && data.activeRental === null) {
+                settleDashboard(data);
+            }
+        }
+
+        function checkState() {
+            if (destroyed || settled || inflight || !stateUrl) return;
+            // Nothing to watch until a return is actually submitted; the
+            // countdown module owns the pre-return UI.
+            if (!pending) return;
+            // Keep the cadence alive no matter which path armed the watcher
+            // (initial pending render, submit elsewhere, live event).
+            startPolling();
+            inflight = true;
+            fetch(stateUrl + (stateUrl.indexOf('?') === -1 ? '?' : '&') + 't=' + Date.now(), {
+                headers: { Accept: 'application/json' },
+                credentials: 'same-origin',
+                cache: 'no-store',
+            })
+                .then(function (res) {
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.json();
+                })
+                .then(applyState)
+                .catch(function () {
+                    inflight = false;
+                    // Next poll / visibility event retries; never loops hot.
+                });
+        }
+
+        function startPolling() {
+            if (pollTimer || destroyed || settled) return;
+            pollTimer = setInterval(function () {
+                if (!document.hidden) checkState();
+            }, POLL_MS);
+        }
+
+        function stop() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = 0;
+            document.removeEventListener('visibilitychange', onVisibility);
+            window.removeEventListener('pageshow', onPageShow);
+            window.removeEventListener('pedalya:notifications-changed', onNotifications);
+        }
+
+        function onVisibility() {
+            if (!document.hidden && !destroyed && !settled && pending) checkState();
+        }
+
+        function onPageShow(event) {
+            if (!destroyed && !settled && pending && event && event.persisted) checkState();
+        }
+
+        function onNotifications(event) {
+            var type = event && event.detail && event.detail.type;
+            if (type === 'rental_completed') echoConfirmSeen = true;
+            if (type && RENTAL_TYPES.indexOf(type) !== -1) {
+                // A return submitted from another tab still arms the watcher.
+                if (type === 'rental_returned' || type === 'return_requested') pending = true;
+                checkState();
+            }
+        }
+
+        function destroy() {
+            destroyed = true;
+            stop();
+            if (window.PedalyaReturnWatch === api) window.PedalyaReturnWatch = null;
+        }
+
+        var api = { destroy: destroy, check: checkState };
+        window.PedalyaReturnWatch = api;
+        document.addEventListener('visibilitychange', onVisibility);
+        window.addEventListener('pageshow', onPageShow);
+        window.addEventListener('pedalya:notifications-changed', onNotifications);
+        // Arm immediately when the page already renders the pending state;
+        // otherwise the watcher idles until a return is submitted.
+        if (hasActiveRental && pending) {
+            checkState();
+            startPolling();
+        }
+    })();
+</script>
 @if($activeRental)
 @php
     $isReturnFlow = in_array($activeRental->status, ['expired', 'awaiting_return', 'overdue_return'], true);
@@ -325,9 +552,9 @@
     if (in_array($activeRental->status, ['active', 'overdue'], true)) {
         // Same precedence as RentalService::rentalClockFor() so this countdown
         // can never disagree with the one the on-board LCD is showing.
-        $countdownTarget = $activeRental->endTime
-            ?? $activeRental->returnDeadline
+        $countdownTarget = $activeRental->returnDeadline
             ?? $activeRental->expectedEndTime
+            ?? $activeRental->endTime
             ?? optional($activeRental->startTime)->copy()->addMinutes($activeRental->durationMinutes ?? 60);
         $countdownIso = optional($countdownTarget)->toIso8601String();
     } elseif (in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true) && $activeRental->returnDeadline) {
@@ -335,24 +562,198 @@
         $overdueReturnFlag = ($activeRental->status === 'overdue_return');
     }
     $warningSeconds = ($warningMinutes ?? 5) * 60;
+    $countdownServerTimeIso = now()->toIso8601String();
+    $countdownStatusUrl = route('rider.rentals.active-status');
+    $countdownInitialStatus = $activeRental->status;
+    $countdownReturnSubmitted = $activeRental->returnRequestedAt !== null;
 @endphp
 <script>
     (function() {
+        // Singleton: a soft navigation can evaluate this block twice, and two
+        // intervals would double-tick the display and double-fire the sync.
+        if (window.PedalyaRentalCountdown) {
+            window.PedalyaRentalCountdown.destroy();
+        }
         var target = @json($countdownIso);
         var warningSeconds = {{ $warningSeconds }};
         var overdueReturn = {{ $overdueReturnFlag ? 'true' : 'false' }};
+        var initialStatus = @json($countdownInitialStatus);
+        var initialReturnSubmitted = @json($countdownReturnSubmitted);
+        var statusUrl = @json($countdownStatusUrl);
+        var serverTimeIso = @json($countdownServerTimeIso);
         var endTime = target ? new Date(target) : null;
         var expiredShown = false;
 
+        // Client-clock correction: the countdown measures against the
+        // authoritative server clock, not the device clock. The offset is
+        // captured at render and refreshed on every status refetch.
+        var serverOffsetMs = 0;
+        try {
+            var renderServerMs = Date.parse(serverTimeIso);
+            if (!isNaN(renderServerMs)) serverOffsetMs = renderServerMs - Date.now();
+        } catch (offsetErr) { /* device clock stands in */ }
+
+        var synced = false;
+        var syncing = false;
+        var retryTimer = 0;
+        var interval = 0;
+        var destroyed = false;
+
         function pad(n) { return String(n).padStart(2, '0'); }
+        function nowMs() { return Date.now() + serverOffsetMs; }
+        function byId(id) { return document.getElementById(id); }
+        function show(el) { if (el) { el.hidden = false; el.style.display = ''; } }
+        function hide(el) { if (el) { el.hidden = true; el.style.display = 'none'; } }
+
+        function remainingSeconds() {
+            if (!endTime || isNaN(endTime.getTime())) return null;
+            return Math.max(0, Math.floor((endTime.getTime() - nowMs()) / 1000));
+        }
+
+        // Only an active/overdue ride with no submitted return can transition
+        // into the return flow. Every other state already renders its final
+        // actions server-side, so no refetch is ever needed for it.
+        function needsSync() {
+            if (synced || syncing || initialReturnSubmitted) return false;
+            return initialStatus === 'active' || initialStatus === 'overdue';
+        }
+
+        function cloneTemplate(id) {
+            var tpl = byId(id);
+            if (!tpl || !('content' in tpl)) return null;
+            return tpl.content.cloneNode(true);
+        }
+
+        function showReturnForm(status) {
+            var form = byId('returnActionForm');
+            var pending = byId('pendingReturnBox');
+            hide(pending);
+            show(form);
+            // The button stays disabled until this backend confirmation lands,
+            // so a crafted clock can never enable a return the server forbids.
+            if (form) {
+                var button = form.querySelector('[data-return-button]');
+                if (button) button.disabled = false;
+            }
+            if (status === 'expired') {
+                hide(byId('rentalFeeLine'));
+                show(byId('deadlineNoteLine'));
+                var warn = byId('rentalWarning');
+                if (warn) {
+                    var frag = cloneTemplate('expiredWarningTemplate');
+                    if (frag) {
+                        warn.innerHTML = '';
+                        warn.appendChild(frag);
+                    }
+                    warn.style.display = 'block';
+                }
+            } else {
+                var awaitingWarn = byId('rentalWarning');
+                if (awaitingWarn) {
+                    var awaitingFrag = cloneTemplate('awaitingWarningTemplate');
+                    if (awaitingFrag) {
+                        awaitingWarn.innerHTML = '';
+                        awaitingWarn.appendChild(awaitingFrag);
+                    }
+                    awaitingWarn.style.display = 'block';
+                }
+            }
+        }
+
+        function showPendingBox() {
+            hide(byId('returnActionForm'));
+            hide(byId('extendActionWrap'));
+            show(byId('pendingReturnBox'));
+            var warn = byId('rentalWarning');
+            if (warn) {
+                var frag = cloneTemplate('awaitingWarningTemplate');
+                if (frag) {
+                    warn.innerHTML = '';
+                    warn.appendChild(frag);
+                }
+                warn.style.display = 'block';
+            }
+        }
+
+        function applyStatus(payload) {
+            syncing = false;
+            if (destroyed) return;
+            try {
+                var serverMs = Date.parse(payload && payload.serverTime);
+                if (!isNaN(serverMs)) serverOffsetMs = serverMs - Date.now();
+            } catch (clockErr) { /* keep the previous offset */ }
+            var rental = payload && payload.rental;
+            if (!rental) {
+                // Nothing live anymore (settled elsewhere): freeze at zero.
+                synced = true;
+                updateTimer();
+                return;
+            }
+            if (rental.deadline) {
+                var next = new Date(rental.deadline);
+                if (!isNaN(next.getTime()) && (!endTime || next.getTime() !== endTime.getTime())) {
+                    endTime = next;
+                    target = rental.deadline;
+                }
+            }
+            initialStatus = rental.status;
+            initialReturnSubmitted = !!rental.returnSubmitted;
+            var remaining = remainingSeconds();
+            if (remaining !== null && remaining > 0) {
+                // Extended in another tab, or the clock correction moved the
+                // deadline back into the future: keep counting and allow a
+                // fresh sync when the new deadline arrives.
+                expiredShown = false;
+                synced = false;
+                updateTimer();
+                return;
+            }
+            synced = true;
+            if (rental.returnSubmitted) {
+                showPendingBox();
+            } else if (rental.canReturn) {
+                showReturnForm(rental.status);
+            }
+            if (!rental.canExtend) {
+                hide(byId('extendActionWrap'));
+            }
+            updateTimer();
+        }
+
+        function fetchStatus() {
+            if (syncing || synced || destroyed) return;
+            if (!statusUrl) return;
+            syncing = true;
+            var url = statusUrl + (statusUrl.indexOf('?') === -1 ? '?' : '&') + 't=' + Date.now();
+            fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', cache: 'no-store' })
+                .then(function (res) {
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.json();
+                })
+                .then(applyStatus)
+                .catch(function (err) {
+                    syncing = false;
+                    if (typeof console !== 'undefined' && console.warn) {
+                        console.warn('[pedalya] rental status sync failed, will retry once', err);
+                    }
+                    // One retry, not a poll loop: the next paint already shows
+                    // 0:00:00, and any navigation re-renders from the server.
+                    if (!synced && !destroyed && !retryTimer) {
+                        retryTimer = setTimeout(function () {
+                            retryTimer = 0;
+                            fetchStatus();
+                        }, 5000);
+                    }
+                });
+        }
 
         function updateTimer() {
-            var warn = document.getElementById('rentalWarning');
+            var warn = byId('rentalWarning');
             var els = {
-                timer: document.getElementById('rentalTimer'),
-                h: document.getElementById('cdHours'),
-                m: document.getElementById('cdMins'),
-                s: document.getElementById('cdSecs')
+                timer: byId('rentalTimer'),
+                h: byId('cdHours'),
+                m: byId('cdMins'),
+                s: byId('cdSecs')
             };
 
             // A missing element used to throw a TypeError, which killed the
@@ -379,8 +780,7 @@
                 els.s.textContent = '00';
                 return;
             }
-            var nowMs = Date.now();
-            var remaining = Math.max(0, Math.floor((endTime.getTime() - nowMs) / 1000));
+            var remaining = remainingSeconds();
             var h = Math.floor(remaining / 3600);
             var m = Math.floor((remaining % 3600) / 60);
             var s = remaining % 60;
@@ -394,14 +794,16 @@
                 if (overdueReturn) {
                     warn.style.display = 'block';
                     ['cdHours', 'cdMins', 'cdSecs'].forEach(function(id) {
-                        document.getElementById(id).style.color = '#C62828';
+                        var node = byId(id);
+                        if (node) node.style.color = '#C62828';
                     });
                 } else if (remaining > 0 && remaining <= warningSeconds) {
                     warn.style.display = 'block';
                     ['cdHours', 'cdMins', 'cdSecs'].forEach(function(id) {
-                        document.getElementById(id).style.color = '#E65100';
+                        var node = byId(id);
+                        if (node) node.style.color = '#E65100';
                     });
-                } else {
+                } else if (!expiredShown) {
                     warn.style.display = 'none';
                 }
             }
@@ -409,10 +811,42 @@
             if (remaining <= 0 && !expiredShown) {
                 expiredShown = true;
                 els.timer.textContent = '0:00:00';
+                // The row has likely transitioned server-side (active ->
+                // expired via rental.sync). Re-read the authoritative state
+                // once and swap the actions in place: no reload needed.
+                if (needsSync()) fetchStatus();
             }
         }
+
+        function onPageShow(event) {
+            // Back-forward cache restores a frozen DOM with a stale clock: if
+            // the countdown already reads zero and a sync is still due, run it
+            // so the actions match the server without a manual refresh.
+            if (destroyed) return;
+            updateTimer();
+            if (event && event.persisted && remainingSeconds() === 0 && needsSync()) {
+                fetchStatus();
+            }
+        }
+
+        function destroy() {
+            destroyed = true;
+            if (interval) clearInterval(interval);
+            if (retryTimer) clearTimeout(retryTimer);
+            window.removeEventListener('pageshow', onPageShow);
+            if (window.PedalyaRentalCountdown === api) window.PedalyaRentalCountdown = null;
+        }
+
+        var api = { destroy: destroy, refresh: fetchStatus };
+        window.PedalyaRentalCountdown = api;
+        window.addEventListener('pageshow', onPageShow);
         updateTimer();
-        setInterval(updateTimer, 1000);
+        interval = setInterval(updateTimer, 1000);
+        // No pagehide teardown: the back-forward cache suspends this interval
+        // and resumes it on restore (handled by onPageShow above). Tearing it
+        // down here would freeze the countdown after a back navigation. A full
+        // unload destroys the JS context — and its timers — on its own, while
+        // a soft re-evaluation is covered by the singleton guard at the top.
     })();
 </script>
 @endif
@@ -511,6 +945,23 @@
                 if (!hasActiveRental) return;
                 applyZone((data.bicycles && data.bicycles[0]) || null);
             }
+        });
+    });
+</script>
+
+<script>
+    // The return POST reloads the page into the persisted pending state, but
+    // the button must react the instant it is clicked: disable it at submit
+    // time so a double-click can never queue a second return request.
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('[data-return-form]').forEach(function(returnForm) {
+            returnForm.addEventListener('submit', function() {
+                var button = returnForm.querySelector('[data-return-button]');
+                if (button) {
+                    button.disabled = true;
+                    button.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Return submitted\u2026';
+                }
+            });
         });
     });
 </script>

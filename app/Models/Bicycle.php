@@ -146,6 +146,16 @@ class Bicycle extends Model
         return $this->hasMany(DeviceCommand::class, 'bicycleId');
     }
 
+    /**
+     * Most recent lock/command row for this bicycle, whatever its outcome.
+     * Backs the "last lock command result" tile: real acknowledgement state,
+     * never a fabricated status.
+     */
+    public function latestCommand()
+    {
+        return $this->hasOne(DeviceCommand::class, 'bicycleId')->latestOfMany('id');
+    }
+
     public function latestTelemetry()
     {
         return $this->hasOne(DeviceStatus::class, 'bicycleId')->latestOfMany('eventTimestamp');
@@ -250,6 +260,18 @@ class Bicycle extends Model
     public function isInService(): bool
     {
         return (bool) $this->iotEnabled;
+    }
+
+    /**
+     * Does this bicycle carry a genuinely registered and configured physical
+     * IoT device? Both halves are required: iotEnabled says hardware is
+     * fitted, and a stored device credential says a real unit was keyed to
+     * this row. Either half missing means "No IoT device registered" - the
+     * row must never be presented as monitored.
+     */
+    public function hasRegisteredDevice(): bool
+    {
+        return $this->isInService() && $this->hasDeviceKey();
     }
 
     /** May a rider rent this bicycle right now? */

@@ -452,6 +452,66 @@ class AdminRentalTest extends TestCase
             ->assertSessionHas('success');
     }
 
+    public function test_process_return_shows_only_the_toast_not_the_banner(): void
+    {
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_AWAITING_RETURN,
+            'endTime' => now()->subHour(),
+            'expectedEndTime' => now()->subHour(),
+        ]);
+
+        $service = Mockery::mock(RentalService::class);
+        $service->shouldReceive('processReturn')->once()->andReturn([
+            'rental' => $rental->fresh(),
+            'fees' => ['baseFee' => 15, 'overdueFee' => 0, 'finalFee' => 15],
+        ]);
+        // The follow-up GET runs through the rental.sync middleware.
+        $service->shouldReceive('synchronizeLifecycle')->andReturn(['expired' => 0, 'overdue_return' => 0]);
+        $this->app->instance(RentalService::class, $service);
+
+        $this->actingAs($this->admin)
+            ->from(route('admin.rentals.returns'))
+            ->put(route('admin.rentals.process-return', $rental->id), [
+                'condition' => 'good',
+                'note' => 'Looks fine',
+            ])
+            ->assertRedirect(route('admin.rentals.returns'))
+            ->assertSessionHas('success')
+            ->assertSessionHas('toast');
+
+        // The competing full-width success banner is suppressed when the
+        // structured toast carries the same message: exactly one notification.
+        $this->actingAs($this->admin)->get(route('admin.rentals.returns'))
+            ->assertOk()
+            ->assertDontSee('alert-pedalya alert-success', false)
+            ->assertSee('id="adminToasts"', false)
+            ->assertSee('Return confirmed successfully', false);
+    }
+
+    public function test_plain_success_without_toast_data_keeps_the_banner(): void
+    {
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_AVAILABLE]);
+        $rental = $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => Rental::STATUS_PENDING]);
+
+        $this->mockIot();
+
+        $this->actingAs($this->admin)
+            ->from(route('admin.rentals.index'))
+            ->put(route('admin.rentals.approve', $rental->id))
+            ->assertRedirect(route('admin.rentals.index'))
+            ->assertSessionHas('success')
+            ->assertSessionMissing('toast');
+
+        $this->actingAs($this->admin)->get(route('admin.rentals.index'))
+            ->assertOk()
+            ->assertSee('alert-pedalya alert-success', false);
+    }
+
     public function test_process_return_service_exception_returns_error(): void
     {
         $rider = $this->makeRider();

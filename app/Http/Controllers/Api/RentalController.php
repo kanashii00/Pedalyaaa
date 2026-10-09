@@ -104,7 +104,7 @@ public function store(Request $request): JsonResponse
 {
     $validated = $request->validate([
         'bicycle_id' => 'required|integer|exists:bicycles,id',
-        'duration_minutes' => 'required|integer|min:30|max:480',
+        'duration_minutes' => 'required|integer|min:1|max:720',
     ]);
 
     $user = $request->user();

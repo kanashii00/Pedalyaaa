@@ -279,6 +279,8 @@ public function startRental(
             );
         }
 
+        RentalFeed::touch();
+
         return $rental;
     }
 
@@ -335,6 +337,11 @@ public function startRental(
                 "Your rental {$rental->rentalId} has been returned and is awaiting confirmation.",
                 'rental_returned'
             );
+
+            // Broadcast immediately, exactly like the rider notification above:
+            // the event is only a refetch nudge, so it can never corrupt state
+            // even if the surrounding transaction were to roll back.
+            RentalFeed::touch();
 
             return ['rental' => $rental->fresh()];
         });
@@ -407,6 +414,8 @@ public function startRental(
                 ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
             );
         }
+
+        RentalFeed::touch();
 
         return ['rental' => $rental->fresh(), 'requested' => true];
     }
@@ -484,6 +493,8 @@ public function startRental(
             'rental_deadline',
             ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
         );
+
+        RentalFeed::touch();
 
         return $rental->fresh();
     }
@@ -576,6 +587,8 @@ public function startRental(
                 ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
             );
         }
+
+        RentalFeed::touch();
 
         return $rental->fresh();
     }
@@ -931,6 +944,8 @@ public function startRental(
                 'rental_completed'
             );
 
+            RentalFeed::touch();
+
             return [
                 'rental' => $rental->fresh(),
                 'fees' => [
@@ -1196,6 +1211,8 @@ public function startRental(
             'rental_approved'
         );
 
+        RentalFeed::touch();
+
         return $rental->fresh();
     }
 
@@ -1279,6 +1296,8 @@ public function startRental(
             "Your rental {$rental->rentalId} has been cancelled." . ($reason ? " Reason: {$reason}" : ''),
             'rental_cancelled'
         );
+
+        RentalFeed::touch();
 
         return $rental->fresh();
     }
@@ -1425,6 +1444,8 @@ public function startRental(
             );
         }
 
+        RentalFeed::touch();
+
         return $rental->fresh();
     }
 
@@ -1472,6 +1493,8 @@ public function startRental(
                 );
             }
         }
+
+        RentalFeed::touch();
 
         return $expired->count();
     }
@@ -1528,6 +1551,8 @@ public function startRental(
                 'rental_overdue_return'
             );
         }
+
+        RentalFeed::touch();
 
         return $overdue->count();
     }

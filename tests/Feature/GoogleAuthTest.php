@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Socialite\Contracts\Provider;
 use Laravel\Socialite\Facades\Socialite;
+use Laravel\Socialite\Two\InvalidStateException;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Mockery;
 use Tests\Concerns\CreatesTestData;
@@ -25,7 +26,7 @@ class GoogleAuthTest extends TestCase
         ]);
     }
 
-    private function fakeDriver(?SocialiteUser $user = null, bool $fail = false): Provider
+    private function fakeDriver(?SocialiteUser $user = null, bool $fail = false, ?\Throwable $throw = null): Provider
     {
         $provider = Mockery::mock(Provider::class);
         $provider->shouldReceive('redirectUrl')->andReturn($provider);
@@ -33,7 +34,9 @@ class GoogleAuthTest extends TestCase
         $provider->shouldReceive('stateless')->andReturn($provider);
         $provider->shouldReceive('redirect')->andReturn(redirect('http://google.test/authorize'));
 
-        if ($fail) {
+        if ($throw) {
+            $provider->shouldReceive('user')->andThrow($throw);
+        } elseif ($fail) {
             $provider->shouldReceive('user')->andThrow(new \RuntimeException('oauth failed'));
         } else {
             $provider->shouldReceive('user')->andReturn($user);
@@ -95,6 +98,23 @@ class GoogleAuthTest extends TestCase
         $this->assertAuthenticatedAs($admin);
     }
 
+    public function test_web_callback_survives_a_long_google_avatar_url(): void
+    {
+        // Real lh3.googleusercontent.com photo URLs with size parameters
+        // regularly exceed the old VARCHAR(255) avatar column, which aborted
+        // sign-in with "Data too long for column 'avatar'".
+        $longAvatar = 'https://lh3.googleusercontent.com/a/' . str_repeat('x', 400) . '=s96-c';
+
+        $rider = $this->makeRider(['email' => 'google@pedalya.test']);
+        $this->fakeDriver($this->googleUser(['avatar' => $longAvatar]));
+
+        $this->get(route('login.google.callback'))
+            ->assertRedirect(route('rider.dashboard'));
+
+        $this->assertAuthenticatedAs($rider);
+        $this->assertSame($longAvatar, $rider->fresh()->avatar);
+    }
+
     public function test_web_callback_inactive_user_rejected(): void
     {
         $this->makeRider(['email' => 'google@pedalya.test', 'status' => User::STATUS_INACTIVE]);
@@ -111,6 +131,55 @@ class GoogleAuthTest extends TestCase
         $this->get(route('login.google.callback'))
             ->assertRedirect(route('login'))
             ->assertSessionHasErrors('email');
+    }
+
+    public function test_web_callback_state_mismatch_names_the_expired_session(): void
+    {
+        $this->fakeDriver(throw: new InvalidStateException('Invalid state.'));
+
+        $html = $this->from(route('login'))
+            ->followingRedirects()
+            ->get(route('login.google.callback'))
+            ->getContent();
+
+        $this->assertStringContainsString(
+            'Your Google sign-in session expired. Please try again from the login page.',
+            $html,
+            'a lost OAuth state must name the cause instead of the generic failure'
+        );
+    }
+
+    public function test_web_callback_cancelled_consent_says_so(): void
+    {
+        $this->fakeDriver($this->googleUser());
+
+        $html = $this->from(route('login'))
+            ->followingRedirects()
+            ->get(route('login.google.callback', ['error' => 'access_denied']))
+            ->getContent();
+
+        $this->assertStringContainsString(
+            'Google sign-in was cancelled. You can try again or use email login.',
+            $html,
+            'a user-cancelled consent must not read as a broken sign-in'
+        );
+        $this->assertGuest();
+    }
+
+    public function test_web_callback_exchange_failure_keeps_the_generic_message(): void
+    {
+        $this->fakeDriver(fail: true);
+
+        $html = $this->from(route('login'))
+            ->followingRedirects()
+            ->get(route('login.google.callback'))
+            ->getContent();
+
+        $this->assertStringContainsString(
+            'Google sign-in failed. Please try again or use email login.',
+            $html,
+            'unclassified exchange failures keep the generic message'
+        );
     }
 
     public function test_web_redirect_without_config_aborts(): void

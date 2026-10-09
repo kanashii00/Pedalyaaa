@@ -26,6 +26,198 @@
 </button>
 @endsection
 
+@section('styles')
+<style>
+    /* ── Rental Details modal: cohesive theme-aware navy treatment ──
+       Bootstrap paints .modal-content white by default, which split this
+       dialog into a dark header/cards over a white body and footer. These
+       overrides bind every region to the dashboard tokens instead, so the
+       modal reads as one surface in both light and dark themes. */
+    .modal-content.rental-detail {
+        --bs-modal-bg: var(--surface);
+        --bs-modal-border-color: var(--border-subtle);
+        --bs-modal-header-border-color: var(--border-subtle);
+        --bs-modal-footer-border-color: var(--border-subtle);
+        background: var(--surface);
+        color: var(--text-1);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-pop);
+        overflow: hidden;
+    }
+    .rental-detail__head {
+        background: transparent; border-bottom: 1px solid var(--border-subtle);
+        padding: 14px 18px; gap: 12px; align-items: center;
+    }
+    .rental-detail__icon {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+        background: var(--brand-soft); color: var(--brand-strong); font-size: 17px;
+    }
+    .rental-detail__titles { flex: 1; min-width: 0; }
+    .rental-detail__titles .modal-title { font-size: 15px; font-weight: 700; color: var(--text-1); line-height: 1.3; }
+    .rental-detail__subtitle {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px; color: var(--text-3); margin-top: 2px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .rental-detail__close {
+        flex-shrink: 0; width: 32px; height: 32px;
+        display: inline-flex; align-items: center; justify-content: center;
+        border: 1px solid transparent; border-radius: 9px;
+        background: none; color: var(--text-3); font-size: 14px;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .rental-detail__close:hover { background: var(--surface-3); border-color: var(--border-subtle); color: var(--text-1); }
+    .rental-detail__close:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+    .rental-detail .modal-body { padding: 18px; color: var(--text-1); background: transparent; }
+    .rental-detail__foot {
+        background: transparent; border-top: 1px solid var(--border-subtle);
+        padding: 13px 18px; align-items: center;
+    }
+    .rd-sec { margin-bottom: 16px; }
+    .rd-sec:last-child { margin-bottom: 0; }
+    .rd-sec__label {
+        display: flex; align-items: center; gap: 7px;
+        font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+        color: var(--text-3); margin-bottom: 8px;
+    }
+    .rd-sec__label i { font-size: 13px; color: var(--brand-strong); }
+    /* Cards sit one surface above the dialog (surface-2) with blue-gray
+       dividers; labels stay muted slate, values stay near-white. */
+    .rd-rows { border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+    .rd-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 10px 14px; font-size: 13px; line-height: 1.45; }
+    .rd-row + .rd-row { border-top: 1px solid var(--border-subtle); }
+    .rd-row dt { margin: 0; color: var(--text-3); font-weight: 500; flex-shrink: 0; }
+    .rd-row dd { margin: 0; color: var(--text-1); font-weight: 600; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+    .rd-row dd.rd-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+    .rd-row dd.rd-num { font-variant-numeric: tabular-nums; }
+    .rd-badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+    /* Final fee: prominent through type scale and a slim success edge —
+       not a full green color block. */
+    .rd-total {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        background: var(--surface-2); border: 1px solid var(--border-subtle); border-left: 3px solid var(--success);
+        border-radius: 10px; padding: 12px 14px; margin-top: 10px;
+        box-shadow: var(--shadow-card);
+    }
+    .rd-total dt { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+    .rd-total dd { margin: 0; font-size: 21px; font-weight: 800; color: var(--text-1); font-variant-numeric: tabular-nums; line-height: 1.2; }
+    @media (max-width: 576px) {
+        .rental-detail__head { padding: 12px 14px; }
+        .rental-detail .modal-body { padding: 14px; }
+        .rental-detail__foot { padding: 11px 14px; }
+        .rd-row { padding: 9px 12px; font-size: 12.5px; }
+        .rd-total dd { font-size: 19px; }
+    }
+
+    /* ── Customer Details modal: same enterprise navy treatment as the
+       Rental Details modal, scoped separately so each dialog stays
+       independent. Green appears only on accents, badges and positive
+       statuses; surfaces, borders and text all come from dashboard tokens
+       so light and dark themes stay cohesive. */
+    .modal-content.customer-detail {
+        --bs-modal-bg: var(--surface);
+        --bs-modal-border-color: var(--border-subtle);
+        --bs-modal-header-border-color: var(--border-subtle);
+        --bs-modal-footer-border-color: var(--border-subtle);
+        background: var(--surface);
+        color: var(--text-1);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-pop);
+        overflow: hidden;
+    }
+    .customer-detail__head {
+        background: transparent; border-bottom: 1px solid var(--border-subtle);
+        padding: 14px 18px; gap: 12px; align-items: center;
+    }
+    .customer-detail__icon {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+        background: var(--brand-soft); color: var(--brand-strong); font-size: 17px;
+    }
+    .customer-detail__titles { flex: 1; min-width: 0; }
+    .customer-detail__titles .modal-title { font-size: 15px; font-weight: 700; color: var(--text-1); line-height: 1.3; }
+    .customer-detail__subtitle {
+        font-size: 12px; color: var(--text-3); margin-top: 2px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .customer-detail__close {
+        flex-shrink: 0; width: 32px; height: 32px;
+        display: inline-flex; align-items: center; justify-content: center;
+        border: 1px solid transparent; border-radius: 9px;
+        background: none; color: var(--text-3); font-size: 14px;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .customer-detail__close:hover { background: var(--surface-3); border-color: var(--border-subtle); color: var(--text-1); }
+    .customer-detail__close:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+    .customer-detail .modal-body { padding: 18px; color: var(--text-1); background: transparent; }
+    .customer-detail__foot {
+        background: transparent; border-top: 1px solid var(--border-subtle);
+        padding: 13px 18px; align-items: center;
+    }
+    .cd-profile { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; min-width: 0; }
+    .cd-avatar {
+        width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+        background: var(--brand-soft); color: var(--brand-strong);
+        font-size: 1.15rem; font-weight: 700;
+    }
+    .cd-profile__text { flex: 1; min-width: 0; }
+    .cd-profile__name { font-size: 16px; font-weight: 700; color: var(--text-1); line-height: 1.3; overflow-wrap: anywhere; }
+    .cd-profile__email { font-size: 12.5px; color: var(--text-3); margin-top: 2px; overflow-wrap: anywhere; }
+    .cd-profile__badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .cd-sec { margin-bottom: 16px; }
+    .cd-sec:last-child { margin-bottom: 0; }
+    .cd-sec__label {
+        display: flex; align-items: center; gap: 7px;
+        font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+        color: var(--text-3); margin-bottom: 8px;
+    }
+    .cd-sec__label i { font-size: 13px; color: var(--brand-strong); }
+    .cd-rows { border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+    .cd-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 10px 14px; font-size: 13px; line-height: 1.45; }
+    .cd-row + .cd-row { border-top: 1px solid var(--border-subtle); }
+    .cd-row dt { margin: 0; color: var(--text-3); font-weight: 500; flex-shrink: 0; }
+    .cd-row dd { margin: 0; color: var(--text-1); font-weight: 600; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+    .cd-row dd.cd-num { font-variant-numeric: tabular-nums; }
+    .cd-badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+    /* Total Spent: prominent through type scale and a slim success edge —
+       same restraint as the rental Final Fee card. */
+    .cd-total {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        background: var(--surface-2); border: 1px solid var(--border-subtle); border-left: 3px solid var(--success);
+        border-radius: 10px; padding: 12px 14px; margin-top: 10px;
+        box-shadow: var(--shadow-card);
+    }
+    .cd-total dt { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+    .cd-total dd { margin: 0; font-size: 21px; font-weight: 800; color: var(--text-1); font-variant-numeric: tabular-nums; line-height: 1.2; }
+    @media (max-width: 576px) {
+        .customer-detail__head { padding: 12px 14px; }
+        .customer-detail .modal-body { padding: 14px; }
+        .customer-detail__foot { padding: 11px 14px; }
+        .cd-avatar { width: 48px; height: 48px; font-size: 1rem; }
+        .cd-profile__name { font-size: 15px; }
+        .cd-row { padding: 9px 12px; font-size: 12.5px; }
+        .cd-total dd { font-size: 19px; }
+    }
+
+    /* ── Report results pagination: dark navy buttons, green text, solid
+       green active page. Reuses the shared admin-pagination pattern; only
+       the text colour is tuned to the reference (active/disabled states
+       come from the shared classes untouched). */
+    .report-table-wrap { overflow: hidden; }
+    .report-table-wrap > .table-responsive { border-bottom: none; }
+    .report-pagination .admin-pagination__item { color: var(--brand-strong); }
+    .report-pagination a.admin-pagination__item:hover { color: var(--brand-strong); }
+    .report-pagination .admin-pagination__item.is-disabled { color: var(--text-3); }
+    @media (max-width: 767.98px) {
+        .report-pagination { justify-content: center; text-align: center; }
+    }
+</style>
+@endsection
+
 @section('content')
 @if($reportType === 'export')
     @include('admin.reports.export')
@@ -442,33 +634,43 @@
     </div>
 </div>
 
-<!-- Customer Details Modal -->
-<div class="modal fade" id="customerDetailModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content" style="border-radius: var(--radius); border: none;">
-            <div class="modal-header" style="background: var(--brand); color: #fff; border-radius: var(--radius) var(--radius) 0 0;">
-                <h6 class="modal-title fw-semibold"><i class="bi bi-person-circle me-2"></i>Customer Details</h6>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+<!-- Customer Details Modal: compact dark-theme enterprise layout matching
+     the Rental Details modal. The accident modal keeps its own header. -->
+<div class="modal fade" id="customerDetailModal" tabindex="-1" aria-labelledby="customerDetailTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content customer-detail">
+            <div class="modal-header customer-detail__head">
+                <span class="customer-detail__icon" aria-hidden="true"><i class="bi bi-person-circle"></i></span>
+                <div class="customer-detail__titles">
+                    <h6 class="modal-title" id="customerDetailTitle">Customer Details</h6>
+                    <div class="customer-detail__subtitle" id="customerDetailSubtitle">—</div>
+                </div>
+                <button type="button" class="customer-detail__close" data-bs-dismiss="modal" aria-label="Close customer details"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
             </div>
             <div class="modal-body" id="customerDetailBody"></div>
-            <div class="modal-footer" style="border-top: 1px solid var(--border-subtle);">
-                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+            <div class="modal-footer customer-detail__foot">
+                <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Rental Details Modal -->
-<div class="modal fade" id="rentalDetailModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content" style="border-radius: var(--radius); border: none;">
-            <div class="modal-header" style="background: var(--brand); color: #fff; border-radius: var(--radius) var(--radius) 0 0;">
-                <h6 class="modal-title fw-semibold"><i class="bi bi-bicycle me-2"></i>Rental Details</h6>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+<!-- Rental Details Modal: compact dark-theme enterprise layout. The other
+     report modals keep their own headers; only this shell is restyled. -->
+<div class="modal fade" id="rentalDetailModal" tabindex="-1" aria-labelledby="rentalDetailTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content rental-detail">
+            <div class="modal-header rental-detail__head">
+                <span class="rental-detail__icon" aria-hidden="true"><i class="bi bi-bicycle"></i></span>
+                <div class="rental-detail__titles">
+                    <h6 class="modal-title" id="rentalDetailTitle">Rental Details</h6>
+                    <div class="rental-detail__subtitle" id="rentalDetailSubtitle">—</div>
+                </div>
+                <button type="button" class="rental-detail__close" data-bs-dismiss="modal" aria-label="Close rental details"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
             </div>
             <div class="modal-body" id="rentalDetailBody"></div>
-            <div class="modal-footer" style="border-top: 1px solid var(--border-subtle);">
-                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+            <div class="modal-footer rental-detail__foot">
+                <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -574,7 +776,9 @@ function loadReport(form) {
 
         if (records.length > 0) {
             resultCount.textContent = records.length + ' record' + (records.length !== 1 ? 's' : '');
-            html += renderTable(type, records);
+            // Table + footer share one rounded card so the pagination row
+            // spans the full table width inside the border.
+            html += '<div class="admin-table-wrap report-table-wrap">' + renderTable(type, records) + '</div>';
         } else {
             resultCount.textContent = summary ? 'Summary' : '0 records';
         }
@@ -871,7 +1075,11 @@ function renderAccidentTable(records, page) {
     return html;
 }
 
-/* ─── Pagination Builder ─── */
+/* ─── Pagination Builder ───
+   Shared dark admin-pagination pattern (same as the audit log and
+   notifications tables): record count bottom-left, controls bottom-right,
+   navy buttons with green text, solid green active page. Range, pages and
+   disabled states all derive from the live data — nothing hardcoded. */
 function buildPagination(type, total, totalPages) {
     if (total <= 0) return '';
     totalPages = Math.max(1, totalPages);
@@ -879,34 +1087,48 @@ function buildPagination(type, total, totalPages) {
     var from = (currentPage - 1) * _pageSize + 1;
     var to = Math.min(currentPage * _pageSize, total);
 
-    var html = '<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">';
-    html += '<div class="text-muted" style="font-size:0.85rem;">Showing ' + from + '-' + to + ' of ' + total + '</div>';
+    var html = '<div class="admin-table-foot report-pagination">';
+    html += '<span class="admin-table-foot__info">Showing ' + from + '&ndash;' + to + ' of ' + total + ' records</span>';
 
     /* Page buttons only earn their space once there is more than one page. */
     if (totalPages <= 1) return html + '</div>';
 
-    html += '<nav aria-label="' + type + ' report pages"><ul class="pagination pagination-sm mb-0 flex-wrap">';
-    html += '<li class="page-item' + (currentPage === 1 ? ' disabled' : '') + '">'
-          + '<a class="page-link" href="#" onclick="event.preventDefault();paginateTable(\'' + type + '\',' + (currentPage - 1) + ')">&laquo;</a></li>';
+    function pageLink(page, labelHtml, labelText, rel) {
+        return '<a class="admin-pagination__item" href="#" aria-label="' + labelText + '"' + (rel ? ' rel="' + rel + '"' : '')
+            + ' onclick="event.preventDefault();paginateTable(\'' + type + '\',' + page + ')">' + labelHtml + '</a>';
+    }
+
+    html += '<nav class="admin-pagination" aria-label="' + type + ' report pages">';
+    if (currentPage === 1) {
+        html += '<span class="admin-pagination__item is-disabled" aria-disabled="true"><i class="bi bi-chevron-left"></i> Previous</span>';
+    } else {
+        html += pageLink(currentPage - 1, '<i class="bi bi-chevron-left"></i> Previous', 'Previous page', 'prev');
+    }
     var maxPages = 7;
     var pStart = Math.max(1, currentPage - 3);
     var pEnd = Math.min(totalPages, pStart + maxPages - 1);
     if (pEnd - pStart < maxPages - 1) pStart = Math.max(1, pEnd - maxPages + 1);
     if (pStart > 1) {
-        html += '<li class="page-item"><a class="page-link" href="#" onclick="event.preventDefault();paginateTable(\'' + type + '\',1)">1</a></li>';
-        if (pStart > 2) html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+        html += pageLink(1, '1', 'Page 1', '');
+        if (pStart > 2) html += '<span class="admin-pagination__item is-disabled" aria-hidden="true">&hellip;</span>';
     }
     for (var p = pStart; p <= pEnd; p++) {
-        html += '<li class="page-item' + (p === currentPage ? ' active' : '') + '">'
-              + '<a class="page-link" href="#" onclick="event.preventDefault();paginateTable(\'' + type + '\',' + p + ')">' + p + '</a></li>';
+        if (p === currentPage) {
+            html += '<span class="admin-pagination__item is-active" aria-current="page">' + p + '</span>';
+        } else {
+            html += pageLink(p, String(p), 'Page ' + p, '');
+        }
     }
     if (pEnd < totalPages) {
-        if (pEnd < totalPages - 1) html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
-        html += '<li class="page-item"><a class="page-link" href="#" onclick="event.preventDefault();paginateTable(\'' + type + '\',' + totalPages + ')">' + totalPages + '</a></li>';
+        if (pEnd < totalPages - 1) html += '<span class="admin-pagination__item is-disabled" aria-hidden="true">&hellip;</span>';
+        html += pageLink(totalPages, String(totalPages), 'Page ' + totalPages, '');
     }
-    html += '<li class="page-item' + (currentPage === totalPages ? ' disabled' : '') + '">'
-          + '<a class="page-link" href="#" onclick="event.preventDefault();paginateTable(\'' + type + '\',' + (currentPage + 1) + ')">&raquo;</a></li>';
-    html += '</ul></nav></div>';
+    if (currentPage === totalPages) {
+        html += '<span class="admin-pagination__item is-disabled" aria-disabled="true">Next <i class="bi bi-chevron-right"></i></span>';
+    } else {
+        html += pageLink(currentPage + 1, 'Next <i class="bi bi-chevron-right"></i>', 'Next page', 'next');
+    }
+    html += '</nav></div>';
     return html;
 }
 
@@ -921,7 +1143,7 @@ function paginateTable(type, page) {
     /* Re-render the whole results area from the cached summary + this page's
        slice. Rebuilding the container wholesale is what guarantees the previous
        page's table is never left behind underneath the new one. */
-    container.innerHTML = (_summaryHtml[type] || '') + renderTable(type, records, target);
+    container.innerHTML = (_summaryHtml[type] || '') + '<div class="admin-table-wrap report-table-wrap">' + renderTable(type, records, target) + '</div>';
 
     /* Stay where the user already is; only pull the results back into view when
        they have scrolled past them, so long tables keep their place. */
@@ -944,82 +1166,167 @@ function getLocationCoords(a) {
     return null;
 }
 
-/* ─── View Customer Detail ─── */
+/* ─── View Customer Detail ───
+   Enterprise layout fed by the same report record (no new bindings): profile
+   header plus Contact / Account Status / Rental Summary sections. Every
+   value comes from the selected row; gaps render as "Not provided" or
+   "Never", never as misleading placeholders. */
 function viewCustomerDetail(index) {
     var c = _reportData.customer[index];
     if (!c) return;
-    var statusClass = 'secondary';
-    if (c.status === 'active') statusClass = 'success';
-    else if (c.status === 'inactive') statusClass = 'info';
-    else if (c.status === 'suspended') statusClass = 'warning';
-    else if (c.status === 'blacklisted') statusClass = 'danger';
-    var verBadge = c.verified ? '<span class="badge bg-success">Verified</span>' : '<span class="badge bg-warning text-dark">Pending Verification</span>';
+    // Accessible badges: dot + text via badge-admin, never colour alone.
+    var statusBadge = function (status) {
+        var map = {
+            active: ['success', 'Active'],
+            inactive: ['neutral', 'Inactive'],
+            suspended: ['warning', 'Suspended'],
+            blacklisted: ['danger', 'Blacklisted']
+        };
+        var tone = (map[status] || [])[0] || 'neutral';
+        var label = (map[status] || [])[1] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : '—');
+        return '<span class="badge-admin badge-admin--' + tone + '">' + esc(label) + '</span>';
+    };
+    var verBadge = c.verified
+        ? '<span class="badge-admin badge-admin--success">Verified</span>'
+        : '<span class="badge-admin badge-admin--warning">Unverified</span>';
+    var fmtMoney = function (n) {
+        return '\u20B1' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+    var fmtJoined = function (s) {
+        if (!s) return 'Not provided';
+        var d = new Date(s);
+        if (isNaN(d.getTime())) return 'Not provided';
+        return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    };
+    var fmtLogin = function (s) {
+        if (!s) return 'Never';
+        var d = new Date(s);
+        if (isNaN(d.getTime())) return 'Never';
+        return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    };
+    var row = function (label, valueHtml) {
+        return '<div class="cd-row"><dt>' + label + '</dt><dd>' + valueHtml + '</dd></div>';
+    };
+    var section = function (icon, label, rowsHtml) {
+        return '<div class="cd-sec"><div class="cd-sec__label"><i class="bi ' + icon + '"></i>' + label + '</div><dl class="cd-rows" style="margin:0;">' + rowsHtml + '</dl></div>';
+    };
+    var name = c.name || null;
+    var email = c.email || null;
+    var initials = (name || '').split(' ').map(function (w) { return w[0]; }).join('').toUpperCase().substring(0, 2) || '–';
     var rentalsCount = c.rentals_count ?? c.totalRentals ?? 0;
-    var spent = Number(c.totalSpent || 0);
-    var joined = c.createdAt || c.created_at;
-    var joinedStr = joined ? new Date(joined).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '-';
-    var lastLogin = c.last_login_at ? new Date(c.last_login_at).toLocaleString() : 'Never';
-    var html = '<div class="row g-3">'
-        + '<div class="col-md-4 text-center">'
-        + '<div style="width:80px;height:80px;border-radius:50%;background:var(--brand-soft);display:inline-flex;align-items:center;justify-content:center;font-size:1.5rem;font-weight:700;color:var(--brand);">' + esc((c.name || '').split(' ').map(function(w){return w[0]}).join('').toUpperCase().substring(0,2)) + '</div>'
-        + '<div class="fw-bold mt-2" style="font-size:1.1rem;">' + esc(c.name) + '</div>'
-        + '<div class="text-muted mb-2">' + esc(c.email) + '</div>'
-        + verBadge + ' <span class="badge bg-' + statusClass + '">' + esc(c.status) + '</span>'
-        + '</div>'
-        + '<div class="col-md-8"><table class="table table-borderless mb-0" style="font-size:0.9rem;">'
-        + '<tr><td class="text-muted" style="width:40%;">Student ID</td><td class="fw-semibold">' + esc(c.studentId || '-') + '</td></tr>'
-        + '<tr><td class="text-muted">Phone</td><td>' + esc(c.phoneNumber || '-') + '</td></tr>'
-        + '<tr><td class="text-muted">Address</td><td>' + esc(c.address || '-') + '</td></tr>'
-        + '<tr><td class="text-muted">Date Joined</td><td>' + joinedStr + '</td></tr>'
-        + '<tr><td class="text-muted">Last Login</td><td>' + lastLogin + '</td></tr>'
-        + '<tr><td class="text-muted">Total Rentals</td><td class="fw-semibold">' + rentalsCount + '</td></tr>'
-        + '<tr><td class="text-muted">Total Spent</td><td class="fw-bold" style="color:var(--success);">\u20B1' + spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td></tr>'
-        + (c.blacklistReason ? '<tr><td class="text-muted">Blacklist Reason</td><td class="text-danger">' + esc(c.blacklistReason) + '</td></tr>' : '')
-        + '</table></div></div>';
+    var html = '<div class="cd-profile">'
+        + '<div class="cd-avatar" aria-hidden="true">' + esc(initials) + '</div>'
+        + '<div class="cd-profile__text">'
+        + '<div class="cd-profile__name">' + esc(name || 'Not provided') + '</div>'
+        + '<div class="cd-profile__email">' + esc(email || 'Not provided') + '</div>'
+        + '<div class="cd-profile__badges">' + verBadge + statusBadge(c.status) + '</div>'
+        + '</div></div>'
+        + section('bi-telephone', 'Contact Information',
+            row('Email', esc(email || 'Not provided'))
+            + row('Phone', esc(c.phoneNumber || 'Not provided'))
+            + row('Student ID', esc(c.studentId || 'Not provided'))
+            + row('Address', esc(c.address || 'Not provided')))
+        + section('bi-shield-check', 'Account Status',
+            row('Verification', '<span class="cd-badges">' + verBadge + '</span>')
+            + row('Account Status', '<span class="cd-badges">' + statusBadge(c.status) + '</span>')
+            + row('Date Joined', esc(fmtJoined(c.createdAt || c.created_at)))
+            + row('Last Login', esc(fmtLogin(c.last_login_at)))
+            + (c.blacklistReason ? row('Blacklist Reason', esc(c.blacklistReason)) : ''))
+        + section('bi-clock-history', 'Rental Summary',
+            row('Total Rentals', '<span class="cd-num">' + esc(rentalsCount) + '</span>')
+            + '<dl class="cd-total" style="margin-bottom:0;"><dt>Total Spent</dt><dd>' + esc(fmtMoney(c.totalSpent)) + '</dd></dl>');
+    document.getElementById('customerDetailSubtitle').textContent = email || name || '—';
     document.getElementById('customerDetailBody').innerHTML = html;
     new bootstrap.Modal(document.getElementById('customerDetailModal')).show();
 }
 
-/* ─── View Rental Detail ─── */
+/* ─── View Rental Detail ───
+   Enterprise layout fed by the same report record (no new bindings): four
+   labelled sections plus a final-fee summary card. Every value comes from
+   the selected row; missing values render as an em dash. */
 function viewRentalDetail(index) {
     var r = _reportData.rental[index];
     if (!r) return;
-    var statusClass = 'secondary';
-    if (r.status === 'active') statusClass = 'success';
-    else if (r.status === 'completed') statusClass = 'primary';
-    else if (r.status === 'cancelled') statusClass = 'danger';
-    else if (r.status === 'overdue') statusClass = 'warning';
-    else if (r.status === 'pending') statusClass = 'info';
-    var payClass = r.paymentStatus === 'paid' ? 'success' : (r.paymentStatus === 'pending' ? 'warning' : 'danger');
-    var startT = r.startTime ? new Date(r.startTime).toLocaleString() : '-';
-    var endT = r.endTime ? new Date(r.endTime).toLocaleString() : '-';
-    var dur = r.durationMinutes ? Math.floor(r.durationMinutes / 60) + 'h ' + (r.durationMinutes % 60) + 'm' : '-';
-    var rate = '\u20B1' + Number(r.ratePerHour || 0).toLocaleString(undefined, { minimumFractionDigits: 2 });
-    var fee = '\u20B1' + Number(r.totalFee || 0).toLocaleString(undefined, { minimumFractionDigits: 2 });
-    var dist = r.totalDistance ? Number(r.totalDistance).toFixed(2) + ' km' : '-';
-    var html = '<div class="row g-3">'
-        + '<div class="col-md-5">'
-        + '<div class="d-flex align-items-center mb-3">'
-        + '<div style="width:48px;height:48px;border-radius:var(--radius-sm);background:var(--brand-soft);display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:var(--brand);"><i class="bi bi-bicycle"></i></div>'
-        + '<div class="ms-3"><div class="fw-bold" style="font-size:1rem;"><code>' + esc(r.rentalId || r.id) + '</code></div>'
-        + '<span class="badge bg-' + statusClass + '">' + esc(r.status) + '</span> '
-        + '<span class="badge bg-' + payClass + '">' + esc(r.paymentStatus || '-') + '</span></div>'
-        + '</div>'
-        + '<table class="table table-borderless mb-0" style="font-size:0.9rem;">'
-        + '<tr><td class="text-muted" style="width:45%;">Rider</td><td class="fw-semibold">' + esc((r.rider && r.rider.name) || r.riderName || '-') + '</td></tr>'
-        + '<tr><td class="text-muted">Rider Email</td><td>' + esc((r.rider && r.rider.email) || r.riderEmail || '-') + '</td></tr>'
-        + '<tr><td class="text-muted">Bicycle</td><td>' + esc((r.bicycle && r.bicycle.name) || r.bicycleName || '-') + '</td></tr>'
-        + '<tr><td class="text-muted">Start Time</td><td>' + startT + '</td></tr>'
-        + '<tr><td class="text-muted">End Time</td><td>' + endT + '</td></tr>'
-        + '</table></div>'
-        + '<div class="col-md-7"><table class="table table-borderless mb-0" style="font-size:0.9rem;">'
-        + '<tr><td class="text-muted" style="width:40%;">Duration</td><td class="fw-semibold">' + dur + '</td></tr>'
-        + '<tr><td class="text-muted">Hourly Rate</td><td class="fw-bold">' + rate + '</td></tr>'
-        + '<tr><td class="text-muted">Total Fee</td><td class="fw-bold" style="color:var(--success);font-size:1.05rem;">' + fee + '</td></tr>'
-        + '<tr><td class="text-muted">Distance</td><td>' + dist + '</td></tr>'
-        + '<tr><td class="text-muted">Payment Method</td><td>' + esc(r.paymentMethod || '-') + '</td></tr>'
-        + (r.notes ? '<tr><td class="text-muted">Notes</td><td>' + esc(r.notes) + '</td></tr>' : '')
-        + '</table></div></div>';
+    var code = r.rentalId || r.id;
+    var fmtMoney = function (n) {
+        return '\u20B1' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+    var fmtDate = function (s) {
+        if (!s) return '—';
+        var d = new Date(s);
+        if (isNaN(d.getTime())) return '—';
+        return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    };
+    var fmtDur = function (m) {
+        if (m === null || m === undefined || m === '') return '—';
+        m = Number(m) || 0;
+        return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+    };
+    // Accessible badges: dot + text via badge-admin, never colour alone.
+    var rentalBadge = function (status) {
+        var map = {
+            returned: ['success', 'Returned'],
+            completed: ['success', 'Completed'],
+            active: ['info', 'Active'],
+            awaiting_return: ['warning', 'Pending Confirmation'],
+            overdue_return: ['warning', 'Pending Confirmation'],
+            pending: ['neutral', 'Pending'],
+            overdue: ['warning', 'Overdue'],
+            expired: ['warning', 'Expired'],
+            cancelled: ['neutral', 'Cancelled']
+        };
+        var tone = (map[status] || [])[0] || 'neutral';
+        var label = (map[status] || [])[1] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : '—');
+        return '<span class="badge-admin badge-admin--' + tone + '">' + esc(label) + '</span>';
+    };
+    var payBadge = function (status) {
+        if (!status) return '<span class="badge-admin badge-admin--neutral">—</span>';
+        if (status === 'paid') return '<span class="badge-admin badge-admin--success">Paid</span>';
+        if (status === 'pending') return '<span class="badge-admin badge-admin--warning">Pending</span>';
+        if (status === 'refunded') return '<span class="badge-admin badge-admin--info">Refunded</span>';
+        return '<span class="badge-admin badge-admin--danger">Unpaid</span>';
+    };
+    var row = function (label, valueHtml, mono) {
+        return '<div class="rd-row"><dt>' + label + '</dt><dd' + (mono ? ' class="rd-mono"' : '') + '>' + valueHtml + '</dd></div>';
+    };
+    var section = function (icon, label, rowsHtml) {
+        return '<div class="rd-sec"><div class="rd-sec__label"><i class="bi ' + icon + '"></i>' + label + '</div><dl class="rd-rows" style="margin:0;">' + rowsHtml + '</dl></div>';
+    };
+    var riderName = (r.rider && r.rider.name) || r.riderName || null;
+    var riderEmail = (r.rider && r.rider.email) || r.riderEmail || null;
+    var bikeName = (r.bicycle && r.bicycle.name) || r.bicycleName || null;
+    var bikeSerial = (r.bicycle && r.bicycle.serialNumber) || r.bicycleSerial || null;
+    // Original booked amount vs. what was actually charged: the late portion
+    // is the frozen penalty where present, otherwise any settled uplift.
+    var baseFee = Number(r.totalFee || 0);
+    var lateFee = Number(r.overdueFee || 0);
+    if (!(lateFee > 0) && r.finalFee !== null && r.finalFee !== undefined && Number(r.finalFee) > baseFee) {
+        lateFee = Number(r.finalFee) - baseFee;
+    }
+    lateFee = Math.round(lateFee * 100) / 100;
+    var finalFee = (r.finalFee !== null && r.finalFee !== undefined) ? Number(r.finalFee) : baseFee;
+    var method = r.paymentMethod ? r.paymentMethod.charAt(0).toUpperCase() + r.paymentMethod.slice(1) : null;
+    var html = section('bi-receipt', 'Rental Information',
+            row('Rental ID', esc(code), true)
+            + row('Status', '<span class="rd-badges">' + rentalBadge(r.status) + '</span>')
+            + row('Start Time', esc(fmtDate(r.startTime)))
+            + row('End Time', esc(fmtDate(r.endTime)))
+            + row('Duration', esc(fmtDur(r.durationMinutes)))
+            + (r.notes ? row('Notes', esc(r.notes)) : ''))
+        + section('bi-person-circle', 'Rider Information',
+            row('Full Name', esc(riderName || '—'))
+            + row('Email', esc(riderEmail || '—')))
+        + section('bi-bicycle', 'Bicycle Information',
+            row('Bicycle Name', esc(bikeName || '—'))
+            + row('Serial Number', esc(bikeSerial || '—'), true))
+        + section('bi-cash-coin', 'Payment Summary',
+            row('Hourly Rate', '<span class="rd-num">' + esc(fmtMoney(r.ratePerHour)) + '</span>')
+            + row('Base Fee', '<span class="rd-num">' + esc(fmtMoney(baseFee)) + '</span>')
+            + (lateFee > 0 ? row('Late Fees', '<span class="rd-num">' + esc(fmtMoney(lateFee)) + '</span>') : '')
+            + row('Payment Method', esc(method || '—'))
+            + row('Payment Status', '<span class="rd-badges">' + payBadge(r.paymentStatus) + '</span>')
+            + '<dl class="rd-total" style="margin-bottom:0;"><dt>Final Fee</dt><dd>' + esc(fmtMoney(finalFee)) + '</dd></dl>');
+    document.getElementById('rentalDetailSubtitle').textContent = String(code);
     document.getElementById('rentalDetailBody').innerHTML = html;
     new bootstrap.Modal(document.getElementById('rentalDetailModal')).show();
 }

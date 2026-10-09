@@ -9,11 +9,19 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Laravel\Socialite\Facades\Socialite;
+use Laravel\Socialite\Two\InvalidStateException;
 use Laravel\Socialite\Two\User as SocialiteUser;
 
 class GoogleAuthController extends Controller
 {
+    /**
+     * Specific user-facing reason for the last failed Google exchange, if the
+     * failure maps to one. Null means "use the generic message".
+     */
+    private ?string $lastGoogleError = null;
+
     private function driver(string $redirectUrl, bool $stateless = false)
     {
         $driver = Socialite::driver('google')
@@ -39,11 +47,23 @@ class GoogleAuthController extends Controller
      */
     public function handleProviderCallback(Request $request): RedirectResponse
     {
+        // Google redirects back with ?error=... when the user cancels or
+        // denies consent. That is a decision, not a failure: say so instead
+        // of reporting a broken sign-in.
+        if ($request->filled('error')) {
+            return redirect()->route('login')->withErrors([
+                'email' => $request->input('error') === 'access_denied'
+                    ? 'Google sign-in was cancelled. You can try again or use email login.'
+                    : 'Google sign-in did not complete. You can try again or use email login.',
+            ]);
+        }
+
         $googleUser = $this->resolveGoogleUser($this->webCallbackUrl($request));
 
         if (! $googleUser) {
             return redirect()->route('login')->withErrors([
-                'email' => 'Google sign-in failed. Please try again or use email login.',
+                'email' => $this->lastGoogleError
+                    ?? 'Google sign-in failed. Please try again or use email login.',
             ]);
         }
 
@@ -179,8 +199,31 @@ class GoogleAuthController extends Controller
     private function resolveGoogleUser(string $redirectUrl, bool $stateless = false): ?SocialiteUser
     {
         try {
+            $this->lastGoogleError = null;
+
             return $this->driver($redirectUrl, $stateless)->user();
+        } catch (InvalidStateException $e) {
+            Log::warning('Google sign-in failed: OAuth state mismatch.', [
+                'exception' => $e::class,
+            ]);
+
+            // The session holding the OAuth state did not survive the round
+            // trip: expired session, blocked cookies, or the login was
+            // started on one host (localhost / 127.0.0.1 / tunnel URL) and
+            // the callback returned to another. A fresh attempt on a single
+            // host rebuilds the state.
+            $this->lastGoogleError = 'Your Google sign-in session expired. Please try again from the login page.';
+
+            return null;
         } catch (\Throwable $e) {
+            // Token-exchange failures (expired code, revoked grant, network
+            // fault). Only the exception class and provider message are
+            // logged: tokens and secrets never reach the log.
+            Log::warning('Google sign-in failed during token exchange.', [
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
+
             return null;
         }
     }

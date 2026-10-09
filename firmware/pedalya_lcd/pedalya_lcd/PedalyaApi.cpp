@@ -142,7 +142,7 @@ void PedalyaApi::reportFailure(int status, const String& body, String& error) {
                 // No Wi-Fi association and a modem that is answering: the fault
                 // is on the cellular path, so pointing at the router would send
                 // the reader to the wrong room.
-                Serial.printf("[api] cannot reach %s:%d over the SIM7600 link\n",
+                Serial.printf("[api] cannot reach %s:%d over the EC20F link\n",
                               SERVER_HOST, SERVER_PORT);
                 Serial.println("      Check SIM_APN in pedalya_lcd/secrets.h, that the SIM has");
                 Serial.println("      a data plan, and that SERVER_HOST is a public address the");
@@ -231,8 +231,13 @@ bool PedalyaApi::cellularRequest(const char* method, const char* path, const Str
         return false;
     }
 
+    const bool useHttps = (USE_HTTPS == 1);
     char url[160];
-    snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, path);
+    if (useHttps) {
+        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, path);
+    } else {
+        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, path);
+    }
     const String authHeader = String("X-API-Key: ") + apiKey;
     const bool isPost = (strcmp(method, "POST") == 0);
 
@@ -241,8 +246,6 @@ bool PedalyaApi::cellularRequest(const char* method, const char* path, const Str
     const int status = simLastHttpStatus();
 
     if (status == 0) {
-        // No transport completed it: dead modem, lost bearer, or a TLS URL the
-        // modem cannot take. reportFailure() carries the diagnosis.
         reportFailure(0, responseBody, error);
         return false;
     }
@@ -293,8 +296,7 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
             return false;
         }
 
-        Serial.printf("[api] 200 OK over cellular from %s:%d%s\n",
-                      SERVER_HOST, SERVER_PORT, SERVER_PATH);
+        Serial.printf("[api] 200 OK over cellular from %s%s\n", SERVER_HOST, SERVER_PATH);
         return parse(body, out, error);
     }
 
@@ -307,8 +309,11 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
 
     HTTPClient http;
     char url[160];
-    snprintf(url, sizeof(url), "%s://%s:%d%s",
-             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, SERVER_PATH);
+    if (USE_HTTPS) {
+        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, SERVER_PATH);
+    } else {
+        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, SERVER_PATH);
+    }
 
     if (!http.begin(client, url)) {
         error = "begin failed";
@@ -379,8 +384,11 @@ bool PedalyaApi::pollCommands(DeviceCommand* commands, size_t capacity, size_t& 
 
     HTTPClient http;
     char url[160];
-    snprintf(url, sizeof(url), "%s://%s:%d%s",
-             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, COMMANDS_PATH);
+    if (USE_HTTPS) {
+        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, COMMANDS_PATH);
+    } else {
+        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, COMMANDS_PATH);
+    }
 
     if (!http.begin(client, url)) {
         error = "command begin";
@@ -435,9 +443,11 @@ bool PedalyaApi::acknowledgeCommand(uint32_t commandId, bool executed, const Str
 
     HTTPClient http;
     char url[196];
-    snprintf(url, sizeof(url), "%s://%s:%d%s/%lu/ack",
-             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, COMMANDS_PATH,
-             (unsigned long)commandId);
+    if (USE_HTTPS) {
+        snprintf(url, sizeof(url), "https://%s%s/%lu/ack", SERVER_HOST, COMMANDS_PATH, (unsigned long)commandId);
+    } else {
+        snprintf(url, sizeof(url), "http://%s:%d%s/%lu/ack", SERVER_HOST, SERVER_PORT, COMMANDS_PATH, (unsigned long)commandId);
+    }
 
     if (!http.begin(client, url)) {
         error = "ack begin";
@@ -493,8 +503,11 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
 
     HTTPClient http;
     char url[192];
-    snprintf(url, sizeof(url), "%s://%s:%d%s",
-             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, path);
+    if (USE_HTTPS) {
+        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, path);
+    } else {
+        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, path);
+    }
     if (!http.begin(client, url)) {
         error = "post begin";
         return false;

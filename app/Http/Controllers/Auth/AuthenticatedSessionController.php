@@ -7,10 +7,23 @@ use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\View\View;
 
 class AuthenticatedSessionController extends Controller
 {
+    /**
+     * Name of the long-lived email cookie behind "Remember me".
+     *
+     * It carries only the email address, is encrypted and signed by the
+     * EncryptCookies middleware, and is never readable from JavaScript
+     * storage. No password (plaintext or otherwise) is ever persisted.
+     */
+    public const REMEMBER_EMAIL_COOKIE = 'remember_email';
+
+    /** Email cookie lifetime: one year, in minutes. */
+    public const REMEMBER_EMAIL_LIFETIME = 525600;
+
     public function create(): View
     {
         return view('auth.login');
@@ -23,12 +36,22 @@ class AuthenticatedSessionController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        if (!Auth::attempt($request->only('email', 'password'), $request->boolean('remember'))) {
-            return back()
-                ->withInput($request->only('email'))
+        $remember = $request->boolean('remember');
+
+        if (!Auth::attempt($request->only('email', 'password'), $remember)) {
+            $response = back()
+                ->withInput($request->only('email', 'remember'))
                 ->withErrors([
-                    'email' => 'These credentials do not match our records.',
+                    'email' => 'The login information you entered is incorrect. Please check your email and password and try again.',
                 ]);
+
+            // Unchecked on a failed attempt means "do not persist": drop a
+            // stale email cookie now rather than restoring it on redisplay.
+            if (!$remember) {
+                $response->withCookie(Cookie::forget(self::REMEMBER_EMAIL_COOKIE));
+            }
+
+            return $response;
         }
 
         $request->session()->regenerate();
@@ -45,7 +68,25 @@ class AuthenticatedSessionController extends Controller
             ]);
         }
 
-        return $this->redirectForRole($user);
+        $response = $this->redirectForRole($user);
+
+        if ($remember) {
+            // Persist only the email for prefilling the login form. Session
+            // survival across browser restarts is handled separately and
+            // securely by Auth's remember-token (recaller) cookie.
+            $response->withCookie(cookie(
+                self::REMEMBER_EMAIL_COOKIE,
+                $user->email,
+                self::REMEMBER_EMAIL_LIFETIME
+            ));
+        } else {
+            // Explicitly clear any stale persistence: a previous remember-me
+            // choice must not survive a login made without it.
+            $response->withCookie(Cookie::forget(self::REMEMBER_EMAIL_COOKIE));
+            $response->withCookie(Cookie::forget(Auth::getRecallerName()));
+        }
+
+        return $response;
     }
 
     public function destroy(Request $request): RedirectResponse

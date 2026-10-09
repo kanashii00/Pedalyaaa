@@ -5,11 +5,11 @@
 #include "config.h"
 
 /* ------------------------------------------------------------------------
- *  SIM7600CE cellular modem on UART2
+ *  Quectel EC20F cellular modem on UART2
  *
- *  SIM TXD -> ESP32 RX2 GPIO16 (SIM_RX_PIN)
- *  SIM RXD -> ESP32 TX2 GPIO17 (SIM_TX_PIN)
- *
+ *  EC20F TXD -> ESP32 RX2 GPIO16 (SIM_RX_PIN)
+ *  EC20F RXD -> ESP32 TX2 GPIO17 (SIM_TX_PIN)
+ * 
  *  The modem carries HTTP and nothing else: it never sees a rental decision,
  *  an actuator command or the server's JSON shape. Every call here is bounded
  *  by a SIM_* timeout in config.h, so a missing or dead modem costs one

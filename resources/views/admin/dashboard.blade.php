@@ -12,6 +12,15 @@
 @endsection
 
 @section('content')
+<script>
+    // Opts this page into the admin live sync (rental-live.js, loaded after
+    // this markup): KPI cards + recent-rentals feed refresh in place; charts
+    // keep their manual Refresh button and are never touched.
+    window.PedalyaRentalLivePage = {
+        page: 'dashboard',
+        feedUrl: @json(route('admin.rentals.feed')),
+    };
+</script>
 {{-- Greeting --}}
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
     <div>
@@ -26,7 +35,7 @@
 </div>
 
 {{-- ===================== KPI CARDS ===================== --}}
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-4" id="kpiRow">
     <div class="col-6 col-md-4 col-xl-2">
         <x-admin.kpi title="Active Rentals" value="{{ $stats['rentals']['active'] ?? 0 }}"
                      icon="bi-play-circle" color="var(--accent)" foot="in progress now"
@@ -154,6 +163,7 @@
 <div class="row g-3">
     <div class="col-12 col-lg-6">
         <x-admin.card title="Recent Rentals" sub="Latest activity" :flush="true">
+            <div id="recentRentalsFeed">
             @forelse($recentRentals ?? [] as $r)
                 <div class="d-flex align-items-center gap-3 px-3 py-3 border-bottom" style="border-color: var(--border-subtle) !important;">
                     <div class="kpi__icon" style="width: 36px; height: 36px; font-size: 15px; background: var(--brand-soft); color: var(--brand-strong);">
@@ -168,6 +178,7 @@
             @empty
                 <x-admin.empty-state icon="bi-key" title="No rentals yet" message="Rental activity will appear here as customers start riding." />
             @endforelse
+            </div>
         </x-admin.card>
     </div>
 

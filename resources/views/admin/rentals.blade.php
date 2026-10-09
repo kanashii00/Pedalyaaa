@@ -535,6 +535,14 @@
 @endsection
 
 @section('content')
+<script>
+    // Opts this page into the admin live sync (rental-live.js, loaded after
+    // this markup): version feed URL + region swaps + row re-binding below.
+    window.PedalyaRentalLivePage = {
+        page: 'rentals',
+        feedUrl: @json(route('admin.rentals.feed')),
+    };
+</script>
 <div style="display:flex;flex-direction:column;gap:0;">
 
     {{-- ===== Filter bar ===== --}}
@@ -986,7 +994,7 @@
             </table>
         </div>
 
-        <div class="rv-foot">
+        <div class="rv-foot" id="rvFoot">
             <span>
                 {{-- $rentals->total() is the filtered page count; when filters
                      narrow the queue it is qualified by the unfiltered total so
@@ -1227,22 +1235,30 @@
         });
     }
 
-    tbody.querySelectorAll('[data-detail-toggle]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var target = document.getElementById(btn.getAttribute('data-detail-toggle'));
-            if (!target) return;
-            var wasOpen = target.classList.contains('open');
-            closeAll(btn);
-            if (!wasOpen) {
-                target.classList.add('open');
-                var main = tbody.querySelector('tr.rv-row[data-detail="' + btn.getAttribute('data-detail-toggle') + '"]');
-                if (main) main.classList.add('is-open');
-                btn.classList.add('is-open');
-                var ic = btn.querySelector('i');
-                if (ic) ic.className = 'bi bi-eye-slash';
-            }
+    /* Idempotent: the live sync re-calls this after swapping tbody HTML so
+       freshly rendered rows toggle too, without double-binding survivors. */
+    function bindDetailToggles() {
+        tbody.querySelectorAll('[data-detail-toggle]').forEach(function (btn) {
+            if (btn.dataset.liveBound === '1') return;
+            btn.dataset.liveBound = '1';
+            btn.addEventListener('click', function () {
+                var target = document.getElementById(btn.getAttribute('data-detail-toggle'));
+                if (!target) return;
+                var wasOpen = target.classList.contains('open');
+                closeAll(btn);
+                if (!wasOpen) {
+                    target.classList.add('open');
+                    var main = tbody.querySelector('tr.rv-row[data-detail="' + btn.getAttribute('data-detail-toggle') + '"]');
+                    if (main) main.classList.add('is-open');
+                    btn.classList.add('is-open');
+                    var ic = btn.querySelector('i');
+                    if (ic) ic.className = 'bi bi-eye-slash';
+                }
+            });
         });
-    });
+    }
+    bindDetailToggles();
+    window.__rentalsBindDetails = bindDetailToggles;
 
     /* --- Client-side search --- */
     var searchInput = document.querySelector('[data-table-search]');
@@ -1359,11 +1375,17 @@
         current = null;
     }
 
-    document.querySelectorAll('[data-print-receipt]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            try { openReceipt(JSON.parse(btn.getAttribute('data-print-receipt'))); } catch (e) { /* ignore */ }
+    function bindReceiptButtons() {
+        document.querySelectorAll('[data-print-receipt]').forEach(function (btn) {
+            if (btn.dataset.liveBound === '1') return;
+            btn.dataset.liveBound = '1';
+            btn.addEventListener('click', function () {
+                try { openReceipt(JSON.parse(btn.getAttribute('data-print-receipt'))); } catch (e) { /* ignore */ }
+            });
         });
-    });
+    }
+    bindReceiptButtons();
+    window.__rentalsBindReceipts = bindReceiptButtons;
 
     modal.querySelectorAll('[data-rcpt-close]').forEach(function (node) {
         node.addEventListener('click', closeReceipt);
@@ -1403,9 +1425,15 @@
         modal.classList.remove('open');
     }
 
-    document.querySelectorAll('[data-pay-action]').forEach(function (btn) {
-        btn.addEventListener('click', function () { openModal(btn); });
-    });
+    function bindPayButtons() {
+        document.querySelectorAll('[data-pay-action]').forEach(function (btn) {
+            if (btn.dataset.liveBound === '1') return;
+            btn.dataset.liveBound = '1';
+            btn.addEventListener('click', function () { openModal(btn); });
+        });
+    }
+    bindPayButtons();
+    window.__rentalsBindPay = bindPayButtons;
 
     modal.querySelectorAll('[data-rv-paid-close]').forEach(function (node) {
         node.addEventListener('click', closeModal);
@@ -1417,15 +1445,19 @@
 })();
 
 /* ==================== Automatic return-grace countdown ==================== */
-(function () {
-    var nodes = document.querySelectorAll('[data-return-countdown]');
-    if (!nodes.length) return;
+/* Single shared 1s timer, re-querying rows on every tick so swapped-in rows
+   count down too. Restarted (never duplicated) by the live-sync hook. */
+function initRvCountdowns() {
+    if (window.__rvCountdownTimer) {
+        clearInterval(window.__rvCountdownTimer);
+        window.__rvCountdownTimer = 0;
+    }
 
     function pad(n) { return String(n).padStart(2, '0'); }
 
     function render() {
         var now = Date.now();
-
+        var nodes = document.querySelectorAll('[data-return-countdown]');
         nodes.forEach(function (node) {
             var target = new Date(node.getAttribute('data-return-countdown'));
             var out = node.querySelector('[data-return-countdown-text]');
@@ -1442,7 +1474,22 @@
     }
 
     render();
-    setInterval(render, 1000);
-})();
+    window.__rvCountdownTimer = setInterval(render, 1000);
+}
+initRvCountdowns();
+
+/* Live-sync hook (rental-live.js): re-bind row buttons + countdowns after
+   the table regions are swapped with fresh server HTML. */
+window.PedalyaRentalsLiveRefresh = function () {
+    ['__rentalsBindDetails', '__rentalsBindReceipts', '__rentalsBindPay'].forEach(function (key) {
+        if (typeof window[key] === 'function') {
+            try { window[key](); } catch (e) { /* keep old rows working */ }
+        }
+    });
+    initRvCountdowns();
+    if (window.PedalyaRowMenuInit) {
+        try { window.PedalyaRowMenuInit(document); } catch (e) { /* guarded internally */ }
+    }
+};
 </script>
 @endsection

@@ -35,7 +35,11 @@ class MonitoringController extends Controller
             $section = self::DEFAULT_SECTION;
         }
 
-        $bicycles = Bicycle::with(['latestTelemetry', 'latestGpsLog', 'currentRiderUser'])
+        // Every non-removed row is listed (no records are ever hidden or
+        // deleted here); the devices section itself decides per row whether a
+        // genuinely registered device backs it. The latest lock command rides
+        // along so the "last command result" tile reads real ack state.
+        $bicycles = Bicycle::with(['latestTelemetry', 'latestGpsLog', 'currentRiderUser', 'latestCommand'])
 
             ->where('status', '!=', 'removed')
             ->orderBy('id')
@@ -159,10 +163,18 @@ class MonitoringController extends Controller
 
     public function live(): JsonResponse
     {
-        $bicycles = Bicycle::with('latestGpsLog')
+        $bicycles = Bicycle::with(['latestGpsLog', 'latestTelemetry'])
             ->where('status', '!=', 'removed')
             ->orderBy('id')
             ->get();
+
+        // Latest lock command per bicycle in one query: backs the devices
+        // "last command result" tile with real acknowledgement state.
+        $lastCommands = \App\Models\DeviceCommand::whereIn('bicycleId', $bicycles->pluck('id'))
+            ->orderBy('id', 'desc')
+            ->get()
+            ->groupBy('bicycleId')
+            ->map(fn ($rows) => $rows->first());
 
         $geofence = $this->geofenceService->getConfig();
 
@@ -175,6 +187,7 @@ class MonitoringController extends Controller
             } else {
                 $zone = ['inside' => null, 'distance' => null, 'level' => 'unknown', 'warning' => false];
             }
+            $lastCommand = $lastCommands->get($bike->id);
             $data[] = [
                 'id' => $bike->id,
                 'name' => $bike->name,
@@ -189,7 +202,18 @@ class MonitoringController extends Controller
                 'gps_speed' => $gps['speed'],
                 'battery_level' => $bike->batteryLevel,
                 'lock_status' => $bike->lockStatus,
-                'last_heartbeat' => $bike->lastHeartbeat,
+                'last_lock_action' => $bike->lastLockAction?->toIso8601String(),
+                'last_heartbeat' => $bike->lastHeartbeat?->toIso8601String(),
+                'has_registered_device' => $bike->hasRegisteredDevice(),
+                'device_version' => $bike->latestTelemetry?->deviceVersion,
+                'device_uptime' => $bike->latestTelemetry?->uptime,
+                'last_telemetry' => $bike->latestTelemetry?->eventTimestamp?->toIso8601String(),
+                'last_command' => $lastCommand ? [
+                    'command' => $lastCommand->command,
+                    'status' => $lastCommand->status,
+                    'response' => $lastCommand->response,
+                    'at' => $lastCommand->updated_at?->toIso8601String(),
+                ] : null,
                 'zone_level' => $zone['level'],
                 'zone_distance' => $zone['distance'],
             ];

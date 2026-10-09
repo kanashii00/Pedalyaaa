@@ -11,21 +11,22 @@
 // Real values live in the gitignored secrets.h. These are only fallbacks so the
 // sketch still builds on a machine where secrets.h has not been created yet.
 #ifndef WIFI_SSID
-#define WIFI_SSID ""
+#define WIFI_SSID "PLDTHOMEFIBRZ47rS" //wifi nako
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD ""
+#define WIFI_PASSWORD "PLDTWIFIZ2953"
 #endif
 
-// Dev machine on the LAN. Override for a real deployment with a hostname.
+// Hostname only: never a scheme, never a port, never a trailing slash. The
+// scheme (https) and the path come from USE_HTTPS and the *_PATH macros.
 #ifndef SERVER_HOST
-#define SERVER_HOST "192.168.1.112"
+#define SERVER_HOST "b3xs8k13-8000.asse.devtunnels.ms"
 #endif
 
-// php artisan serve listens here.
+// HTTPS port for Dev Tunnel.
 #ifndef SERVER_PORT
-#define SERVER_PORT 8000
+#define SERVER_PORT 443
 #endif
 
 #ifndef SERVER_PATH
@@ -225,16 +226,17 @@
 #endif
 
 /* ------------------------------------------------------------------------
- *  SIM7600CE cellular modem (UART2)
+ *  Quectel EC20F cellular modem (UART2)
  *
  *  The modem is only a bearer. Every Pedalya decision, payload, endpoint and
- *  device key stays in PedalyaApi and the sketch; the SIM link is a second
- *  route to the same HTTP API, used whenever Wi-Fi is not associated.
+ *  device key stays in PedalyaApi and the sketch; the cellular link is a route
+ *  to the same HTTP API. In SIM-only mode (SIM_ONLY_MODE 1) it is the ONLY
+ *  route: Wi-Fi is never associated and never consulted.
  *
  *  Wiring (never GPIO1/GPIO3, those are the USB-UART0 monitor pins):
- *      SIM7600 TXD -> ESP32 RX2 GPIO16 (SIM_RX_PIN)
- *      SIM7600 RXD -> ESP32 TX2 GPIO17 (SIM_TX_PIN)
- *      SIM7600 GND -> ESP32 GND
+ *      EC20F TXD -> ESP32 RX2 GPIO16 (SIM_RX_PIN)
+ *      EC20F RXD -> ESP32 TX2 GPIO17 (SIM_TX_PIN)
+ *      EC20F GND -> ESP32 GND
  *
  *  Every timeout below bounds one blocking AT exchange, so a modem that is
  *  absent or dead costs one bounded wait instead of parking the main loop.
@@ -242,6 +244,14 @@
 
 #ifndef SIM_ENABLED
 #define SIM_ENABLED 1
+#endif
+
+// 1 = the ESP32 reports only over the EC20F + SIM. Wi-Fi code stays in the
+// sketch untouched, but PedalyaApi never associates, never polls WiFi.status()
+// for routing, and never sends API traffic over it. 0 restores the old
+// Wi-Fi-first behaviour with the modem as fallback.
+#ifndef SIM_ONLY_MODE
+#define SIM_ONLY_MODE 1
 #endif
 
 #ifndef SIM_RX_PIN
@@ -264,7 +274,7 @@
 #endif
 
 
-// One ordinary AT exchange (AT, AT+CGDCONT, AT+HTTPPARA, ...).
+// One ordinary AT exchange (AT, AT+CGDCONT, AT+QHTTPCFG, ...).
 #ifndef SIM_CMD_TIMEOUT_MS
 #define SIM_CMD_TIMEOUT_MS 2000UL
 #endif
@@ -275,8 +285,9 @@
 #define SIM_NET_TIMEOUT_MS 8000UL
 #endif
 
-// One HTTP round trip (AT+HTTPACTION) over LTE, bounded so a hung request
-// cannot starve GPS, LCD, buzzer or accident detection for longer than this.
+// One HTTP round trip (AT+QHTTPGET / AT+QHTTPPOST) over LTE, bounded so a
+// hung request cannot starve GPS, LCD, buzzer or accident detection for
+// longer than this.
 #ifndef SIM_HTTP_TIMEOUT_MS
 #define SIM_HTTP_TIMEOUT_MS 10000UL
 #endif

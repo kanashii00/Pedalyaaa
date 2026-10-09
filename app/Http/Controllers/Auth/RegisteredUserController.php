@@ -26,8 +26,20 @@ class RegisteredUserController extends Controller
     {
         $pendingOauth = $request->session()->get('pending_oauth');
 
+        // Normalise whitespace before validation so "  Juan   Dela Cruz  "
+        // becomes "Juan Dela Cruz" and a phone like " 09171234567 " is trimmed.
+        // Interior phone spacing is intentionally NOT stripped: only pure
+        // digits are valid, so "0917 123 4567" must fail validation.
+        $request->merge([
+            'name' => preg_replace('/\s+/', ' ', trim((string) $request->input('name', ''))),
+            'email' => trim((string) $request->input('email', '')),
+            'phoneNumber' => trim((string) $request->input('phoneNumber', '')) === ''
+                ? null
+                : trim((string) $request->input('phoneNumber', '')),
+        ]);
+
         $rules = [
-            'name' => ['required', 'string', 'max:255'],
+            'name' => ['required', 'string', 'min:2', 'max:100', 'regex:/^(?=.*\pL)[\pL\pM\s.\'’\-]+$/u'],
             'email' => [
                 'required',
                 'string',
@@ -36,14 +48,26 @@ class RegisteredUserController extends Controller
                 'max:255',
                 Rule::unique(User::class, 'email'),
             ],
-            'phoneNumber' => ['nullable', 'string', 'max:20'],
+            'phoneNumber' => ['nullable', 'string', 'min:7', 'max:15', 'regex:/^[0-9]+$/'],
             // Google sign-ups also set a Pedalya password so the rider can later
             // sign in either with Google or with email + password. The value is
             // hashed below and never stored in plain text.
-            'password' => ['required', 'string', 'confirmed', Password::defaults()],
+            'password' => ['required', 'string', 'min:8', 'confirmed', Password::defaults()],
         ];
 
-        $request->validate($rules);
+        $messages = [
+            'name.regex' => 'Please enter a valid full name.',
+            'name.min' => 'Please enter a valid full name.',
+            'name.max' => 'Please enter a valid full name.',
+            'email.email' => 'Please enter a valid email address.',
+            'phoneNumber.regex' => 'Please enter a valid phone number.',
+            'phoneNumber.min' => 'Please enter a valid phone number.',
+            'phoneNumber.max' => 'Please enter a valid phone number.',
+            'password.min' => 'Password must be at least 8 characters.',
+            'password.confirmed' => 'Passwords do not match.',
+        ];
+
+        $request->validate($rules, $messages);
 
         $user = User::create([
             'name' => $request->string('name')->value(),

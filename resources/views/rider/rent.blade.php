@@ -86,6 +86,16 @@
         transition: all 0.15s;
     }
     #rentMapMaximize:hover { border-color: var(--primary); color: var(--primary); }
+    /* Terms acceptance error state: red checkbox + red label text, matching
+       the inline validation style used by the duration field above. */
+    #rentalTerms.is-invalid {
+        border-color: #dc3545;
+        box-shadow: 0 0 0 0.25rem rgba(220, 53, 69, 0.25);
+    }
+    #rentalTerms.is-invalid ~ .form-check-label {
+        color: #dc3545 !important;
+        font-weight: 600;
+    }
 </style>
 @endsection
 
@@ -240,6 +250,7 @@
                     @error('durationMinutes')
                         <div class="text-danger small mt-1">{{ $message }}</div>
                     @enderror
+                    <div class="text-danger small mt-1 d-none" id="durationError" role="alert"></div>
                     <div class="d-flex flex-wrap gap-2 mt-2" id="durationPresets">
                         @foreach([15, 30, 45, 60, 90, 120] as $presetMinutes)
                             @if($presetMinutes <= $maxDurationMinutes)
@@ -251,7 +262,7 @@
                     <div class="d-flex justify-content-between mt-2">
                         <small class="text-muted">Min 1 minute</small>
                         <strong id="durationDisplay">1 hour</strong>
-                        <small class="text-muted">Max {{ $maxDurationMinutes }} min</small>
+                        <small class="text-muted">Max {{ $maxDurationMinutes }} min{{ $maxDurationMinutes >= 720 ? ' (12 hours)' : '' }}</small>
                     </div>
                 </div>
                 <div class="bg-primary-custom text-white rounded p-3 text-center mb-3">
@@ -309,10 +320,12 @@
                     </div>
                 </div>
 
-                <div class="form-check">
-                    <input type="checkbox" class="form-check-input" id="rentalTerms" required>
+                <div class="form-check" id="rentalTermsWrap">
+                    <input type="checkbox" class="form-check-input" id="rentalTerms" required
+                           aria-describedby="rentalTermsError" aria-invalid="false">
                     <label class="form-check-label" for="rentalTerms" style="font-size:0.85rem;color:#666;">I agree to the rental terms and conditions, and will return the bicycle to a designated station.</label>
                 </div>
+                <div class="text-danger small mt-1 d-none" id="rentalTermsError" role="alert"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -363,6 +376,7 @@
         document.getElementById('modalBikeBattery').textContent = payload.battery + '%';
         document.getElementById('modalBikeRate').textContent = '₱' + rate + '/hr';
         togglePaymentMethod('cash');
+        clearTermsError();
         updateCost();
         new bootstrap.Modal(document.getElementById('rentalModal')).show();
     }
@@ -391,16 +405,64 @@
         return '₱' + n.toFixed(2);
     }
 
+    // Absolute ceiling for one rental, in whole minutes. Rendered from the
+    // same server-side cap (RentController::MAX_DURATION_MINUTES) that the
+    // backend validates against, so the form can never offer or submit more
+    // than the server will accept.
+    var maxDurationMinutes = {{ $maxDurationMinutes }};
+
+    // Strict whole-minutes check: digits only, then the 1..max range. Anything
+    // else (empty, letters, symbols, decimals, negatives) is invalid and gets
+    // an inline message instead of being silently coerced.
+    function validateDuration() {
+        var raw = (document.getElementById('durationMinutesInput').value || '').toString().trim();
+
+        if (raw === '' || !/^\d+$/.test(raw)) {
+            return { valid: false, mins: null, message: 'Please enter a whole number of minutes.' };
+        }
+        var mins = parseInt(raw, 10);
+        if (mins < 1) {
+            return { valid: false, mins: mins, message: 'The rental duration must be at least 1 minute.' };
+        }
+        if (mins > maxDurationMinutes) {
+            return {
+                valid: false,
+                mins: mins,
+                message: maxDurationMinutes >= 720
+                    ? 'Maximum rental duration is 720 minutes.'
+                    : 'Maximum rental duration is ' + maxDurationMinutes + ' minutes.'
+            };
+        }
+        return { valid: true, mins: mins, message: '' };
+    }
+
     function setDuration(mins) {
         document.getElementById('durationMinutesInput').value = mins;
         updateCost();
     }
 
     function updateCost() {
-        var raw = document.getElementById('durationMinutesInput').value;
-        var mins = parseInt(raw, 10);
-        if (isNaN(mins) || !isFinite(mins) || mins < 1) mins = 1;
+        var input = document.getElementById('durationMinutesInput');
+        var errorBox = document.getElementById('durationError');
+        var submitBtn = document.getElementById('confirmRentBtn');
+        var check = validateDuration();
 
+        if (!check.valid) {
+            input.classList.add('is-invalid');
+            input.setAttribute('aria-invalid', 'true');
+            errorBox.textContent = check.message;
+            errorBox.classList.remove('d-none');
+            submitBtn.disabled = true;
+            return;
+        }
+
+        input.classList.remove('is-invalid');
+        input.setAttribute('aria-invalid', 'false');
+        errorBox.textContent = '';
+        errorBox.classList.add('d-none');
+        submitBtn.disabled = false;
+
+        var mins = check.mins;
         document.getElementById('durationDisplay').textContent = formatDuration(mins);
 
         var rate = parseFloat(currentRate);
@@ -412,6 +474,10 @@
         document.getElementById('costDisplay').textContent = money(total);
         document.getElementById('gcashAmountDisplay').textContent = money(total);
     }
+
+    // Sync the error state and the submit button with the default value as
+    // soon as the page loads, so the modal can never open in a stale state.
+    updateCost();
 
     function togglePaymentMethod(method) {
         document.getElementById('selectedPaymentMethod').value = method;
@@ -440,7 +506,10 @@
 
     function generateGcashQr() {
         var canvas = document.getElementById('gcashQrCanvas');
-        var mins = parseInt(document.getElementById('durationMinutesInput').value, 10) || 1;
+        // Price the QR from the last valid duration, never from rejected input.
+        var durationCheck = validateDuration();
+        var mins = durationCheck.valid ? durationCheck.mins
+            : (parseInt(document.getElementById('selectedDuration').value, 10) || 60);
         var rate = parseFloat(currentRate);
         if (!isFinite(rate) || isNaN(rate)) rate = 0;
         var total = chargedHours(mins) * rate;
@@ -508,6 +577,36 @@
         }
     }
 
+    // Terms acceptance: inline error instead of a browser popup. The modal
+    // stays open with the chosen duration and payment method untouched; the
+    // error clears the moment the checkbox is selected.
+    function showTermsError() {
+        var termsCheckbox = document.getElementById('rentalTerms');
+        var termsError = document.getElementById('rentalTermsError');
+        termsCheckbox.classList.add('is-invalid');
+        termsCheckbox.setAttribute('aria-invalid', 'true');
+        termsError.textContent = 'Please accept the rental terms and conditions before starting your rental.';
+        termsError.classList.remove('d-none');
+    }
+
+    function clearTermsError() {
+        var termsCheckbox = document.getElementById('rentalTerms');
+        var termsError = document.getElementById('rentalTermsError');
+        if (!termsCheckbox || !termsError) {
+            return;
+        }
+        termsCheckbox.classList.remove('is-invalid');
+        termsCheckbox.setAttribute('aria-invalid', 'false');
+        termsError.textContent = '';
+        termsError.classList.add('d-none');
+    }
+
+    document.getElementById('rentalTerms').addEventListener('change', function() {
+        if (this.checked) {
+            clearTermsError();
+        }
+    });
+
     // One rental per submission. The button is disabled on the way out and the
     // form is flagged, so a double click (or a second Enter while the first
     // request is still in flight) cannot start two rentals on one bicycle.
@@ -521,6 +620,16 @@
             return;
         }
 
+        // Last line of defence in the browser: re-validate the duration even
+        // if the submit was triggered without the disabled button (e.g. an
+        // Enter keypress), so an invalid value can never leave this form. The
+        // server validates the same 1..720 range again on receipt.
+        updateCost();
+        if (!validateDuration().valid) {
+            e.preventDefault();
+            return;
+        }
+
         if (!document.getElementById('selectedBicycleId').value) {
             e.preventDefault();
             alert('Please select a bicycle first');
@@ -529,9 +638,12 @@
 
         if (!document.getElementById('rentalTerms').checked) {
             e.preventDefault();
-            alert('Please accept the terms and conditions');
+            showTermsError();
+            document.getElementById('rentalTerms').focus({ preventScroll: false });
             return;
         }
+
+        clearTermsError();
 
         var method = document.getElementById('selectedPaymentMethod').value;
         if (method === 'gcash') {

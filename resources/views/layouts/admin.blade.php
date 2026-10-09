@@ -431,7 +431,11 @@
 
     {{-- CONTENT --}}
     <main class="admin-content">
-        @if(session('success'))
+        {{-- The success banner is skipped when a structured toast is present
+             (e.g. a confirmed bicycle return): the compact top-right toast
+             already carries the same message, so rendering both would notify
+             twice. Plain success flashes without toast data keep the banner. --}}
+        @if(session('success') && !session('toast'))
             <div class="alert alert-pedalya alert-success alert-dismissible fade show" role="alert">
                 <i class="bi bi-check-circle-fill me-2"></i>{{ session('success') }}
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
@@ -514,4 +518,50 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="{{ asset('js/notifications.js') }}"></script>
 <script src="{{ asset('js/admin.js') }}"></script>
+{{-- Rental live sync: pages opt in via window.PedalyaRentalLivePage (set in
+     their content section, which renders before this tag). --}}
+<script src="{{ asset('js/rental-live.js') }}"></script>
+
+{{-- Flash messages surface as compact top-right toasts (fixed overlay, never
+     shifts page content). Structured session('toast') wins so the return
+     flow can set its own title, and it replaces the success banner above so
+     each action notifies exactly once; plain success/error flashes fall back
+     to generic titles. Error and validation banners always remain. --}}
+@if(session('toast') || session('success') || session('error') || $errors->any())
+<script>
+(function () {
+    var flashToast = @json(session('toast'));
+    var flashSuccess = @json(session('success'));
+    var flashError = @json(session('error') ?? ($errors->any() ? $errors->first() : null));
+
+    function showFlash() {
+        if (!window.PedalyaToast) return false;
+        // Structured toast (e.g. confirmed bicycle return) carries its own
+        // title/message/type populated from the actual response.
+        if (flashToast && (flashToast.message || flashToast.title)) {
+            var type = ['success', 'error', 'warning', 'info'].includes(flashToast.type)
+                ? flashToast.type
+                : 'success';
+            window.PedalyaToast[type](flashToast.message || '', flashToast.title || 'Notification');
+            return true;
+        }
+        if (flashSuccess) {
+            window.PedalyaToast.success(flashSuccess, 'Success');
+            return true;
+        }
+        if (flashError) {
+            window.PedalyaToast.error(flashError, 'Error');
+            return true;
+        }
+        return false;
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', showFlash);
+    } else {
+        showFlash();
+    }
+})();
+</script>
+@endif
 @endsection

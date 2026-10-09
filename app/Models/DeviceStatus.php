@@ -12,6 +12,8 @@ class DeviceStatus extends Model
 
     protected $table = 'device_status';
 
+    // No 'rfid': RFID hardware is not part of the deployed setup, so device
+    // reports carrying it are not accepted and the column is dropped.
     protected $fillable = [
         'bicycleId',
         'gps',
@@ -19,7 +21,6 @@ class DeviceStatus extends Model
         'battery',
         'lockStatus',
         'lcdTimer',
-        'rfid',
         'deviceVersion',
         'uptime',
         'command',

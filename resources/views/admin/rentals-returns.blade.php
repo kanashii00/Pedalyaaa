@@ -547,6 +547,14 @@
 @endsection
 
 @section('content')
+<script>
+    // Opts this page into the admin live sync (rental-live.js, loaded after
+    // this markup): version feed URL + region swaps + row re-binding below.
+    window.PedalyaRentalLivePage = {
+        page: 'returns',
+        feedUrl: @json(route('admin.rentals.feed')),
+    };
+</script>
 <div style="display:flex;flex-direction:column;gap:0;">
 
     {{-- ===== Module tabs ===== --}}
@@ -554,7 +562,7 @@
         $pendingUrl = route('admin.rentals.returns', ['view' => 'pending']);
         $processedUrl = route('admin.rentals.returns', ['view' => 'processed']);
     @endphp
-    <div class="rv-tabs">
+    <div class="rv-tabs" id="rvTabs">
         <a href="{{ $pendingUrl }}" class="rv-tab {{ $view === 'pending' ? 'active' : '' }}">
             <i class="bi bi-inbox"></i> Awaiting Return
             <span class="badge-admin badge-admin--warning badge-admin--plain">{{ $summary['pending'] }}</span>
@@ -566,7 +574,7 @@
     </div>
 
     {{-- ===== Summary strip ===== --}}
-    <div class="rv-summary">
+    <div class="rv-summary" id="rvSummary">
         <div class="rv-summary__card">
             <div class="rv-summary__icon"><i class="bi bi-inbox"></i></div>
             <div>
@@ -1013,7 +1021,7 @@
             </table>
         </div>
 
-        <div class="rv-foot">
+        <div class="rv-foot" id="rvFoot">
             <span>
                 <i class="bi bi-list-ul me-1"></i>Showing {{ $rentals->total() }} {{ $view === 'pending' ? 'pending return' : 'processed return' }}{{ $rentals->total() === 1 ? '' : 's' }}
             </span>
@@ -1186,17 +1194,25 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    document.querySelectorAll('[data-detail-toggle]').forEach(btn => {
-        btn.addEventListener('click', function () {
-            const id = this.dataset.detailToggle;
-            const row = document.getElementById(id);
-            const main = document.querySelector(`#rvTable tr[data-detail="${id}"]`);
-            if (!row) return;
-            const open = row.classList.toggle('open');
-            this.classList.toggle('is-open', open);
-            if (main) main.classList.toggle('is-open', open);
+    /* Idempotent: the live sync re-calls this after swapping tbody HTML so
+       freshly rendered rows toggle too, without double-binding survivors. */
+    function bindDetailToggles() {
+        document.querySelectorAll('[data-detail-toggle]').forEach(btn => {
+            if (btn.dataset.liveBound === '1') return;
+            btn.dataset.liveBound = '1';
+            btn.addEventListener('click', function () {
+                const id = this.dataset.detailToggle;
+                const row = document.getElementById(id);
+                const main = document.querySelector(`#rvTable tr[data-detail="${id}"]`);
+                if (!row) return;
+                const open = row.classList.toggle('open');
+                this.classList.toggle('is-open', open);
+                if (main) main.classList.toggle('is-open', open);
+            });
         });
-    });
+    }
+    bindDetailToggles();
+    window.__returnsBindDetails = bindDetailToggles;
 
     /* ---- Process Return modal ---- */
     const prModal = document.getElementById('prModal');
@@ -1288,7 +1304,12 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    /* Idempotent: re-run after a live-sync table swap so new rows open the
+       Process Return dialog too. */
+    function bindReturnProcessButtons() {
     document.querySelectorAll('[data-return-process]').forEach(btn => {
+        if (btn.dataset.liveBound === '1') return;
+        btn.dataset.liveBound = '1';
         btn.addEventListener('click', function () {
             prForm.action = "{{ route('admin.rentals.process-return', '__ID__') }}".replace('__ID__', this.dataset.rentalId);
             document.getElementById('prCode').textContent = this.dataset.rentalCode || ('#' + this.dataset.rentalId);
@@ -1320,6 +1341,9 @@ document.addEventListener('DOMContentLoaded', function () {
             prModal.classList.add('open');
         });
     });
+    }
+    bindReturnProcessButtons();
+    window.__returnsBindProcess = bindReturnProcessButtons;
 
     if (prReturnTime) {
         prReturnTime.addEventListener('change', function () {
@@ -1337,16 +1361,20 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     /* ---- Automatic return-grace countdown ---- */
-    (function () {
-        const nodes = document.querySelectorAll('[data-return-countdown]');
-        if (!nodes.length) return;
+    /* Single shared 1s timer, re-querying rows on every tick so swapped-in
+       rows count down too. Restarted (never duplicated) by the live hook. */
+    function initRvCountdowns() {
+        if (window.__rvCountdownTimer) {
+            clearInterval(window.__rvCountdownTimer);
+            window.__rvCountdownTimer = 0;
+        }
 
         const pad = n => String(n).padStart(2, '0');
 
         const render = () => {
             const now = Date.now();
 
-            nodes.forEach(node => {
+            document.querySelectorAll('[data-return-countdown]').forEach(node => {
                 const target = new Date(node.getAttribute('data-return-countdown'));
                 const out = node.querySelector('[data-return-countdown-text]');
                 if (!out || isNaN(target.getTime())) return;
@@ -1362,8 +1390,9 @@ document.addEventListener('DOMContentLoaded', function () {
         };
 
         render();
-        setInterval(render, 1000);
-    })();
+        window.__rvCountdownTimer = setInterval(render, 1000);
+    }
+    initRvCountdowns();
 
     function closePrModal() { prModal.classList.remove('open'); }
     prModal.querySelectorAll('[data-pr-close]').forEach(b => b.addEventListener('click', closePrModal));
@@ -1411,12 +1440,34 @@ document.addEventListener('DOMContentLoaded', function () {
         el('rcptPayStatus').className = d.payStatus === 'Paid' ? 'rcpt-chip rcpt-chip--green' : 'rcpt-chip rcpt-chip--amber';
     }
 
-    document.querySelectorAll('[data-print-receipt]').forEach(btn => {
-        btn.addEventListener('click', function () {
-            try { renderReceipt(JSON.parse(this.dataset.printReceipt)); } catch (e) { console.error('Bad receipt JSON', e); return; }
-            rcptModal.classList.add('open');
+    /* Idempotent: re-run after a live-sync table swap so new rows preview
+       their receipts too. */
+    function bindReceiptButtons() {
+        document.querySelectorAll('[data-print-receipt]').forEach(btn => {
+            if (btn.dataset.liveBound === '1') return;
+            btn.dataset.liveBound = '1';
+            btn.addEventListener('click', function () {
+                try { renderReceipt(JSON.parse(this.dataset.printReceipt)); } catch (e) { console.error('Bad receipt JSON', e); return; }
+                rcptModal.classList.add('open');
+            });
         });
-    });
+    }
+    bindReceiptButtons();
+    window.__returnsBindReceipts = bindReceiptButtons;
+
+    /* Live-sync hook (rental-live.js): re-bind row buttons + countdowns
+       after the table regions are swapped with fresh server HTML. */
+    window.PedalyaReturnsLiveRefresh = function () {
+        ['__returnsBindDetails', '__returnsBindProcess', '__returnsBindReceipts'].forEach(function (key) {
+            if (typeof window[key] === 'function') {
+                try { window[key](); } catch (e) { /* keep old rows working */ }
+            }
+        });
+        initRvCountdowns();
+        if (window.PedalyaRowMenuInit) {
+            try { window.PedalyaRowMenuInit(document); } catch (e) { /* guarded internally */ }
+        }
+    };
 
     function closeRcptModal() { rcptModal.classList.remove('open'); }
     rcptModal.querySelectorAll('[data-rcpt-close]').forEach(b => b.addEventListener('click', closeRcptModal));

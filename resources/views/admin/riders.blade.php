@@ -33,6 +33,7 @@
         </form>
     </div>
 
+    <div class="table-responsive">
     <table class="admin-table">
         <thead>
             <tr>
@@ -44,7 +45,7 @@
                 <th class="sortable text-center">Total Rentals <span class="sort-ind"></span></th>
                 <th class="sortable">Total Spent <span class="sort-ind"></span></th>
                 <th class="sortable">Joined <span class="sort-ind"></span></th>
-                <th>Actions</th>
+                <th class="col-actions">Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -81,12 +82,13 @@
                     <td class="text-center" data-label="Total Rentals">{{ $rider->totalRentals ?? 0 }}</td>
                     <td data-label="Total Spent">₱{{ number_format($rider->totalSpent ?? 0, 2) }}</td>
                     <td data-label="Joined"><small class="text-muted">{{ $rider->created_at->format('M d, Y') }}</small></td>
-                    <td data-label="Actions">
+                    <td data-label="Actions" class="col-actions">
                         <div class="actions-row">
                             @if(!($rider->verified ?? false))
                                 <button type="button"
                                         class="btn-admin btn-admin--warning btn-admin--sm"
                                         title="Review Verification"
+                                        aria-label="Review Verification"
                                         onclick="openVerifyReview(this)"
                                         data-id="{{ $rider->id }}"
                                         data-name="{{ $rider->name }}"
@@ -106,7 +108,7 @@
                                     @csrf
                                     @method('PUT')
                                     <input type="hidden" name="status" value="inactive">
-                                    <button type="submit" class="btn-admin btn-admin--secondary btn-admin--sm" title="Disable" data-confirm="Disable this rider?">
+                                    <button type="submit" class="btn-admin btn-admin--secondary btn-admin--sm" title="Disable" aria-label="Disable" data-confirm="Disable this rider?">
                                         <i class="bi bi-pause-circle"></i>
                                     </button>
                                 </form>
@@ -115,7 +117,7 @@
                                     @csrf
                                     @method('PUT')
                                     <input type="hidden" name="status" value="active">
-                                    <button type="submit" class="btn-admin btn-admin--secondary btn-admin--sm" title="Enable">
+                                    <button type="submit" class="btn-admin btn-admin--secondary btn-admin--sm" title="Enable" aria-label="Enable">
                                         <i class="bi bi-check-circle"></i>
                                     </button>
                                 </form>
@@ -126,7 +128,7 @@
                                     @csrf
                                     @method('PUT')
                                     <input type="hidden" name="status" value="suspended">
-                                    <button type="submit" class="btn-admin btn-admin--danger btn-admin--sm" title="Suspend" data-confirm="Suspend this rider?">
+                                    <button type="submit" class="btn-admin btn-admin--danger btn-admin--sm" title="Suspend" aria-label="Suspend" data-confirm="Suspend this rider?">
                                         <i class="bi bi-slash-circle"></i>
                                     </button>
                                 </form>
@@ -143,6 +145,7 @@
             @endforelse
         </tbody>
     </table>
+    </div>
 
     <div class="admin-table-foot">
         <span>Showing {{ method_exists($riders, 'total') ? $riders->total() : $riders->count() }} records</span>

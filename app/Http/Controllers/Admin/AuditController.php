@@ -29,10 +29,19 @@ class AuditController extends Controller
             $query->where('created_at', '<=', $request->input('date_to'));
         }
 
-        $logs = $query->latest()->paginate(30);
+        $logs = $query->latest()->paginate(30)->withQueryString();
 
         $users = \App\Models\User::orderBy('name')->get();
 
-        return response()->view('admin.audit', compact('logs', 'users'));
+        // Filter options come from the records themselves so new event types
+        // appear without code changes; nothing here is hardcoded sample data.
+        $actionOptions = AuditLog::query()
+            ->select('action')
+            ->distinct()
+            ->orderBy('action')
+            ->pluck('action')
+            ->values();
+
+        return response()->view('admin.audit', compact('logs', 'users', 'actionOptions'));
     }
 }

@@ -55,10 +55,19 @@
                         </div>
                     </div>
                 </div>
-                <form action="{{ route('rider.rentals.return', $activeRental->id) }}" method="POST">
-                    @csrf
-                    <button type="submit" class="btn btn-warning"><i class="bi bi-arrow-return-left me-1"></i>Return Bicycle Now</button>
-                </form>
+                @if($activeRental->returnRequestedAt !== null)
+                    <div role="status" style="background:#FFF8E1;border:1px solid #FFE0B2;border-radius:8px;padding:10px 12px;max-width:340px;text-align:left;">
+                        <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split me-1" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>
+                        <div class="fw-bold mt-1" style="font-size:0.82rem;color:#E65100;">Return submitted &mdash; awaiting admin confirmation.</div>
+                        <div class="text-muted" style="font-size:0.78rem;">Your bicycle has been marked as returned. Please wait for an administrator to inspect and confirm the return.</div>
+                        <button type="button" class="btn btn-warning mt-2" disabled><i class="bi bi-check2-circle me-1"></i>Return Submitted</button>
+                    </div>
+                @else
+                    <form action="{{ route('rider.rentals.return', $activeRental->id) }}" method="POST" data-return-form>
+                        @csrf
+                        <button type="submit" class="btn btn-warning" data-return-button><i class="bi bi-arrow-return-left me-1"></i>Return Bicycle Now</button>
+                    </form>
+                @endif
             </div>
         </div>
     </div>
@@ -176,6 +185,8 @@
                                 <span class="badge-status badge-active"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Active</span>
                             @elseif($rental->status === 'completed')
                                 <span class="badge-status badge-completed"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Completed</span>
+                            @elseif(in_array($rental->status, ['awaiting_return', 'overdue_return'], true))
+                                <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>
                             @else
                                 <span class="badge-status badge-cancelled"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> {{ ucfirst($rental->status) }}</span>
                             @endif
@@ -288,6 +299,7 @@
         var statusHtml = '';
         if (rental.status === 'active') statusHtml = '<span class="badge-status badge-active"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Active</span>';
         else if (rental.status === 'completed') statusHtml = '<span class="badge-status badge-completed"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Completed</span>';
+        else if (rental.status === 'awaiting_return' || rental.status === 'overdue_return') statusHtml = '<span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>';
         else statusHtml = '<span class="badge-status badge-cancelled"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> ' + rental.status.charAt(0).toUpperCase() + rental.status.slice(1) + '</span>';
         document.getElementById('detailStatus').innerHTML = statusHtml;
         new bootstrap.Modal(document.getElementById('rentalDetailModal')).show();
@@ -296,5 +308,20 @@
     function downloadReceipt(id) {
         alert('Receipt for ' + id + ' downloading...');
     }
+
+    // Disable the return button the instant it is clicked so a double-click
+    // can never queue a second return request; the reloaded page then shows
+    // the persisted "Awaiting Admin Confirmation" state instead.
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('[data-return-form]').forEach(function(returnForm) {
+            returnForm.addEventListener('submit', function() {
+                var button = returnForm.querySelector('[data-return-button]');
+                if (button) {
+                    button.disabled = true;
+                    button.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Return submitted\u2026';
+                }
+            });
+        });
+    });
 </script>
 @endsection

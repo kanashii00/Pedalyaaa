@@ -23,6 +23,13 @@ class OperatingAreaController extends Controller
 
     public function live(Request $request): JsonResponse
     {
-        return response()->json($this->operatingArea->livePayloadFor($request->user()));
+        // Live rental/map state must never be served stale: a cached
+        // awaiting_return row would keep the dashboard countdown and the map
+        // tracking different rentals.
+        return response()->json($this->operatingArea->livePayloadFor($request->user()))->withHeaders([
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
+        ]);
     }
 }

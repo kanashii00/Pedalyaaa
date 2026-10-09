@@ -179,12 +179,37 @@ class RiderRentalDurationMinutesTest extends TestCase
         $this->assertSame(120, (int) $rental->durationMinutes);
     }
 
+    public function test_720_minutes_is_accepted_and_721_is_rejected(): void
+    {
+        // Default ceiling is 12 hours (720 minutes): the boundary itself must
+        // pass, and anything past it must fail, so a crafted POST cannot
+        // bypass the limit the form enforces.
+        $rental = $this->rentFor(720);
+
+        $this->assertSame(720, (int) $rental->durationMinutes);
+
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle(['status' => Bicycle::STATUS_AVAILABLE, 'serialNumber' => 'PDY-002']);
+
+        foreach ([721, 1000] as $tooLong) {
+            $this->actingAs($rider)
+                ->post(route('rider.rent.store'), [
+                    'bicycleId' => $bicycle->id,
+                    'durationMinutes' => $tooLong,
+                    'paymentMethod' => 'cash',
+                ])
+                ->assertSessionHasErrors('durationMinutes');
+        }
+
+        $this->assertSame(1, Rental::count(), 'only the 720 minute rental may exist');
+    }
+
     public function test_non_positive_and_non_numeric_durations_are_rejected(): void
     {
         $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
         $bicycle = $this->makeBicycle(['status' => Bicycle::STATUS_AVAILABLE, 'serialNumber' => 'PDY-001']);
 
-        foreach ([0, -30] as $bad) {
+        foreach ([0, -30, '12.5', '60.9'] as $bad) {
             $this->actingAs($rider)
                 ->post(route('rider.rent.store'), [
                     'bicycleId' => $bicycle->id,
@@ -239,6 +264,19 @@ class RiderRentalDurationMinutesTest extends TestCase
                 "a {$preset} minute preset must be offered"
             );
         }
+
+        // The client-side guardrails must be rendered with the form.
+        $this->assertStringContainsString('id="durationError"', $html, 'an inline error slot must exist');
+        $this->assertStringContainsString(
+            'Maximum rental duration is 720 minutes.',
+            $html,
+            'the over-limit message must be wired into the page script'
+        );
+        $this->assertStringContainsString(
+            'Max 720 min (12 hours)',
+            $html,
+            'the ceiling hint must name the 12 hour equivalent'
+        );
     }
 
     public function test_a_minute_rental_is_charged_the_whole_hour_minimum(): void

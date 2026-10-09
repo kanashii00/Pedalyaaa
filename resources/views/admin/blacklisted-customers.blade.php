@@ -36,6 +36,7 @@
         </form>
     </div>
 
+    <div class="table-responsive">
     <table class="admin-table">
         <thead>
             <tr>
@@ -47,7 +48,7 @@
                 <th class="sortable">Reason <span class="sort-ind"></span></th>
                 <th class="sortable">Status <span class="sort-ind"></span></th>
                 <th class="sortable">Date Added <span class="sort-ind"></span></th>
-                <th>Actions</th>
+                <th class="col-actions">Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -89,10 +90,11 @@
                         @endif
                     </td>
                     <td data-label="Date Added"><small class="text-muted">{{ $rider->created_at->format('M d, Y') }}</small></td>
-                    <td data-label="Actions">
+                    <td data-label="Actions" class="col-actions">
                         <div class="actions-row">
                             <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm"
                                     title="View Customer"
+                                    aria-label="View Customer"
                                     onclick="openBlacklistedView(this)"
                                     data-id="{{ $rider->id }}"
                                     data-name="{{ $rider->name }}"
@@ -109,6 +111,7 @@
 
                             <button type="button" class="btn-admin btn-admin--warning btn-admin--sm"
                                     title="Edit / Manage"
+                                    aria-label="Edit / Manage"
                                     onclick="openBlacklistManage(this)"
                                     data-id="{{ $rider->id }}"
                                     data-name="{{ $rider->name }}"
@@ -125,7 +128,7 @@
                                 @csrf
                                 @method('PUT')
                                 <input type="hidden" name="status" value="active">
-                                <button type="submit" class="btn-admin btn-admin--success btn-admin--sm" title="Restore to Active" data-confirm="Restore this customer to Active? They will appear in Verified Customers if verified.">
+                                <button type="submit" class="btn-admin btn-admin--success btn-admin--sm" title="Restore to Active" aria-label="Restore to Active" data-confirm="Restore this customer to Active? They will appear in Verified Customers if verified.">
                                     <i class="bi bi-arrow-counterclockwise"></i>
                                 </button>
                             </form>
@@ -141,6 +144,7 @@
             @endforelse
         </tbody>
     </table>
+    </div>
 
     <div class="admin-table-foot">
         <span>Showing {{ method_exists($riders, 'total') ? $riders->total() : $riders->count() }} blacklisted customers</span>

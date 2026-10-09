@@ -13,6 +13,7 @@ use App\Services\IoTService;
 use App\Services\NotificationService;
 use App\Services\RentalService;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -183,6 +184,64 @@ class RentalController extends Controller
         $rental = Rental::with(['bicycle', 'rider'])->findOrFail($id);
 
         return response()->view('admin.rentals.show', compact('rental'));
+    }
+
+    /**
+     * Tiny versioned snapshot behind the admin live sync.
+     *
+     * Every counter mirrors the aggregate its page already renders (the Active
+     * Rentals queue size, the Returns summary, the fleet availability and
+     * today's settled revenue), so a client can poll this cheaply and only
+     * re-render tables when the version token actually moves. The
+     * rental.sync middleware promotes due transitions first, keeping the
+     * backend the source of truth, and no-store headers keep proxies and the
+     * browser from serving a stale snapshot that would hide a new rental.
+     */
+    public function feed(): JsonResponse
+    {
+        $today = Carbon::today();
+        $settled = [Rental::STATUS_COMPLETED, Rental::STATUS_RETURNED];
+
+        $active = Rental::activeListCount();
+        $pendingReturns = Rental::whereIn('status', [
+            Rental::STATUS_AWAITING_RETURN,
+            Rental::STATUS_OVERDUE_RETURN,
+        ])->count();
+        $processed = Rental::whereIn('status', [Rental::STATUS_RETURNED, Rental::STATUS_COMPLETED])->count();
+        $bikesAvailable = Bicycle::where('status', Bicycle::STATUS_AVAILABLE)->count();
+
+        $payload = [
+            'active' => $active,
+            'pendingReturns' => $pendingReturns,
+            'overdueReturns' => Rental::where('status', Rental::STATUS_OVERDUE_RETURN)->count(),
+            'processed' => $processed,
+            'feeCollected' => (float) Rental::where('status', Rental::STATUS_RETURNED)->sum('finalFee'),
+            'confirmedToday' => Rental::whereIn('status', [Rental::STATUS_RETURNED, Rental::STATUS_COMPLETED])
+                ->whereDate('returnProcessedAt', $today)
+                ->count(),
+            'bikesAvailable' => $bikesAvailable,
+            'bikesTotal' => Bicycle::count(),
+            'revenueToday' => (float) Rental::whereIn('status', $settled)
+                ->whereDate('updated_at', $today)
+                ->sum('totalFee'),
+            // Fingerprint, not just a timestamp: two transitions landing in
+            // the same second still move the version because the counters do.
+            'version' => implode('|', [
+                Rental::max('updated_at'),
+                Bicycle::max('updated_at'),
+                $active,
+                $pendingReturns,
+                $processed,
+                $bikesAvailable,
+            ]),
+            'serverTime' => now()->toIso8601String(),
+        ];
+
+        return response()->json($payload)->withHeaders([
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
+        ]);
     }
 
     public function approve(int $id): RedirectResponse
@@ -448,16 +507,23 @@ class RentalController extends Controller
         // "is now rented".
         $bicycle = Bicycle::find($rental->bicycleId);
 
-        $bicycleNote = $bicycle
-            ? ' Bicycle "' . $bicycle->name . '" is now ' . $bicycle->status . '.'
-            : '';
+        $rentalCode = $rental->rentalId ?? (string) $rental->id;
+        $finalFee = '₱'.number_format((float) $settled->finalFee, 2);
+        $bicycleStatus = $bicycle
+            ? strtolower(str_replace('_', ' ', (string) $bicycle->status))
+            : 'available';
 
-        return back()->with(
-            'success',
-            'Return confirmed for rental '.($rental->rentalId ?? $rental->id)
-            .' · Final fee ₱'.number_format((float) $settled->finalFee, 2)
-            .'.'.$bicycleNote
-        );
+        $toastTitle = 'Return confirmed successfully';
+        $toastMessage = "Rental {$rentalCode} has been completed. Final fee: {$finalFee}. Bicycle is now {$bicycleStatus}.";
+
+        return back()->with([
+            'success' => $toastMessage,
+            'toast' => [
+                'title' => $toastTitle,
+                'message' => $toastMessage,
+                'type' => 'success',
+            ],
+        ]);
     }
 
     public function setDeadline(Request $request, int $id): RedirectResponse
