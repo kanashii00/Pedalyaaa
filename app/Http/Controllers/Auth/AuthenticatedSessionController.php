@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -39,6 +40,14 @@ class AuthenticatedSessionController extends Controller
         $remember = $request->boolean('remember');
 
         if (!Auth::attempt($request->only('email', 'password'), $remember)) {
+            // Failed sign-in: no authenticated actor exists, so the attempted
+            // address is stored for accountability (never any password).
+            AuditLogger::record(AuditLogger::LOGIN_FAILED, [
+                'email' => $request->input('email'),
+                'outcome' => 'failed',
+                'reason' => 'invalid_credentials',
+            ]);
+
             $response = back()
                 ->withInput($request->only('email', 'remember'))
                 ->withErrors([
@@ -59,6 +68,14 @@ class AuthenticatedSessionController extends Controller
         $user = $request->user();
 
         if (!$user || $user->status !== User::STATUS_ACTIVE) {
+            // Blocked sign-in (unknown or inactive account): attribute it to
+            // the account that was attempted, not to whoever is signed in.
+            AuditLogger::record(AuditLogger::LOGIN_BLOCKED, [
+                'email' => $user?->email ?? $request->input('email'),
+                'outcome' => 'failed',
+                'reason' => $user ? 'account_inactive' : 'unknown_account',
+            ], $user?->id);
+
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
@@ -67,6 +84,12 @@ class AuthenticatedSessionController extends Controller
                 'email' => 'Your account is inactive. Please contact the administrator.',
             ]);
         }
+
+        AuditLogger::record(AuditLogger::LOGIN_SUCCESS, [
+            'email' => $user->email,
+            'role' => $user->role,
+            'outcome' => 'success',
+        ], $user->id);
 
         $response = $this->redirectForRole($user);
 
@@ -91,6 +114,15 @@ class AuthenticatedSessionController extends Controller
 
     public function destroy(Request $request): RedirectResponse
     {
+        $user = $request->user();
+
+        if ($user) {
+            AuditLogger::record(AuditLogger::LOGOUT, [
+                'email' => $user->email,
+                'outcome' => 'success',
+            ], $user->id);
+        }
+
         Auth::logout();
 
         $request->session()->invalidate();

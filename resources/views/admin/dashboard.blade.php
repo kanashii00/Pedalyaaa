@@ -2,15 +2,6 @@
 
 @section('title', 'Dashboard Overview — Pedalya Admin')
 
-@section('actions')
-    <a href="{{ route('admin.bicycles.index') }}?action=add" class="btn-admin btn-admin--secondary btn-admin--sm">
-        <i class="bi bi-plus-circle"></i> Add Bicycle
-    </a>
-    <button class="btn-admin btn-admin--primary btn-admin--sm" onclick="window.PedalyaModal.open('quickRentalModal')">
-        <i class="bi bi-key"></i> Quick Rental
-    </button>
-@endsection
-
 @section('content')
 <script>
     // Opts this page into the admin live sync (rental-live.js, loaded after
@@ -185,12 +176,18 @@
     <div class="col-12 col-lg-6">
         <x-admin.card title="Incident Feed" sub="Theft & accident alerts">
             @forelse($recentIncidents ?? [] as $inc)
-                <div class="admin-timeline__item mb-3" style="padding-bottom: 14px;">
-                    <span class="admin-timeline__dot {{ $inc->type === 'theft' ? 'admin-timeline__dot--danger' : 'admin-timeline__dot--warning' }}"></span>
-                    <div class="admin-timeline__time">{{ $inc->created_at->diffForHumans() }}</div>
-                    <div class="admin-timeline__title text-capitalize">{{ $inc->type }} detected · {{ $inc->bicycle->name ?? 'Bike #' . $inc->bicycleId }}</div>
-                    <div style="font-size: 12px; color: var(--text-3);">Severity: {{ $inc->severity }} · {{ $inc->acknowledged ? 'Acknowledged' : 'Unacknowledged' }}</div>
+                @if($loop->first)
+                <div class="admin-timeline">
+                @endif
+                    <div class="admin-timeline__item">
+                        <span class="admin-timeline__dot {{ $inc->type === 'theft' ? 'admin-timeline__dot--danger' : 'admin-timeline__dot--warning' }}"></span>
+                        <div class="admin-timeline__time">{{ $inc->created_at->diffForHumans() }}</div>
+                        <div class="admin-timeline__title text-capitalize">{{ $inc->type }} detected · {{ $inc->bicycle->name ?? 'Bike #' . $inc->bicycleId }}</div>
+                        <div style="font-size: 12px; color: var(--text-3);">Severity: {{ $inc->severity }} · {{ $inc->acknowledged ? 'Acknowledged' : 'Unacknowledged' }}</div>
+                    </div>
+                @if($loop->last)
                 </div>
+                @endif
             @empty
                 <x-admin.empty-state icon="bi-shield-check" title="No incidents" message="All clear. No theft or accident alerts right now." />
             @endforelse

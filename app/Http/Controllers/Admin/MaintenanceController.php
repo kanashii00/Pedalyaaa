@@ -145,11 +145,17 @@ class MaintenanceController extends Controller
             $validated['completedDate'] = now();
         }
 
+        $previousMaintenanceStatus = $maintenance->status;
+
         $maintenance->update($validated);
 
         AuditLog::record($auditAction, auth()->id(), [
             'maintenanceId' => $maintenance->id,
             'status' => $validated['status'],
+            'outcome' => 'success',
+            'changes' => [
+                'status' => ['from' => $previousMaintenanceStatus, 'to' => $validated['status']],
+            ],
         ]);
 
         return back()->with('success', $successMessage);

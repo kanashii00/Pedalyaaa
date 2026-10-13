@@ -17,10 +17,29 @@ bool PedalyaApi::cellularActive() const {
     // Cached state only: asking the modem here would block the loop on every
     // connected() call. simIsReady() is refreshed by simConnectInternet() and
     // by the bearer check after a failed exchange.
+#if SIM_ONLY_MODE
+    // SIM-only build: Wi-Fi is never consulted, so an association (or a
+    // stray one) can neither carry traffic nor block the cellular route.
+    return SIM_ENABLED && simIsReady();
+#else
     return SIM_ENABLED && simIsReady() && WiFi.status() != WL_CONNECTED;
+#endif
 }
 
 bool PedalyaApi::connected() {
+#if SIM_ONLY_MODE
+    // SIM-only build: the EC20F link is the only link. Wi-Fi state is
+    // irrelevant and never consulted.
+    if (cellularActive()) {
+        if (!cellularAnnounced_) {
+            Serial.println("[SIM] link up: reporting over cellular");
+            cellularAnnounced_ = true;
+        }
+    } else {
+        cellularAnnounced_ = false;
+    }
+    return cellularActive();
+#else
     const bool isConnected = WiFi.status() == WL_CONNECTED;
     if (isConnected && !wifiConnectionAnnounced_) {
         Serial.println("WiFi connected!");
@@ -47,6 +66,7 @@ bool PedalyaApi::connected() {
     }
 
     return isConnected || cellularActive();
+#endif
 }
 
 const char* PedalyaApi::offlineError() const {
@@ -58,6 +78,14 @@ const char* PedalyaApi::offlineError() const {
 }
 
 void PedalyaApi::begin() {
+#if SIM_ONLY_MODE
+    // SIM-only build: the radio path is the EC20F on UART2. Touching the
+    // station interface here would only start an association the API never
+    // uses, so Wi-Fi is left off entirely.
+    Serial.println("[SIM] SIM-only mode: Wi-Fi left off, EC20F carries all API traffic");
+    wifiAttemptInProgress = false;
+    return;
+#else
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
@@ -86,6 +114,7 @@ void PedalyaApi::begin() {
     wifiAttemptInProgress = true;
     wifiAttemptStartedMs = now;
     Serial.printf("[wifi] connecting to \"%s\"\n", WIFI_SSID);
+#endif
 }
 
 void PedalyaApi::ensureTime() {
@@ -217,6 +246,39 @@ void PedalyaApi::reportFailure(int status, const String& body, String& error) {
     }
 }
 
+namespace {
+
+// One place builds the server URL so the cellular route can never drift from
+// the configured host again. SERVER_HOST is a bare hostname (no scheme, no
+// port, no trailing slash): https carries no port because 443 is implicit,
+// plain http keeps SERVER_PORT. Either way the result is
+// <scheme>://<host><path> with no ":443" in it.
+void buildServerUrl(char* out, size_t outSize, const char* path) {
+#if USE_HTTPS
+    snprintf(out, outSize, "https://%s%s", SERVER_HOST, path);
+#else
+    snprintf(out, outSize, "http://%s:%d%s", SERVER_HOST, SERVER_PORT, path);
+#endif
+}
+
+}  // namespace
+
+/**
+ * Prints a 422 response body so the exact backend validation error is
+ * visible on the monitor. The body is server-generated JSON (field messages
+ * only); request headers and keys are never printed. Capped so a large
+ * error document cannot flood the log.
+ */
+void logValidationBody(const String& response) {
+    Serial.println("[api] 422 Unprocessable Entity body:");
+    if (response.length() > 600) {
+        Serial.println(response.substring(0, 600));
+        Serial.println("[api] ...<truncated>");
+    } else {
+        Serial.println(response);
+    }
+}
+
 bool PedalyaApi::cellularRequest(const char* method, const char* path, const String& payload,
                                  String& responseBody, String& error, const char* apiKey) {
     responseBody = "";
@@ -231,13 +293,8 @@ bool PedalyaApi::cellularRequest(const char* method, const char* path, const Str
         return false;
     }
 
-    const bool useHttps = (USE_HTTPS == 1);
     char url[160];
-    if (useHttps) {
-        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, path);
-    } else {
-        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, path);
-    }
+    buildServerUrl(url, sizeof(url), path);
     const String authHeader = String("X-API-Key: ") + apiKey;
     const bool isPost = (strcmp(method, "POST") == 0);
 
@@ -246,6 +303,8 @@ bool PedalyaApi::cellularRequest(const char* method, const char* path, const Str
     const int status = simLastHttpStatus();
 
     if (status == 0) {
+        // No transport completed it: dead modem, lost bearer, or a TLS URL the
+        // modem cannot take. reportFailure() carries the diagnosis.
         reportFailure(0, responseBody, error);
         return false;
     }
@@ -296,7 +355,8 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
             return false;
         }
 
-        Serial.printf("[api] 200 OK over cellular from %s%s\n", SERVER_HOST, SERVER_PATH);
+        Serial.printf("[api] 200 OK over cellular from %s://%s%s\n",
+                      USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PATH);
         return parse(body, out, error);
     }
 
@@ -309,11 +369,8 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
 
     HTTPClient http;
     char url[160];
-    if (USE_HTTPS) {
-        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, SERVER_PATH);
-    } else {
-        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, SERVER_PATH);
-    }
+    snprintf(url, sizeof(url), "%s://%s:%d%s",
+             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, SERVER_PATH);
 
     if (!http.begin(client, url)) {
         error = "begin failed";
@@ -384,11 +441,8 @@ bool PedalyaApi::pollCommands(DeviceCommand* commands, size_t capacity, size_t& 
 
     HTTPClient http;
     char url[160];
-    if (USE_HTTPS) {
-        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, COMMANDS_PATH);
-    } else {
-        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, COMMANDS_PATH);
-    }
+    snprintf(url, sizeof(url), "%s://%s:%d%s",
+             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, COMMANDS_PATH);
 
     if (!http.begin(client, url)) {
         error = "command begin";
@@ -443,11 +497,9 @@ bool PedalyaApi::acknowledgeCommand(uint32_t commandId, bool executed, const Str
 
     HTTPClient http;
     char url[196];
-    if (USE_HTTPS) {
-        snprintf(url, sizeof(url), "https://%s%s/%lu/ack", SERVER_HOST, COMMANDS_PATH, (unsigned long)commandId);
-    } else {
-        snprintf(url, sizeof(url), "http://%s:%d%s/%lu/ack", SERVER_HOST, SERVER_PORT, COMMANDS_PATH, (unsigned long)commandId);
-    }
+    snprintf(url, sizeof(url), "%s://%s:%d%s/%lu/ack",
+             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, COMMANDS_PATH,
+             (unsigned long)commandId);
 
     if (!http.begin(client, url)) {
         error = "ack begin";
@@ -491,7 +543,9 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
     // branch carries every report onto the cellular route at once.
     if (cellularActive()) {
         String response;
-        return cellularRequest("POST", path, payload, response, error, apiKey);
+        const bool ok = cellularRequest("POST", path, payload, response, error, apiKey);
+        if (!ok && lastStatus_ == 422) logValidationBody(response);
+        return ok;
     }
 
 #if USE_HTTPS
@@ -503,11 +557,8 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
 
     HTTPClient http;
     char url[192];
-    if (USE_HTTPS) {
-        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, path);
-    } else {
-        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, path);
-    }
+    snprintf(url, sizeof(url), "%s://%s:%d%s",
+             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, path);
     if (!http.begin(client, url)) {
         error = "post begin";
         return false;
@@ -520,6 +571,7 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
     const int status = http.POST(payload);
     const String response = http.getString();
     http.end();
+    if (status == 422) logValidationBody(response);
     if (status < 200 || status >= 300) {
         reportFailure(status, response, error);
         return false;
@@ -529,6 +581,11 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
 
 bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptimeSeconds, String& error) {
     JsonDocument payload;
+    // Fleet-wide route: the bicycle travels in the payload (same pattern as
+    // the accident report). bicycle_id and device_id are required by the
+    // backend validator; without them the server answers 422.
+    payload["bicycle_id"] = (uint32_t)ACCIDENT_BICYCLE_ID;
+    payload["device_id"] = ACCIDENT_DEVICE_ID;
     if (lockStateKnown) payload["locked"] = locked;
     payload["uptime"] = uptimeSeconds;
     payload["firmware"] = "pedalya-esp32-v1";

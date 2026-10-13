@@ -53,10 +53,25 @@
                 <tr>
                     <td class="cell-title" data-label="Name">
                         <div class="d-flex align-items-center">
-                            <div class="user-avatar me-2" style="width:32px;height:32px;font-size:12px;">
+                            <div class="user-avatar me-2" style="width:32px;height:32px;font-size:12px;" aria-hidden="true">
                                 {{ strtoupper(substr($rider->name, 0, 1)) }}
                             </div>
-                            {{ $rider->name }}
+                            <button type="button"
+                                    class="customer-name-link"
+                                    onclick="openVerifyReview(this)"
+                                    data-id="{{ $rider->id }}"
+                                    data-name="{{ $rider->name }}"
+                                    data-email="{{ $rider->email }}"
+                                    data-phone="{{ $rider->phoneNumber ?? '—' }}"
+                                    data-address="{{ $rider->address ?? '—' }}"
+                                    data-joined="{{ $rider->created_at->format('M d, Y') }}"
+                                    data-id-url="{{ $rider->idVerification['id_url'] ?? '' }}"
+                                    data-id-status="{{ $rider->idVerification['status'] ?? 'pending' }}"
+                                    data-id-submitted="{{ $rider->idVerification['submitted_at'] ?? '' }}"
+                                    title="View customer details for {{ $rider->name }}"
+                                    aria-label="View details for {{ $rider->name }}">
+                                {{ $rider->name }}
+                            </button>
                         </div>
                     </td>
                     <td data-label="Email"><small>{{ $rider->email }}</small></td>
@@ -84,25 +99,6 @@
                     <td data-label="Joined"><small class="text-muted">{{ $rider->created_at->format('M d, Y') }}</small></td>
                     <td data-label="Actions" class="col-actions">
                         <div class="actions-row">
-                            @if(!($rider->verified ?? false))
-                                <button type="button"
-                                        class="btn-admin btn-admin--warning btn-admin--sm"
-                                        title="Review Verification"
-                                        aria-label="Review Verification"
-                                        onclick="openVerifyReview(this)"
-                                        data-id="{{ $rider->id }}"
-                                        data-name="{{ $rider->name }}"
-                                        data-email="{{ $rider->email }}"
-                                        data-phone="{{ $rider->phoneNumber ?? '—' }}"
-                                        data-address="{{ $rider->address ?? '—' }}"
-                                        data-joined="{{ $rider->created_at->format('M d, Y') }}"
-                                        data-id-url="{{ $rider->idVerification['id_url'] ?? '' }}"
-                                        data-id-status="{{ $rider->idVerification['status'] ?? 'pending' }}"
-                                        data-id-submitted="{{ $rider->idVerification['submitted_at'] ?? '' }}">
-                                    <i class="bi bi-eye"></i>
-                                </button>
-                            @endif
-
                             @if(($rider->status ?? 'active') === 'active')
                                 <form action="{{ route('admin.riders.status', $rider->id) }}" method="POST">
                                     @csrf

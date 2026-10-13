@@ -21,50 +21,49 @@
     </div>
 @endif
 
-<div class="row g-4">
+<div class="row g-4 bike-detail">
     <!-- Overview -->
     <div class="col-lg-5">
         <x-admin.card>
-            <div class="text-center">
-                <div class="d-inline-flex align-items-center justify-content-center rounded-circle mb-3"
-                    style="width:90px;height:90px;background:linear-gradient(135deg,var(--brand),var(--brand-strong));color:#fff;font-size:2.4rem;">
+            <div class="bike-summary">
+                <div class="bike-summary__icon" aria-hidden="true">
                     <i class="bi bi-bicycle"></i>
                 </div>
-                <h5 class="mb-1">{{ $bicycle->name }}</h5>
-                <p class="text-muted mb-3">{{ $bicycle->model ?? 'Standard Model' }}</p>
-                <div class="d-flex justify-content-center gap-2 flex-wrap mb-3">
+                <h5 class="bike-summary__name">{{ $bicycle->name }}</h5>
+                <p class="bike-summary__model">{{ $bicycle->model ?? 'Standard Model' }}</p>
+                <div class="bike-summary__badges">
                     <x-admin.badge :type="match($bicycle->status) { 'available' => 'success', 'rented' => 'info', 'maintenance' => 'warning', default => 'neutral' }" :label="ucfirst($bicycle->status)" />
                     <x-admin.badge :type="$bicycle->lockStatus === 'locked' ? 'danger' : 'success'" :label="$bicycle->lockStatus === 'locked' ? 'Locked' : 'Unlocked'" />
                     <x-admin.badge :type="$bicycle->batteryLevel <= 20 ? 'danger' : 'success'" :label="$bicycle->batteryLevel . '%'" />
                 </div>
-                <div class="d-flex justify-content-center gap-4">
-                    <div class="text-center"><strong class="d-block">{{ $bicycle->totalRentals }}</strong><small class="text-muted">Rentals</small></div>
-                    <div class="text-center"><strong class="d-block">{{ $bicycle->totalDistance }} km</strong><small class="text-muted">Distance</small></div>
-                    <div class="text-center"><strong class="d-block">₱{{ number_format($bicycle->hourlyRate, 2) }}</strong><small class="text-muted">/hr</small></div>
+                <div class="bike-summary__stats">
+                    <div class="bike-stat"><strong>{{ $bicycle->totalRentals }}</strong><small>Rentals</small></div>
+                    <div class="bike-stat"><strong>{{ $bicycle->totalDistance }} km</strong><small>Distance</small></div>
+                    <div class="bike-stat"><strong>₱{{ number_format($bicycle->hourlyRate, 2) }}</strong><small>/hr</small></div>
                 </div>
             </div>
         </x-admin.card>
 
         <x-admin.card title="Remote Lock Control">
-            <p class="text-muted" style="font-size:0.85rem;">Send a command to the ESP32 smart lock via the device's pending command queue.</p>
-            <div class="d-flex gap-2">
+            <p class="bike-hint">Queue a command for the ESP32 smart lock. It applies when the device next checks in — the lock state below updates only after the device acknowledges.</p>
+            <div class="bike-lock-actions">
                 <form action="{{ route('admin.bicycles.lock', $bicycle->id) }}" method="POST">
                     @csrf
                     <input type="hidden" name="action" value="lock">
-                    <button type="submit" class="btn-admin btn-admin--danger" {{ $bicycle->lockStatus === 'locked' ? 'disabled' : '' }}>
+                    <button type="submit" class="btn-admin btn-admin--danger bike-lock-btn" {{ $bicycle->lockStatus === 'locked' ? 'disabled' : '' }}>
                         <i class="bi bi-lock-fill me-1"></i>Lock
                     </button>
                 </form>
                 <form action="{{ route('admin.bicycles.lock', $bicycle->id) }}" method="POST">
                     @csrf
                     <input type="hidden" name="action" value="unlock">
-                    <button type="submit" class="btn-admin btn-admin--secondary" {{ $bicycle->lockStatus === 'unlocked' ? 'disabled' : '' }}>
+                    <button type="submit" class="btn-admin btn-admin--secondary bike-lock-btn" {{ $bicycle->lockStatus === 'unlocked' ? 'disabled' : '' }}>
                         <i class="bi bi-unlock-fill me-1"></i>Unlock
                     </button>
                 </form>
             </div>
-            <small class="text-muted d-block mt-2">
-                Last action: {{ $bicycle->lastLockAction ? $bicycle->lastLockAction->diffForHumans() : 'Never' }}
+            <small class="bike-hint bike-hint--muted d-block mt-2">
+                Last queued: {{ $bicycle->lastLockAction ? $bicycle->lastLockAction->diffForHumans() : 'Never' }}
                 @if($bicycle->lockActionBy) by #{{ $bicycle->lockActionBy }} @endif
             </small>
         </x-admin.card>
@@ -73,55 +72,102 @@
     <!-- Telemetry -->
     <div class="col-lg-7">
         <x-admin.card title="Device Telemetry">
-            @php $t = $bicycle->latestTelemetry; @endphp
+            @php
+                $t = $bicycle->latestTelemetry;
+                $hasDevice = (bool) ($bicycle->iotEnabled ?? $t);
+                $freshCutoff = now()->subMinutes(5);
+                $heartbeatFresh = $bicycle->lastHeartbeat && $bicycle->lastHeartbeat->gte($freshCutoff);
+                $gpsFresh = $bicycle->lastGpsUpdate && $bicycle->lastGpsUpdate->gte($freshCutoff);
+                $batteryLevel = $t?->battery['level'] ?? $bicycle->batteryLevel;
+                $batteryShown = $hasDevice && $batteryLevel !== null;
+                $lockShown = $hasDevice;
+                $uptimeShown = $hasDevice && $t?->uptime;
+                $fwShown = $hasDevice && $t?->deviceVersion;
+            @endphp
             <div class="row g-3">
                 <div class="col-6 col-md-3">
-                    <div class="text-center p-3 rounded bg-light">
-                        <small class="text-muted d-block">Battery</small>
-                        <strong class="fs-5">{{ $t?->battery['level'] ?? $bicycle->batteryLevel ?? '—' }}%</strong>
+                    <div class="bike-tel-tile">
+                        <small class="bike-tel-label">Battery</small>
+                        <strong class="bike-tel-value">{{ $batteryShown ? $batteryLevel . '%' : '—' }}</strong>
+                        @if(!$hasDevice)
+                            <small class="bike-tel-note">No device</small>
+                        @elseif(!$heartbeatFresh && $batteryShown)
+                            <small class="bike-tel-note bike-tel-note--stale">Stale</small>
+                        @endif
                     </div>
                 </div>
                 <div class="col-6 col-md-3">
-                    <div class="text-center p-3 rounded bg-light">
-                        <small class="text-muted d-block">Lock</small>
-                        <strong class="fs-5">{{ ucfirst($t?->lockStatus ?? $bicycle->lockStatus) }}</strong>
+                    <div class="bike-tel-tile">
+                        <small class="bike-tel-label">Lock</small>
+                        <strong class="bike-tel-value">{{ $lockShown ? ucfirst($t?->lockStatus ?? $bicycle->lockStatus) : '—' }}</strong>
+                        @if(!$hasDevice)
+                            <small class="bike-tel-note">No device</small>
+                        @endif
                     </div>
                 </div>
                 <div class="col-6 col-md-3">
-                    <div class="text-center p-3 rounded bg-light">
-                        <small class="text-muted d-block">Uptime</small>
-                        <strong class="fs-5">{{ $t?->uptime ? number_format($t->uptime / 3600, 1) . 'h' : '—' }}</strong>
+                    <div class="bike-tel-tile">
+                        <small class="bike-tel-label">Uptime</small>
+                        <strong class="bike-tel-value">{{ $uptimeShown ? number_format($t->uptime / 3600, 1) . 'h' : '—' }}</strong>
+                        @if($hasDevice && !$uptimeShown)
+                            <small class="bike-tel-note">No report</small>
+                        @endif
                     </div>
                 </div>
                 <div class="col-6 col-md-3">
-                    <div class="text-center p-3 rounded bg-light">
-                        <small class="text-muted d-block">Firmware</small>
-                        <strong class="fs-6">{{ $t?->deviceVersion ?? '—' }}</strong>
+                    <div class="bike-tel-tile">
+                        <small class="bike-tel-label">Firmware</small>
+                        <strong class="bike-tel-value bike-tel-value--sm">{{ $fwShown ? $t->deviceVersion : '—' }}</strong>
+                        @if($hasDevice && !$fwShown)
+                            <small class="bike-tel-note">No report</small>
+                        @elseif(!$hasDevice)
+                            <small class="bike-tel-note">No device</small>
+                        @endif
                     </div>
                 </div>
             </div>
-            <hr>
-            <table class="table table-sm mb-0">
+            <hr class="bike-divider">
+            <table class="bike-tel-table">
                 <tbody>
-                    <tr><th class="text-muted" style="width:40%">Last Heartbeat</th><td>{{ $bicycle->lastHeartbeat ? $bicycle->lastHeartbeat->diffForHumans() : '—' }}</td></tr>
-                    <tr><th class="text-muted">Last GPS Update</th><td>{{ $bicycle->lastGpsUpdate ? $bicycle->lastGpsUpdate->diffForHumans() : '—' }}</td></tr>
-                    <tr><th class="text-muted">Current Location</th>
+                    <tr>
+                        <th>Last Heartbeat</th>
+                        <td>
+                            {{ $bicycle->lastHeartbeat ? $bicycle->lastHeartbeat->diffForHumans() : '—' }}
+                            @if($bicycle->lastHeartbeat && !$heartbeatFresh)
+                                <span class="bike-stale">Stale</span>
+                            @elseif(!$bicycle->lastHeartbeat)
+                                <span class="bike-unavailable">Unavailable</span>
+                            @endif
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Last GPS Update</th>
+                        <td>
+                            {{ $bicycle->lastGpsUpdate ? $bicycle->lastGpsUpdate->diffForHumans() : '—' }}
+                            @if($bicycle->lastGpsUpdate && !$gpsFresh)
+                                <span class="bike-stale">Stale</span>
+                            @elseif(!$bicycle->lastGpsUpdate)
+                                <span class="bike-unavailable">Unavailable</span>
+                            @endif
+                        </td>
+                    </tr>
+                    <tr><th>Current Location</th>
                         <td>
                             @if($bicycle->currentLat && $bicycle->currentLng)
                                 {{ $bicycle->currentLat }}, {{ $bicycle->currentLng }}
                             @else
-                                <span class="text-muted">—</span>
+                                <span class="bike-unavailable">—</span>
                             @endif
                         </td>
                     </tr>
-                    <tr><th class="text-muted">Current Rider</th><td>{{ $bicycle->currentRiderUser->name ?? ($bicycle->currentRider ?? '—') }}</td></tr>
-                    <tr><th class="text-muted">Condition</th><td>{{ ucfirst($bicycle->condition) }}</td></tr>
+                    <tr><th>Current Rider</th><td>{{ $bicycle->currentRiderUser->name ?? ($bicycle->currentRider ?? '—') }}</td></tr>
+                    <tr><th>Condition</th><td>{{ ucfirst($bicycle->condition) }}</td></tr>
                 </tbody>
             </table>
         </x-admin.card>
 
         <x-admin.card title="Live Position" :flush="true">
-            <div id="bicycleDetailMap" style="height:340px;width:100%;"></div>
+            <div class="bike-map" id="bicycleDetailMap" role="application" aria-label="Live bicycle position map"></div>
         </x-admin.card>
     </div>
 </div>

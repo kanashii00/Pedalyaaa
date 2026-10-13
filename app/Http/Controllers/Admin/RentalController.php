@@ -499,6 +499,8 @@ class RentalController extends Controller
             'rentalId' => $rental->rentalId,
             'condition' => $validated['condition'] ?? null,
             'finalFee' => $settled->finalFee,
+            'overdueFee' => $settled->overdueFee ?? 0,
+            'outcome' => 'success',
         ]);
 
         // Re-read the bicycle instead of trusting $rental->bicycle: that relation

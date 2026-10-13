@@ -212,16 +212,45 @@
             </tbody>
         </table>
     </div>
-    @if($rentals->hasPages())
-        <div class="card-pedalya-body d-flex justify-content-between align-items-center">
-            <small class="text-muted">Showing {{ $rentals->firstItem() }}-{{ $rentals->lastItem() }} of {{ $rentals->total() }} rentals</small>
-            <nav>
+    @php($historyPages = $rentals->withQueryString())
+    <div class="card-pedalya-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <small class="text-muted">
+            @if($historyPages->total() > 0)
+                Showing {{ $historyPages->firstItem() }}&ndash;{{ $historyPages->lastItem() }} of {{ $historyPages->total() }} rentals
+            @else
+                Showing 0 rentals
+            @endif
+        </small>
+        @if($historyPages->hasPages())
+            <nav aria-label="Rental history pages">
                 <ul class="pagination pagination-sm mb-0">
-                    {{ $rentals->links() }}
+                    <li class="page-item {{ $historyPages->onFirstPage() ? 'disabled' : '' }}">
+                        @if($historyPages->onFirstPage())
+                            <span class="page-link" aria-disabled="true">Previous</span>
+                        @else
+                            <a class="page-link" href="{{ $historyPages->previousPageUrl() }}" rel="prev">Previous</a>
+                        @endif
+                    </li>
+                    @for($page = 1; $page <= $historyPages->lastPage(); $page++)
+                        <li class="page-item {{ $page === $historyPages->currentPage() ? 'active' : '' }}">
+                            @if($page === $historyPages->currentPage())
+                                <span class="page-link" aria-current="page">{{ $page }}</span>
+                            @else
+                                <a class="page-link" href="{{ $historyPages->url($page) }}">{{ $page }}</a>
+                            @endif
+                        </li>
+                    @endfor
+                    <li class="page-item {{ $historyPages->hasMorePages() ? '' : 'disabled' }}">
+                        @if($historyPages->hasMorePages())
+                            <a class="page-link" href="{{ $historyPages->nextPageUrl() }}" rel="next">Next</a>
+                        @else
+                            <span class="page-link" aria-disabled="true">Next</span>
+                        @endif
+                    </li>
                 </ul>
             </nav>
-        </div>
-    @endif
+        @endif
+    </div>
 </div>
 
 <!-- Rental Detail Modal -->

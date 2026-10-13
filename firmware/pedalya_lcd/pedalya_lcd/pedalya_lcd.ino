@@ -362,7 +362,14 @@ void setup() {
 
     gps.begin();
     simInit();
+#if SIM_ONLY_MODE
+    // SIM-only build: the EC20F is the only route, so no Wi-Fi association is
+    // ever started. api.begin() logs the mode; the call is kept so the
+    // announcement still prints from the same place.
+    api.begin();
+#else
     connectWifi();
+#endif
 
     // The IMU shares the I²C bus with the LCD, which has already claimed it in
     // display.begin(). Naming the pins here keeps the intent explicit; Wire is
@@ -396,7 +403,13 @@ void loop() {
         // A dead link must not relax the actuators: whatever was last enforced
         // stays enforced until the server is reachable again.
         controller.maintainDuringNetworkFailure(state);
+#if !SIM_ONLY_MODE
         if (now - lastWifiRetry > WIFI_RETRY_INTERVAL_MS) connectWifi();
+#else
+        // SIM-only build: no Wi-Fi retry. The cellular attach below is the
+        // only reconnect path, so a dead link can never drift onto Wi-Fi.
+        (void)lastWifiRetry;
+#endif
 
         // Bring up the cellular route in parallel with the Wi-Fi retry: the
         // SIM link is a second way to reach the same server, so neither wait

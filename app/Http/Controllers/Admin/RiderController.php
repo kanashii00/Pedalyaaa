@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\User;
+use App\Services\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -65,6 +66,7 @@ class RiderController extends Controller
             ],
             'phoneNumber' => ['nullable', 'string', 'min:7', 'max:15', 'regex:/^[0-9]+$/'],
             'address'     => ['nullable', 'string', 'max:500'],
+            'id_image'    => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'password'    => ['required', 'string', 'min:8', 'confirmed', Password::defaults()],
         ], [
             'name.regex' => 'Please enter a valid full name.',
@@ -78,7 +80,9 @@ class RiderController extends Controller
             'password.confirmed' => 'Passwords do not match.',
         ]);
 
-        User::create([
+        // The password hash is deliberately never included in audit details
+        // (and the central scrubber would redact it regardless).
+        $rider = User::create([
             'name'        => $validated['name'],
             'studentId'   => $validated['studentId'] ?? null,
             'email'       => $validated['email'],
@@ -93,8 +97,49 @@ class RiderController extends Controller
             'totalSpent'  => 0,
         ]);
 
+        // An optional ID photo follows the same storage path as rider
+        // self-uploads (DocumentUploadService): validated image, unique
+        // random filename (never overwritten), reference saved on the record.
+        $idUploaded = false;
+        if ($request->hasFile('id_image')) {
+            try {
+                $stored = app(\App\Services\DocumentUploadService::class)
+                    ->storeIdVerification($request, $rider->id);
+            } catch (\Throwable $e) {
+                report($e);
+                $rider->delete();
+
+                return back()
+                    ->withInput($request->except('id_image'))
+                    ->withErrors(['id_image' => 'The ID photo could not be saved. Please try again.']);
+            }
+
+            if ($stored === null) {
+                $rider->delete();
+
+                return back()
+                    ->withInput($request->except('id_image'))
+                    ->withErrors(['id_image' => 'The provided document is not a valid JPG, JPEG, PNG or WEBP image.']);
+            }
+
+            $rider->update([
+                'idVerification' => [
+                    'id_path' => $stored['id_path'],
+                    'id_url' => $stored['id_url'],
+                    'status' => 'pending',
+                    'submitted_at' => now()->toIso8601String(),
+                    'submitted_by' => 'admin:' . auth()->id(),
+                ],
+                'idUploaded' => true,
+            ]);
+            $idUploaded = true;
+        }
+
         AuditLog::record('rider_created', auth()->id(), [
+            'riderId' => $rider->id,
             'email' => $validated['email'],
+            'idUploaded' => $idUploaded,
+            'outcome' => 'success',
         ]);
 
         return redirect()->route('admin.riders.index')
@@ -109,6 +154,9 @@ class RiderController extends Controller
             'approved' => ['required', 'boolean'],
             'reason'   => ['nullable', 'string', 'max:500'],
         ]);
+
+        $previousVerified = (bool) $rider->verified;
+        $previousIdStatus = $rider->idVerification['status'] ?? 'pending';
 
        $idVerification = $rider->idVerification ?? [];
 
@@ -152,6 +200,12 @@ if ($validated['approved']) {
 
         AuditLog::record('rider_verification_' . ($validated['approved'] ? 'approved' : 'rejected'), auth()->id(), [
             'riderId' => $rider->id,
+            'email' => $rider->email,
+            'outcome' => 'success',
+            'changes' => [
+                'verified' => ['from' => $previousVerified, 'to' => (bool) $validated['approved']],
+                'id_status' => ['from' => $previousIdStatus, 'to' => $idVerification['status']],
+            ],
         ]);
 
         // Both styled dialogs (approve and reject) submit over fetch so they can
@@ -184,6 +238,9 @@ if ($validated['approved']) {
             ]);
         }
 
+        $previousStatus = $rider->status;
+        $previousReason = $rider->blacklistReason;
+
         $updates = ['status' => $validated['status']];
 
         if ($validated['status'] === 'active') {
@@ -194,7 +251,15 @@ if ($validated['approved']) {
 
         AuditLog::record('rider_status_updated', auth()->id(), [
             'riderId' => $rider->id,
-            'status' => $validated['status'],
+            'email' => $rider->email,
+            'outcome' => 'success',
+            'changes' => [
+                'status' => ['from' => $previousStatus, 'to' => $validated['status']],
+                'blacklistReason' => [
+                    'from' => $previousReason,
+                    'to' => $validated['status'] === 'active' ? null : $previousReason,
+                ],
+            ],
         ]);
 
         return back()->with('success', 'Rider status updated.');
@@ -261,6 +326,8 @@ if ($validated['approved']) {
             'blacklistReason' => ['nullable', 'string', 'max:1000'],
         ]);
 
+        $before = $rider->only(['name', 'studentId', 'email', 'phoneNumber', 'address', 'status', 'blacklistReason']);
+
         $rider->update([
             'name'            => $validated['name'],
             'studentId'       => $validated['studentId'] ?? null,
@@ -274,6 +341,10 @@ if ($validated['approved']) {
         AuditLog::record('rider_blacklist_updated', auth()->id(), [
             'riderId' => $rider->id,
             'status'  => $validated['status'],
+            'outcome' => 'success',
+            'changes' => AuditLogger::changes($before, $rider->fresh()->only([
+                'name', 'studentId', 'email', 'phoneNumber', 'address', 'status', 'blacklistReason',
+            ])),
         ]);
 
         return back()->with('success', 'Customer profile updated.');

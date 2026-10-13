@@ -7,63 +7,82 @@
     $notificationService = app(NotificationService::class);
     $riderUnreadCount = auth()->check() ? $notificationService->getUnreadCount(auth()->id()) : 0;
     $riderRecentNotifs = auth()->check() ? $notificationService->getRecentForUser(auth()->id()) : collect();
+
+    $riderNav = [
+        ['section' => 'Menu'],
+        [
+            'label' => 'Dashboard',
+            'icon' => 'bi-grid-1x2-fill',
+            'url' => route('rider.dashboard'),
+            'active' => request()->routeIs('rider.dashboard'),
+        ],
+        [
+            'label' => 'Rent Bicycle',
+            'icon' => 'bi-bicycle',
+            'url' => route('rider.rentals.create'),
+            'active' => request()->routeIs('rider.rentals.create', 'rider.rentals.extend', 'rider.rent.store'),
+        ],
+        [
+            'label' => 'My Rentals',
+            'icon' => 'bi-key-fill',
+            'url' => route('rider.rentals.index'),
+            'active' => request()->routeIs('rider.rentals.index', 'rider.rentals.active-status'),
+        ],
+        [
+            'label' => 'Notifications',
+            'icon' => 'bi-bell-fill',
+            'url' => route('rider.notifications.index'),
+            'active' => request()->routeIs('rider.notifications.*'),
+            'badge' => true,
+        ],
+        ['section' => 'Account'],
+        [
+            'label' => 'Profile',
+            'icon' => 'bi-person-fill',
+            'url' => route('rider.profile.index'),
+            'active' => request()->routeIs('rider.profile.*'),
+        ],
+    ];
 @endphp
 
 @section('body')
 <div>
     <div id="pedalyaToasts" class="pedalya-toast-stack" aria-live="polite" aria-atomic="true"></div>
 
-    <!-- Sidebar Overlay -->
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+    <!-- Sidebar backdrop (mobile drawer) -->
+    <div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
 
-    <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
+    <!-- Sidebar: Classroom-style rail/drawer, Pedalya green branding -->
+    <aside class="sidebar" id="sidebar" aria-label="Renter sidebar">
         <div class="sidebar-brand">
-            <div class="sidebar-logo-wrapper">
+            <div class="sidebar-logo-wrapper" aria-hidden="true">
                 <img src="{{ asset('assets/img/Logo.png') }}" alt="Pedalya" class="sidebar-logo-img">
             </div>
             <span class="sidebar-brand-text"><span>Peda</span>lya</span>
-            <button class="sidebar-toggle sidebar-toggle--panel" type="button" data-sidebar-toggle
-                    aria-controls="sidebar" aria-expanded="true" aria-label="Collapse sidebar" data-state="expanded">
-                <i class="bi bi-chevron-left icon-collapse"></i>
-                <i class="bi bi-chevron-right icon-expand"></i>
-            </button>
         </div>
-        <nav class="sidebar-nav">
-            <div class="nav-section">Menu</div>
-            <div class="nav-item">
-                <a href="{{ route('rider.dashboard') }}" class="nav-link {{ request()->routeIs('rider.dashboard') ? 'active' : '' }}">
-                    <i class="bi bi-grid-1x2-fill"></i>
-                    <span>Dashboard</span>
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="{{ route('rider.rentals.create') }}" class="nav-link {{ request()->routeIs('rider.rentals.create') ? 'active' : '' }}">
-                    <i class="bi bi-bicycle"></i>
-                    <span>Rent Bicycle</span>
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="{{ route('rider.rentals.index') }}" class="nav-link {{ request()->routeIs('rider.rentals.index') ? 'active' : '' }}">
-                    <i class="bi bi-key-fill"></i>
-                    <span>My Rentals</span>
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="{{ route('rider.notifications.index') }}" class="nav-link {{ request()->routeIs('rider.notifications.*') ? 'active' : '' }}">
-                    <i class="bi bi-bell-fill"></i>
-                    <span>Notifications</span>
-                    <span id="sidebarNotifBadge" class="notification-nav-badge" style="{{ $riderUnreadCount > 0 ? '' : 'display:none;' }}">{{ $riderUnreadCount > 99 ? '99+' : $riderUnreadCount }}</span>
-                </a>
-            </div>
-
-            <div class="nav-section">Account</div>
-            <div class="nav-item">
-                <a href="{{ route('rider.profile.index') }}" class="nav-link {{ request()->routeIs('rider.profile.*') ? 'active' : '' }}">
-                    <i class="bi bi-person-fill"></i>
-                    <span>Profile</span>
-                </a>
-            </div>
+        <nav class="sidebar-nav" aria-label="Renter navigation">
+            {{-- Single sliding active indicator (positioned by rider-sidebar.js
+                  from the server-rendered aria-current link). --}}
+            <span class="nav-indicator" aria-hidden="true"></span>
+            @foreach($riderNav as $item)
+                @if(isset($item['section']))
+                    <div class="nav-section" aria-hidden="true">{{ $item['section'] }}</div>
+                @else
+                    <div class="nav-item">
+                        <a href="{{ $item['url'] }}"
+                           class="nav-link {{ $item['active'] ? 'active' : '' }}"
+                           data-label="{{ $item['label'] }}"
+                           aria-label="{{ $item['label'] }}"
+                           @if($item['active']) aria-current="page" @endif>
+                            <i class="bi {{ $item['icon'] }}" aria-hidden="true"></i>
+                            <span>{{ $item['label'] }}</span>
+                            @if(!empty($item['badge']))
+                                <span id="sidebarNotifBadge" class="notification-nav-badge" style="{{ $riderUnreadCount > 0 ? '' : 'display:none;' }}">{{ $riderUnreadCount > 99 ? '99+' : $riderUnreadCount }}</span>
+                            @endif
+                        </a>
+                    </div>
+                @endif
+            @endforeach
         </nav>
     </aside>
 
@@ -72,9 +91,11 @@
         <!-- Topbar -->
         <header class="topbar">
             <div class="topbar-left">
-                <button class="sidebar-toggle sidebar-toggle--mobile" type="button" data-sidebar-toggle
-                        aria-controls="sidebar" aria-expanded="false" aria-label="Open sidebar" data-state="collapsed">
-                    <i class="bi bi-list"></i>
+                {{-- Dual-mode hamburger: click pins/unpins the expanded
+                      sidebar on desktop, opens the drawer on mobile. --}}
+                <button class="sidebar-toggle sidebar-toggle--topbar" type="button" data-sidebar-toggle
+                        aria-controls="sidebar" aria-expanded="false" aria-label="Expand sidebar" title="Expand sidebar" data-state="collapsed">
+                    <i class="bi bi-list" aria-hidden="true"></i>
                 </button>
             </div>
             <div class="topbar-right">
@@ -115,7 +136,7 @@
                     </div>
                 </div>
                 <div class="user-info">
-                    <div class="user-avatar">
+                    <div class="user-avatar" aria-hidden="true">
                         {{ strtoupper(substr(auth()->user()->name, 0, 1)) }}
                     </div>
                     <div>
@@ -126,7 +147,7 @@
                 <form action="{{ route('logout') }}" method="POST" class="d-inline">
                     @csrf
                     <button type="submit" class="btn-logout">
-                        <i class="bi bi-box-arrow-right"></i> Logout
+                        <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Logout
                     </button>
                 </form>
             </div>
@@ -161,70 +182,9 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const sidebar = document.getElementById('sidebar');
-        const mainContent = document.getElementById('mainContent');
-        const overlay = document.getElementById('sidebarOverlay');
-        const toggles = document.querySelectorAll('[data-sidebar-toggle]');
-
-        function isMobile() {
-            return window.innerWidth <= 991;
-        }
-
-        function syncToggles() {
-            const collapsed = isMobile()
-                ? !sidebar.classList.contains('show')
-                : sidebar.classList.contains('collapsed');
-
-            toggles.forEach(function(btn) {
-                btn.setAttribute('data-state', collapsed ? 'collapsed' : 'expanded');
-                btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-                btn.setAttribute('aria-label', collapsed ? 'Open sidebar' : 'Collapse sidebar');
-            });
-        }
-
-        function toggleSidebar() {
-            sidebar.classList.toggle('show');
-            overlay.classList.toggle('show');
-            syncToggles();
-        }
-
-        function collapseSidebar() {
-            sidebar.classList.toggle('collapsed');
-            mainContent.classList.toggle('expanded');
-            localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
-            syncToggles();
-        }
-
-        toggles.forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                if (isMobile()) {
-                    toggleSidebar();
-                } else {
-                    collapseSidebar();
-                }
-            });
-        });
-
-        if (overlay) {
-            overlay.addEventListener('click', function() {
-                sidebar.classList.remove('show');
-                overlay.classList.remove('show');
-                syncToggles();
-            });
-        }
-
-        if (localStorage.getItem('sidebarCollapsed') === 'true' && !isMobile()) {
-            sidebar.classList.add('collapsed');
-            mainContent.classList.add('expanded');
-        }
-
-        syncToggles();
-
-        window.addEventListener('resize', syncToggles);
-    });
-</script>
+{{-- Sidebar behavior lives in public/js/rider-sidebar.js (shared by every
+      renter page) so there is exactly one toggle handler per page load. --}}
+<script src="{{ asset('js/rider-sidebar.js') }}"></script>
 
 <script>
     window.PedalyaChannels = { notifications: {!! json_encode('private-App.Models.User.' . auth()->id()) !!} };

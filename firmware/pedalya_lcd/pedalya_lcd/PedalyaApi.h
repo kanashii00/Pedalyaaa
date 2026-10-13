@@ -124,9 +124,11 @@ public:
     /**
      * True when the EC20F link, not Wi-Fi, is carrying the next request.
      *
-     * Wi-Fi always wins whenever it is associated: the cellular route exists
-     * for a bike out of range of the shop's access point, so it is only used
-     * while there is no Wi-Fi association to use instead.
+     * In SIM-only mode (SIM_ONLY_MODE 1) this is true whenever the modem's
+     * packet link is up, and Wi-Fi state is never consulted. With SIM-only
+     * mode off, Wi-Fi wins whenever it is associated: the cellular route
+     * exists for a bike out of range of the shop's access point, so it is
+     * only used while there is no Wi-Fi association to use instead.
      */
     bool cellularActive() const;
 

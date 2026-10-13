@@ -721,7 +721,7 @@
                             $durM = $rental->durationMinutes % 60;
                             $durLabel = $rental->durationMinutes ? ($durH ? $durH . 'h ' . $durM . 'm' : $durM . 'm') : null;
                         @endphp
-                        <tr class="rv-row" data-detail="rvd-{{ $rental->id }}">
+                        <tr class="rv-row">
                             <td><span class="rv-id"><small>REN</small>#{{ $rental->id }}</span></td>
                             <td>
                                 <div class="rv-rider">
@@ -804,9 +804,44 @@
                             </td>
                             <td>
                                 <div class="rv-actions">
+                                    @php
+                                        $isReturnPending = in_array($rental->status, ['awaiting_return', 'overdue_return'], true);
+                                        $isReturnOverdue = $rental->status === 'overdue_return';
+                                        $retOd = $overdueStats[$rental->id] ?? null;
+                                        $retOverdueFee = (float) ($rental->overdueFee ?? ($retOd['currentPenalty'] ?? 0));
+                                        $retDetail = [
+                                            'id'        => $rental->rentalId ?? ('REN-' . str_pad($rental->id, 4, '0', STR_PAD_LEFT)),
+                                            'status'    => $rental->status,
+                                            'rider'     => $rental->rider->name ?? 'Unknown',
+                                            'email'     => $rental->rider->email ?? '',
+                                            'bike'      => $rental->bicycle->name ?? 'Unknown',
+                                            'serial'    => $rental->bicycle->serialNumber ?? '',
+                                            'bikeSub'   => $rental->bicycle->status ?? '',
+                                            'submitted' => $rental->endTime?->format('M d, Y h:i A') ?? '',
+                                            'awaiting'  => $rental->returnRequestedAt?->format('M d, Y h:i A') ?? '',
+                                            'deadline'  => $rental->returnDeadline?->format('M d, Y h:i A') ?? '',
+                                            'overdueSince' => $rental->overdueReturnAt?->format('M d, Y h:i A') ?? ($rental->returnDeadline?->format('M d, Y h:i A') ?? ''),
+                                            'hasOverdueStats' => (bool) $retOd,
+                                            'overdueDur'=> $retOd ? (floor($retOd['durationMinutes'] / 60) . 'h ' . ($retOd['durationMinutes'] % 60) . 'm') : '',
+                                            'overduePenalty' => $retOd ? number_format((float) $retOd['currentPenalty'], 2) : '',
+                                            'processedAt' => $rental->returnProcessedAt?->format('M d, Y h:i A') ?? '',
+                                            'inspector' => $rental->returnInspectedBy ?? '',
+                                            'condition' => $rental->returnCondition ? ucfirst(str_replace('_', ' ', $rental->returnCondition)) : '',
+                                            'duration'  => $durLabel ?? '',
+                                            'rate'      => number_format((float) ($rental->ratePerHour ?? 0), 2),
+                                            'finalFee'  => number_format((float) ($rental->finalFee ?? $rental->totalFee ?? 0), 2),
+                                            'hasExtra'  => $retOverdueFee > 0,
+                                            'extraFee'  => number_format($retOverdueFee, 2),
+                                            'method'    => $rental->paymentMethod === 'gcash' ? 'GCash' : 'Cash',
+                                            'payStatus' => ucfirst($rental->paymentStatus ?? 'Pending'),
+                                            'returnNote'=> $rental->returnNote ?? '',
+                                            'isPending' => $isReturnPending,
+                                            'isOverdue' => $isReturnOverdue,
+                                        ];
+                                    @endphp
                                     <button type="button" class="rv-btn rv-btn--view"
-                                            data-detail-toggle="rvd-{{ $rental->id }}"
-                                            title="View details">
+                                            data-return-detail="{{ json_encode($retDetail) }}"
+                                            title="View details" aria-label="View return details">
                                         <i class="bi bi-eye"></i>
                                     </button>
                                     @if($view === 'pending' && in_array($rental->status, ['awaiting_return', 'overdue_return']))
@@ -865,147 +900,6 @@
                             </td>
                         </tr>
 
-                        {{-- Expandable detail row --}}
-                        <tr class="rv-detail" id="rvd-{{ $rental->id }}">
-                            <td colspan="10" class="rv-detail__cell">
-                                <div class="rv-detail__inner">
-                                    <div class="rv-detail__content">
-                                        <div class="rv-detail__card">
-                                            <div class="rv-detail__head">
-                                                <div class="rv-detail__title">
-                                                    <i class="bi bi-arrow-return-left"></i>
-                                                    Return #{{ $rental->id }}
-                                                    @if($rental->status === 'awaiting_return')
-                                                        <span class="rv-status rv-status--awaiting rv-status--dot rv-status--live">Awaiting Return</span>
-                                                    @elseif($rental->status === 'overdue_return')
-                                                        <span class="rv-status rv-status--overdue rv-status--dot rv-status--live">Overdue Return</span>
-                                                    @elseif($rental->status === 'returned')
-                                                        <span class="rv-status rv-status--returned rv-status--dot">Returned</span>
-                                                    @elseif($rental->status === 'completed')
-                                                        <span class="rv-status rv-status--completed rv-status--dot">Completed</span>
-                                                    @else
-                                                        <span class="rv-status rv-status--cancelled rv-status--dot">{{ ucfirst($rental->status) }}</span>
-                                                    @endif
-                                                </div>
-                                                <div class="rv-detail__meta">
-                                                    <i class="bi bi-clock-history me-1"></i>Returned {{ $rental->endTime?->format('M d, Y h:i A') ?? '—' }}
-                                                </div>
-                                            </div>
-                                            <div class="rv-detail__body">
-                                                <div class="rv-detail__grid">
-                                                    <div class="rv-panel">
-                                                        <div class="rv-panel__label"><i class="bi bi-route"></i>Return Details</div>
-                                                        <dl style="margin:0;">
-                                                            <div class="rv-kv"><dt>Start Time</dt><dd>{{ $rental->startTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                                            <div class="rv-kv"><dt>Returned At</dt><dd>{{ $rental->endTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                                            @if($rental->hasRideExtensions())
-                                                                <div class="rv-kv"><dt>Ride Extended</dt>
-                                                                    <dd>{{ $rental->extensionCount }}&times; ({{ $rental->extensionMinutesLabel() }} extra) &middot; extension fee &#8369;{{ number_format((float) $rental->extensionFee, 2) }}
-                                                                        @if($rental->lastExtendedAt)
-                                                                            <br><small class="text-muted">Last extended {{ $rental->lastExtendedAt->format('M d, Y h:i A') }}</small>
-                                                                        @endif
-                                                                    </dd>
-                                                                </div>
-                                                            @endif
-                                                            <div class="rv-kv"><dt>Duration</dt><dd>{{ $durLabel ?? '—' }}</dd></div>
-                                                            @if($rental->status === 'awaiting_return' || $rental->status === 'overdue_return')
-                                                                <div class="rv-kv"><dt>Awaiting Since</dt><dd>{{ $rental->returnRequestedAt?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                    @if($rental->returnDeadline)
-                                        <div class="rv-kv"><dt>Return Deadline</dt><dd>{{ $rental->returnDeadline->format('M d, Y h:i A') }}
-                                            <span class="rv-grace" data-return-countdown="{{ $rental->returnDeadline->toIso8601String() }}"><i class="bi bi-hourglass-split"></i><span data-return-countdown-text>&mdash;</span></span>
-                                        </dd></div>
-                                                                @endif
-                                                                @if($rental->status === 'overdue_return')
-                                                                    <div class="rv-kv"><dt>Overdue Since</dt><dd>{{ $rental->overdueReturnAt?->format('M d, Y h:i A') ?? $rental->returnDeadline?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                                                    @if(isset($overdueStats[$rental->id]))
-                                                                        @php($od = $overdueStats[$rental->id])
-                                                                        <div class="rv-kv"><dt>Overdue Duration</dt><dd>
-                                                                            {{ floor($od['durationMinutes'] / 60) }}h {{ $od['durationMinutes'] % 60 }}m</dd></div>
-                                                                        <div class="rv-kv"><dt>Current Penalty</dt><dd class="text-danger">&nbsp;&#8369;{{ number_format((float) $od['currentPenalty'], 2) }}</dd></div>
-                                                                    @endif
-                                                                @endif
-                                                            @else
-                                                                <div class="rv-kv"><dt>Processed At</dt><dd>{{ $rental->returnProcessedAt?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                                                <div class="rv-kv"><dt>Inspected By</dt><dd>{{ $rental->returnInspectedBy ?? '—' }}</dd></div>
-                                                                <div class="rv-kv"><dt>Condition</dt><dd>{{ ucfirst(str_replace('_', ' ', $rental->returnCondition ?? '—')) }}</dd></div>
-                                                            @endif
-                                                        </dl>
-                                                        @if($rental->returnNote)
-                                                            <div class="rv-notes"><strong><i class="bi bi-sticky me-1"></i>Return Note</strong>{{ $rental->returnNote }}</div>
-                                                        @endif
-                                                        @if(in_array($rental->status, ['awaiting_return', 'overdue_return']) && $view === 'pending')
-                                                            <button type="button" class="btn-admin btn-admin--primary btn-admin--sm mt-2"
-                                                                    data-return-process
-                                                                    data-rental-id="{{ $rental->id }}"
-                                                                    data-rental-code="{{ $rental->rentalId }}"
-                                                                    data-rider="{{ $rental->rider->name ?? $rental->riderName ?? 'Unknown' }}"
-                                                                    data-bike="{{ $rental->bicycle->name ?? $rental->bicycleName ?? 'Unknown' }}"
-                                                                    data-rate="{{ (float) ($rental->ratePerHour ?? 0) }}"
-                                                                    data-start="{{ $rental->startTime?->toIso8601String() }}"
-                                                                    data-expected-end="{{ $rental->expectedEndTime?->toIso8601String() }}"
-                                                                    data-end="{{ $rental->endTime?->toIso8601String() }}"
-                                                                    data-deadline="{{ $rental->returnDeadline?->toIso8601String() }}"
-                                                                    data-penalty-rate="{{ (float) ($summary['penaltyRate'] ?? \App\Models\SystemSetting::getValue('lateReturnPenaltyPerHour', 20)) }}"
-                                                                    data-penalty-type="{{ $rental->penaltyType }}"
-                                                                    data-penalty-value="{{ $rental->penaltyValue }}"
-                                                                    title="Process Return">
-                                                                <i class="bi bi-clipboard-check me-1"></i>Process Return
-                                                            </button>
-                                                        @endif
-                                                    </div>
-
-                                                    <div class="rv-panel">
-                                                        <div class="rv-panel__label"><i class="bi bi-people"></i>Participants &amp; Payment</div>
-                                                        <div class="rv-parties">
-                                                            <div class="rv-party">
-                                                                <div class="user-avatar" style="width:32px;height:32px;font-size:12px;">{{ strtoupper(substr($rental->rider->name ?? 'U', 0, 1)) }}</div>
-                                                                <div style="min-width:0;">
-                                                                    <div class="rv-rider__name">{{ $rental->rider->name ?? 'Unknown' }}</div>
-                                                                    <div class="rv-rider__email">{{ $rental->rider->email ?? '—' }}</div>
-                                                                </div>
-                                                            </div>
-                                                            <div class="rv-party">
-                                                                <i class="bi bi-bicycle lead"></i>
-                                                                <div style="min-width:0;">
-                                                                    <div class="rv-rider__name">{{ $rental->bicycle->name ?? 'Unknown' }}</div>
-                                                                    <div class="rv-rider__email">{{ $rental->bicycle->status ?? '—' }}</div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div class="rv-fees">
-                                                            <div class="rv-tile">
-                                                                <div class="rv-tile__label">Hourly Rate</div>
-                                                                <div class="rv-tile__value">&#8369;{{ number_format($rental->ratePerHour ?? 0, 2) }}</div>
-                                                            </div>
-                                                            <div class="rv-tile">
-                                                                <div class="rv-tile__label">Duration</div>
-                                                                <div class="rv-tile__value">{{ $durLabel ?? '—' }}</div>
-                                                            </div>
-                                                            <div class="rv-tile rv-tile--total">
-                                                                <div class="rv-tile__label">Final Fee</div>
-                                                                <div class="rv-tile__value">&#8369;{{ number_format($rental->finalFee ?? $rental->totalFee ?? 0, 2) }}</div>
-                                                            </div>
-                                                        </div>
-                                                        <div class="rv-payline">
-                                                            @if($rental->paymentMethod === 'gcash')
-                                                                <span class="rv-method rv-method--gcash"><i class="bi bi-phone"></i>GCash</span>
-                                                            @else
-                                                                <span class="rv-method rv-method--cash"><i class="bi bi-cash-stack"></i>Cash</span>
-                                                            @endif
-                                                            @if($rental->paymentStatus === 'paid')
-                                                                <span class="rv-status rv-status--paid"><i class="bi bi-check-circle-fill"></i>Paid</span>
-                                                            @else
-                                                                <span class="rv-status"><i class="bi bi-x-circle-fill"></i>{{ ucfirst($rental->paymentStatus ?? 'Pending') }}</span>
-                                                            @endif
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
                     @empty
                         <tr>
                             <td colspan="10" class="rv-empty">
@@ -1028,6 +922,87 @@
             @if(method_exists($rentals, 'links'))
                 {{ $rentals->withQueryString()->links() }}
             @endif
+        </div>
+    </div>
+</div>
+
+{{-- ===== Return details modal (floating, mirrors the Customer List review modal) ===== --}}
+<div class="admin-modal" id="returnDetailModal">
+    <div class="admin-modal__backdrop" data-modal-close></div>
+    <div class="admin-modal__dialog admin-modal__dialog--lg" role="dialog" aria-modal="true" aria-label="Return details">
+        <div class="admin-modal__head vr-review-head">
+            <span class="vr-header-icon" aria-hidden="true"><i class="bi bi-arrow-return-left"></i></span>
+            <div class="vr-review-head__text">
+                <h3 class="vr-review-head__title">Return Details</h3>
+                <p class="vr-review-head__subtitle" id="rdSub">—</p>
+            </div>
+            <span id="rdStatus"></span>
+            <button type="button" class="vr-review-head__close" data-modal-close aria-label="Close" title="Close">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="admin-modal__body">
+            <div class="rv-parties" style="margin-bottom:14px;">
+                <div class="rv-party">
+                    <div class="user-avatar" id="rdAvatar" style="width:32px;height:32px;font-size:12px;">U</div>
+                    <div style="min-width:0;">
+                        <div class="rv-rider__name" id="rdRider">—</div>
+                        <div class="rv-rider__email" id="rdEmail">—</div>
+                    </div>
+                </div>
+                <div class="rv-party">
+                    <i class="bi bi-bicycle lead"></i>
+                    <div style="min-width:0;">
+                        <div class="rv-rider__name" id="rdBike">—</div>
+                        <div class="rv-rider__email" id="rdBikeSub">—</div>
+                    </div>
+                </div>
+            </div>
+            <div class="rv-detail__grid">
+                <div class="rv-panel">
+                    <div class="rv-panel__label"><i class="bi bi-route"></i>Return Timeline</div>
+                    <dl style="margin:0;">
+                        <div class="rv-kv"><dt>Rental ID</dt><dd id="rdId">—</dd></div>
+                        <div class="rv-kv"><dt>Submitted At</dt><dd id="rdSubmitted">—</dd></div>
+                        <div class="rv-kv" id="rowRdAwaiting"><dt>Awaiting Since</dt><dd id="rdAwaiting">—</dd></div>
+                        <div class="rv-kv" id="rowRdDeadline"><dt>Return Deadline</dt><dd id="rdDeadline">—</dd></div>
+                        <div class="rv-kv" id="rowRdOverdueSince"><dt>Overdue Since</dt><dd id="rdOverdueSince">—</dd></div>
+                        <div class="rv-kv" id="rowRdOverdueDur"><dt>Overdue Duration</dt><dd id="rdOverdueDur">—</dd></div>
+                        <div class="rv-kv" id="rowRdProcessed"><dt>Processed At</dt><dd id="rdProcessed">—</dd></div>
+                        <div class="rv-kv"><dt>Duration</dt><dd id="rdDuration">—</dd></div>
+                        <div class="rv-kv"><dt>Confirmation</dt><dd id="rdConfirm">—</dd></div>
+                    </dl>
+                    <div class="rv-notes" id="rdNotesWrap" style="display:none;"><strong><i class="bi bi-sticky me-1"></i>Inspection Notes</strong><span id="rdNotes"></span></div>
+                </div>
+                <div class="rv-panel">
+                    <div class="rv-panel__label"><i class="bi bi-cash-coin"></i>Fees &amp; Inspection</div>
+                    <div class="rv-fees">
+                        <div class="rv-tile">
+                            <div class="rv-tile__label">Hourly Rate</div>
+                            <div class="rv-tile__value" id="rdRate">—</div>
+                        </div>
+                        <div class="rv-tile">
+                            <div class="rv-tile__label">Additional</div>
+                            <div class="rv-tile__value" id="rdExtra">—</div>
+                        </div>
+                        <div class="rv-tile rv-tile--total">
+                            <div class="rv-tile__label">Final Fee</div>
+                            <div class="rv-tile__value" id="rdFinal">—</div>
+                        </div>
+                    </div>
+                    <dl style="margin:0;">
+                        <div class="rv-kv"><dt>Condition</dt><dd id="rdCondition">—</dd></div>
+                        <div class="rv-kv"><dt>Inspected By</dt><dd id="rdInspector">—</dd></div>
+                    </dl>
+                    <div class="rv-payline">
+                        <span class="rv-method" id="rdMethod">—</span>
+                        <span class="rv-status" id="rdPayStatus">—</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="admin-modal__foot">
+            <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-modal-close>Close</button>
         </div>
     </div>
 </div>
@@ -1194,25 +1169,99 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    /* Idempotent: the live sync re-calls this after swapping tbody HTML so
-       freshly rendered rows toggle too, without double-binding survivors. */
-    function bindDetailToggles() {
-        document.querySelectorAll('[data-detail-toggle]').forEach(btn => {
+    /* Floating return-details modal (mirrors the Customer List review modal:
+       centered over a dark backdrop, table layout untouched). Idempotent: the
+       live sync re-calls this after swapping tbody HTML so freshly rendered
+       rows open the modal too, without double-binding survivors. */
+    const rdModal = document.getElementById('returnDetailModal');
+    function rdSet(id, value) {
+        const node = document.getElementById(id);
+        if (node) node.textContent = value || '\u2014';
+    }
+    function rdRow(rowId, visible) {
+        const row = document.getElementById(rowId);
+        if (row) row.style.display = visible ? '' : 'none';
+    }
+    function rdStatusPill(status) {
+        const map = {
+            awaiting_return: ['rv-status--awaiting rv-status--dot rv-status--live', 'Awaiting Return'],
+            overdue_return: ['rv-status--overdue rv-status--dot rv-status--live', 'Overdue Return'],
+            returned: ['rv-status--returned rv-status--dot', 'Returned'],
+            completed: ['rv-status--completed rv-status--dot', 'Completed']
+        };
+        const key = String(status || '').toLowerCase();
+        const entry = map[key] || ['rv-status--cancelled rv-status--dot', status ? status.charAt(0).toUpperCase() + status.slice(1) : '\u2014'];
+        const node = document.getElementById('rdStatus');
+        if (node) node.className = 'rv-status ' + entry[0];
+        if (node) node.textContent = entry[1];
+    }
+    function openReturnDetail(d) {
+        rdSet('rdSub', d.id);
+        rdStatusPill(d.status);
+        const avatar = document.getElementById('rdAvatar');
+        if (avatar) avatar.textContent = String(d.rider || 'U').trim().charAt(0).toUpperCase() || 'U';
+        rdSet('rdRider', d.rider);
+        rdSet('rdEmail', d.email);
+        rdSet('rdBike', d.bike);
+        rdSet('rdBikeSub', [(d.serial ? 'SN \u00B7 ' + d.serial : ''), d.bikeSub].filter(Boolean).join(' \u00B7 '));
+        rdSet('rdId', d.id);
+        rdSet('rdSubmitted', d.submitted);
+        rdSet('rdAwaiting', d.awaiting);
+        rdSet('rdDeadline', d.deadline);
+        rdSet('rdOverdueSince', d.overdueSince);
+        rdSet('rdOverdueDur', d.overdueDur);
+        rdSet('rdProcessed', d.processedAt);
+        rdSet('rdDuration', d.duration);
+        rdSet('rdConfirm', d.isPending ? 'Awaiting admin confirmation' : 'Confirmed' + (d.processedAt ? ' · ' + d.processedAt : ''));
+        rdRow('rowRdAwaiting', d.isPending && !!d.awaiting);
+        rdRow('rowRdDeadline', d.isPending && !!d.deadline);
+        rdRow('rowRdOverdueSince', d.isOverdue && !!d.overdueSince);
+        rdRow('rowRdOverdueDur', d.isOverdue && !!d.overdueDur);
+        rdRow('rowRdProcessed', !d.isPending);
+        rdSet('rdRate', d.rate ? '\u20B1' + d.rate : '');
+        rdSet('rdExtra', d.hasExtra ? '\u20B1' + d.extraFee : '');
+        rdSet('rdFinal', d.finalFee ? '\u20B1' + d.finalFee : '');
+        rdSet('rdCondition', d.isPending && !d.condition ? 'Pending inspection' : d.condition);
+        rdSet('rdInspector', d.inspector);
+        const method = document.getElementById('rdMethod');
+        if (method) {
+            method.textContent = d.method || '\u2014';
+            method.className = 'rv-method ' + (d.method === 'GCash' ? 'rv-method--gcash' : 'rv-method--cash');
+        }
+        const pay = document.getElementById('rdPayStatus');
+        if (pay) {
+            const st = String(d.payStatus || '').toLowerCase();
+            pay.textContent = d.payStatus || '\u2014';
+            pay.className = 'rv-status ' + (st === 'paid' ? 'rv-status--paid' : 'rv-status--cancelled') + (st === 'paid' ? '' : ' rv-status--dot');
+            if (st === 'paid') {
+                pay.innerHTML = '<i class="bi bi-check-circle-fill"></i>' + (d.payStatus || 'Paid');
+            }
+        }
+        const noteWrap = document.getElementById('rdNotesWrap');
+        if (noteWrap) {
+            noteWrap.style.display = d.returnNote ? '' : 'none';
+            rdSet('rdNotes', d.returnNote);
+        }
+        if (rdModal) rdModal.classList.add('open');
+    }
+    function closeReturnDetail() { if (rdModal) rdModal.classList.remove('open'); }
+    function bindDetailModal() {
+        document.querySelectorAll('[data-return-detail]').forEach(btn => {
             if (btn.dataset.liveBound === '1') return;
             btn.dataset.liveBound = '1';
             btn.addEventListener('click', function () {
-                const id = this.dataset.detailToggle;
-                const row = document.getElementById(id);
-                const main = document.querySelector(`#rvTable tr[data-detail="${id}"]`);
-                if (!row) return;
-                const open = row.classList.toggle('open');
-                this.classList.toggle('is-open', open);
-                if (main) main.classList.toggle('is-open', open);
+                try { openReturnDetail(JSON.parse(this.dataset.returnDetail)); } catch (e) { /* ignore */ }
             });
         });
     }
-    bindDetailToggles();
-    window.__returnsBindDetails = bindDetailToggles;
+    bindDetailModal();
+    window.__returnsBindDetails = bindDetailModal;
+    if (rdModal) {
+        rdModal.querySelectorAll('[data-modal-close]').forEach(b => b.addEventListener('click', closeReturnDetail));
+    }
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && rdModal && rdModal.classList.contains('open')) closeReturnDetail();
+    });
 
     /* ---- Process Return modal ---- */
     const prModal = document.getElementById('prModal');

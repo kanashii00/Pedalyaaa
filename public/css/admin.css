@@ -120,6 +120,7 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 
 .admin-sidebar__brand {
   height: var(--topbar-h);
+  min-height: var(--topbar-h);
   display: flex;
   align-items: center;
   gap: 11px;
@@ -127,15 +128,32 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
+/* Expanded logo: white rounded-square, aspect preserved, never clipped
+   (same treatment as the renter .sidebar-logo-wrapper). */
 .admin-sidebar__logo {
-  width: 34px; height: 34px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, var(--brand), var(--brand-strong));
-  display: grid; place-items: center;
-  color: #fff;
-  font-size: 18px;
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ffffff 0%, #f5f5f5 100%);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.8);
+  border: 1px solid var(--border-subtle);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  margin: 0;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              height 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              border-radius 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.admin-sidebar__logo-img {
+  width: 32px; height: 32px;
+  max-width: 100%; max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  display: block;
   flex-shrink: 0;
 }
 
@@ -145,7 +163,9 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
   letter-spacing: -0.02em;
   color: var(--text-1);
   white-space: nowrap;
-  transition: opacity 0.2s;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 .admin-sidebar__name span { color: var(--brand); }
@@ -155,16 +175,21 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
   overflow-y: auto;
   overflow-x: hidden;
   padding: 14px 12px 24px;
+  box-sizing: border-box;
 }
 
 .admin-navgroup__label {
   padding: 18px 10px 6px;
+  margin: 0;
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--text-3);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
 }
 
 .admin-navgroup__label:first-child { padding-top: 2px; }
@@ -172,29 +197,52 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 .admin-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
 }
 
+/* Expanded / pinned clickable rows: uniform 40px\s minimum, fixed 20px
+   icon box so every icon sits on the same vertical center line. */
 .admin-nav__link {
   display: flex;
   align-items: center;
   gap: 11px;
+  min-height: 40px;
   padding: 8px 10px;
+  margin: 0;
   border-radius: var(--radius-sm);
   color: var(--text-2);
   font-weight: 500;
   font-size: 13.5px;
+  line-height: 1.4;
   cursor: pointer;
   border: none;
   background: transparent;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   text-align: left;
+  text-decoration: none;
   transition: background 0.15s, color 0.15s;
   white-space: nowrap;
+  overflow: hidden;
 }
 
-.admin-nav__link i { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; color: var(--text-3); transition: color 0.15s; }
-.admin-nav__link span { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.admin-nav__link > i:first-child {
+  font-size: 16px;
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  text-align: center;
+  flex-shrink: 0;
+  margin: 0;
+  line-height: 1;
+  color: var(--text-3);
+  transition: color 0.15s;
+}
+.admin-nav__link span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .admin-nav__link:hover { background: var(--surface-3); color: var(--text-1); }
 .admin-nav__link:hover i { color: var(--text-2); }
 .admin-nav__link.active { background: var(--brand-soft); color: var(--brand-strong); font-weight: 600; }
@@ -203,7 +251,13 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 
 .admin-nav__toggle {
   flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
   font-size: 10px;
+  line-height: 1;
+  margin: 0;
   color: var(--text-3);
   transition: transform 0.2s;
 }
@@ -211,15 +265,20 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 .admin-nav--open > .admin-nav__link .admin-nav__toggle { transform: rotate(180deg); }
 
 .admin-nav__sub {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   overflow: hidden;
   max-height: 0;
+  margin: 0;
+  padding: 0;
   transition: max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.admin-nav--open > .admin-nav__sub { max-height: 600px; }
+.admin-nav--open > .admin-nav__sub { max-height: 640px; }
 
-.admin-nav__sub .admin-nav__link { padding-left: 38px; font-size: 13px; }
-.admin-nav__sub .admin-nav__link i { font-size: 13px; width: 16px; }
+.admin-nav__sub .admin-nav__link { padding-left: 38px; font-size: 13px; min-height: 36px; }
+.admin-nav__sub .admin-nav__link > i:first-child { font-size: 13px; width: 16px; height: 16px; }
 
 /* Module links (flat top-level items with text sub-labels) */
 .admin-nav__link--module { align-items: flex-start; }
@@ -237,31 +296,50 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 .admin-nav__module-sub { font-size: 11px; font-weight: 450; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .admin-nav__link--module.active .admin-nav__module-sub { color: color-mix(in srgb, var(--brand-strong) 78%, var(--text-3)); }
 
-/* Active indicator accent bar */
+/* Active rows keep clearance for the sliding bar; rail + drawer unaffected. */
 .admin-nav__link { position: relative; }
-.admin-nav__link.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 0 4px 4px 0;
-  background: var(--brand);
+.admin-nav__link.active,
+.admin-nav__link[aria-current="page"] {
+  position: relative;
 }
+
+/* Sliding green active-menu indicator (Google Classroom-style).
+   Single shared element positioned by admin.js via transform (GPU) from the
+   server-rendered aria-current link, so direct URLs, refresh and browser
+   back/forward all resolve correctly with no layout shift. */
+.admin-sidebar__nav { position: relative; }
+.admin-nav-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 0;
+  border-radius: 0 4px 4px 0;
+  background: linear-gradient(180deg, var(--brand), var(--brand-strong));
+  box-shadow: 0 0 8px rgba(46, 125, 50, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
+  transform: translate(0, 0);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.2s ease;
+  will-change: transform, height;
+}
+.admin-nav-indicator.is-visible { opacity: 1; }
 .admin-shell.sidebar-collapsed .admin-nav__link--module { align-items: center; }
 .admin-shell.sidebar-collapsed .admin-nav__link--module > i { margin-top: 0; }
 
 .admin-nav__badge {
   flex-shrink: 0;
-  min-width: 19px;
-  height: 19px;
-  padding: 0 6px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 8px;
   border-radius: 999px;
   background: var(--danger);
   color: #fff;
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 800;
   display: inline-grid;
   place-items: center;
   line-height: 1;
@@ -269,6 +347,19 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 
 .admin-nav__badge--success { background: var(--success); }
 .admin-nav__badge--warning { background: var(--warning); }
+
+/* Count pill inside a nav row: fixed pill that never stretches and never
+   gets clipped by the label's ellipsis. Beats `.admin-nav__link span`
+   so long titles keep a steady 8px gap instead of shoving the badge out. */
+.admin-nav__link span.admin-nav__badge {
+  flex: 0 0 auto;
+  margin-left: 8px;
+}
+
+/* Group count pill: hidden everywhere except the collapsed icon rail, where
+   it surfaces the group's badge total on the icon corner (the rows carrying
+   the individual pills are hidden with their submenus there). */
+.admin-nav__group-badge { display: none; }
 
 .admin-sidebar__foot {
   padding: 12px;
@@ -294,20 +385,87 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 .admin-sidebar__collapse-btn i { width: 20px; text-align: center; color: var(--text-3); }
 .admin-sidebar__collapse-btn:hover { background: var(--border-subtle); color: var(--text-1); }
 
-/* Rail (collapsed) state — desktop */
+/* Rail (collapsed) state — even 80px icon rail, renter-style centered logo.
+   Hamburger in the topbar stays visible in both states; it pins/unpins.
+   display:none (not opacity) removes hidden rows from layout so no phantom
+   gaps, scrollbars or drift remain — exactly like .sidebar.collapsed. */
 .admin-shell.sidebar-collapsed .admin-sidebar { width: var(--sidebar-rail-w); }
-.admin-shell.sidebar-collapsed .admin-sidebar__brand { padding: 0; justify-content: center; }
-.admin-shell.sidebar-collapsed .admin-sidebar__name,
+.admin-shell.sidebar-collapsed .admin-sidebar__brand {
+  height: var(--topbar-h);
+  min-height: var(--topbar-h);
+  padding: 0;
+  justify-content: center;
+  align-items: center;
+}
+/* Collapsed rail: compact centered white rounded-square logo (44/32, same as
+   renter .sidebar.collapsed), brand text hidden, aspect preserved. */
+.admin-shell.sidebar-collapsed .admin-sidebar__logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  margin: 0;
+}
+.admin-shell.sidebar-collapsed .admin-sidebar__logo-img {
+  width: 32px;
+  height: 32px;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.admin-shell.sidebar-collapsed .admin-sidebar__name { display: none; }
+.admin-shell.sidebar-collapsed .admin-sidebar__nav {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: hidden;
+  overflow-x: hidden;
+}
+.admin-shell.sidebar-collapsed .admin-navgroup__label { display: none; }
+.admin-shell.sidebar-collapsed .admin-nav { gap: 6px; }
 .admin-shell.sidebar-collapsed .admin-nav__link span,
-.admin-shell.sidebar-collapsed .admin-nav__toggle,
-.admin-shell.sidebar-collapsed .admin-nav__sub,
-.admin-shell.sidebar-collapsed .admin-navgroup__label,
-.admin-shell.sidebar-collapsed .admin-sidebar__collapse-btn span { opacity: 0; pointer-events: none; }
-.admin-shell.sidebar-collapsed .admin-nav__link { justify-content: center; padding: 10px 0; }
-.admin-shell.sidebar-collapsed .admin-nav__link i { font-size: 18px; }
+.admin-shell.sidebar-collapsed .admin-nav__toggle { display: none; }
+.admin-shell.sidebar-collapsed .admin-nav__sub { display: none; }
+.admin-shell.sidebar-collapsed .admin-nav__link span.admin-nav__badge { display: none; }
+.admin-shell.sidebar-collapsed .admin-sidebar__collapse-btn span { display: none; }
+/* Collapsed rail: the group total stays fully visible as a count pill pinned
+   to the icon-button corner. Beats the span-hiding rule above. */
+.admin-shell.sidebar-collapsed .admin-nav__link > .admin-nav__badge.admin-nav__group-badge {
+  display: inline-grid;
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  margin: 0;
+  font-size: 10.5px;
+  z-index: 3;
+  pointer-events: none;
+}
+/* Uniform 56x48 icon buttons: every icon shares one vertical center line. */
+.admin-shell.sidebar-collapsed .admin-nav__link {
+  justify-content: center;
+  align-items: center;
+  min-height: 48px;
+  height: 48px;
+  padding: 0;
+  margin: 0;
+  gap: 0;
+}
+.admin-shell.sidebar-collapsed .admin-nav__link > i:first-child {
+  font-size: 19px;
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  margin: 0;
+}
 .admin-shell.sidebar-collapsed .admin-nav__link { position: relative; }
 .admin-shell.sidebar-collapsed .admin-nav__link:hover::after,
-.admin-shell.sidebar-collapsed .admin-nav__link.active::after {
+.admin-shell.sidebar-collapsed .admin-nav__link.active::after,
+.admin-shell.sidebar-collapsed .admin-nav__link[aria-current="page"]::after {
   content: attr(data-tooltip);
   position: absolute;
   left: calc(100% + 12px);
@@ -324,12 +482,102 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
   pointer-events: none;
   box-shadow: var(--shadow-pop);
 }
-.admin-shell.sidebar-collapsed .admin-nav__badge { position: absolute; top: 4px; right: 12px; }
 
-/* Sidebar drawer (mobile) */
+/* Hover-to-expand rail (desktop, fine pointers only) — same dual behavior as
+   the renter sidebar. Cursor over the collapsed rail temporarily restores the
+   full 264px layout (labels, badges, logo+text). The rail overlays content
+   while previewing, so .admin-main never shifts. Pinned-open
+   (no .sidebar-collapsed) ignores hover. Touch keeps the drawer instead. */
+@media (hover: hover) and (min-width: 1200px) {
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-sidebar {
+    width: var(--sidebar-w);
+    box-shadow: var(--shadow-pop);
+  }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-sidebar__brand {
+    height: var(--topbar-h);
+    min-height: var(--topbar-h);
+    padding: 0 20px;
+    justify-content: flex-start;
+    align-items: center;
+  }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-sidebar__logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+  }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-sidebar__logo-img {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+  }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-sidebar__name { display: block; }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-sidebar__nav {
+    display: block;
+    padding: 14px 12px 24px;
+    gap: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-navgroup__label { display: block; }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-nav { gap: 4px; }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-nav__link span { display: block; }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-nav__toggle {
+    display: inline-grid;
+  }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-nav__sub { display: flex; }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-nav__badge {
+    display: inline-grid;
+    position: static;
+  }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-nav__link > .admin-nav__badge.admin-nav__group-badge {
+    display: none;
+  }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-nav__link {
+    justify-content: flex-start;
+    align-items: center;
+    min-height: 40px;
+    height: auto;
+    padding: 8px 10px;
+    gap: 11px;
+  }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-nav__link > i:first-child {
+    font-size: 16px;
+    width: 20px;
+    height: 20px;
+  }
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-nav__sub .admin-nav__link {
+    padding-left: 38px;
+    min-height: 36px;
+  }
+  /* Labels are visible while previewing: rail tooltips stay off. */
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-nav__link::after {
+    display: none !important;
+  }
+}
+
+/* Hamburger pinned-open feedback (mirrors renter topbar toggle). */
+#sidebarToggle[data-state="expanded"] {
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+  border-color: var(--brand-ring);
+}
+#sidebarToggle[data-state="expanded"]:hover {
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+}
+
+/* Visible keyboard focus everywhere in the admin shell nav. */
+.admin-sidebar__nav .admin-nav__link:focus-visible,
+#sidebarToggle:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Sidebar drawer (mobile / touch where hover is unavailable) */
 .admin-shell .admin-sidebar { transform: translateX(-100%); }
 .admin-shell.sidebar-open .admin-sidebar { transform: translateX(0); box-shadow: var(--shadow-pop); }
-.admin-shell.sidebar-overlay {
+.admin-shell .sidebar-overlay,
+.sidebar-overlay {
   position: fixed;
   inset: 0;
   background: rgba(9, 12, 20, 0.5);
@@ -338,7 +586,29 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
   pointer-events: none;
   transition: opacity 0.25s;
 }
-.admin-shell.sidebar-open .sidebar-overlay { opacity: 1; pointer-events: auto; }
+.admin-shell.sidebar-open .sidebar-overlay,
+.sidebar-overlay.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Prevent background scroll while the mobile drawer is open. */
+.admin-shell.sidebar-drawer-open,
+body.sidebar-drawer-open {
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-sidebar,
+  .admin-main,
+  .admin-sidebar__nav .admin-nav__link,
+  .admin-sidebar__logo,
+  .admin-sidebar__logo-img,
+  .admin-nav-indicator,
+  .admin-shell .sidebar-overlay,
+  .sidebar-overlay {
+    transition: none !important;
+  }
+}
 
 /* ============================================================
    MAIN + TOPBAR
@@ -659,8 +929,119 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 .admin-card__sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 .admin-card__tools { display: flex; align-items: center; gap: 8px; }
 .admin-card__body { padding: 16px 20px 20px; }
-.admin-card__body--flush { padding: 0; }
+.admin-card__body--flush { padding: 0; overflow: hidden; border-radius: 0 0 var(--radius) var(--radius); }
 .admin-card__foot { padding: 13px 20px; border-top: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; }
+
+/* ============================================================
+   BICYCLE DETAILS — token surfaces (no Bootstrap white)
+   Uses shared design tokens so light stays light and dark stays
+   navy (#101828 / #131E34) with blue-gray borders, white text
+   and slate-blue labels. Scoped to .bike-detail.
+   ============================================================ */
+.bike-detail .admin-card__head,
+.bike-detail .admin-card__body { text-align: left; }
+.bike-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 4px 0 2px;
+}
+.bike-summary__icon {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--brand), var(--brand-strong));
+  color: #fff;
+  font-size: 2.4rem;
+  flex-shrink: 0;
+}
+.bike-summary__name { font-size: 17px; font-weight: 700; color: var(--text-1); margin: 0; letter-spacing: -0.01em; }
+.bike-summary__model { color: var(--text-3); font-size: 13px; margin: 0; }
+.bike-summary__badges { display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bike-summary__stats { display: flex; justify-content: center; align-items: flex-start; gap: 28px; flex-wrap: wrap; margin-top: 2px; }
+.bike-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 72px; }
+.bike-stat strong { display: block; font-size: 15px; font-weight: 750; color: var(--text-1); line-height: 1.2; font-variant-numeric: tabular-nums; }
+.bike-stat small { font-size: 12px; color: var(--text-3); }
+.bike-hint { font-size: 13px; color: var(--text-3); margin: 0 0 12px; line-height: 1.5; }
+.bike-hint--muted { font-size: 12.5px; }
+.bike-lock-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.bike-lock-actions form { margin: 0; }
+.bike-lock-btn { min-width: 120px; justify-content: center; }
+.bike-tel-tile {
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-1);
+  text-align: center;
+  padding: 14px 10px 12px;
+  min-height: 96px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.bike-tel-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  line-height: 1.3;
+}
+.bike-tel-value { font-size: 20px; font-weight: 750; color: var(--text-1); line-height: 1.2; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.bike-tel-value--sm { font-size: 13.5px; font-weight: 650; }
+.bike-tel-note { display: block; font-size: 11px; color: var(--text-3); line-height: 1.3; }
+.bike-tel-note--stale { color: var(--warning); font-weight: 700; }
+.bike-divider { border: 0; border-top: 1px solid var(--border-subtle); margin: 16px 0; opacity: 1; }
+.bike-tel-table { width: 100%; margin: 0; border-collapse: collapse; font-size: 13.5px; background: transparent; }
+.bike-tel-table tbody tr + tr { border-top: 1px solid var(--border-subtle); }
+.bike-tel-table th {
+  width: 40%;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-3);
+  padding: 9px 12px 9px 0;
+  vertical-align: top;
+  background: transparent;
+  white-space: nowrap;
+}
+.bike-tel-table td { color: var(--text-1); padding: 9px 0; vertical-align: top; background: transparent; overflow-wrap: anywhere; }
+.bike-stale {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--warning-soft);
+  color: var(--warning);
+  vertical-align: middle;
+}
+.bike-unavailable { color: var(--text-3); font-size: 12.5px; }
+.bike-map {
+  height: 340px;
+  width: 100%;
+  display: block;
+  border: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.bike-map .maplibregl-canvas { border-radius: inherit; }
+@media (max-width: 767.98px) {
+  .bike-tel-table th { width: 44%; white-space: normal; }
+  .bike-summary__stats { gap: 18px; }
+  .bike-lock-btn { min-width: 0; flex: 1 1 140px; }
+  .bike-map { height: 280px; }
+}
 
 /* ============================================================
    STAT CARDS (KPI)
@@ -737,6 +1118,63 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 .admin-table-toolbar .grow input { width: 100%; padding-left: 34px; }
 .admin-table-toolbar .grow > i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-3); font-size: 13px; pointer-events: none; }
 
+/* Bicycle Status toolbar: single horizontal row (search + 3 dropdowns +
+   Filter/Reset). Token styling inherited; this only enforces one aligned
+   row that wraps cleanly at 1366x768 with no page-level overflow. */
+.status-toolbar { padding: 14px 18px; }
+.status-toolbar__form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; }
+.status-toolbar__search { flex: 1 1 220px; min-width: 200px; }
+.status-toolbar__select { flex: 0 0 auto; width: 160px; max-width: 100%; }
+@media (max-width: 1199.98px) {
+  .status-toolbar__select { flex: 1 1 150px; width: auto; }
+}
+@media (max-width: 767.98px) {
+  .status-toolbar__search { flex: 1 1 100%; }
+  .status-toolbar__select { flex: 1 1 100%; width: 100%; }
+}
+.admin-table-wrap .table-responsive { overflow-x: auto; max-width: 100%; }
+
+/* Bicycle Status sizing (1366x768 / 1920x1080): compact one-row cards,
+   single compact toolbar, proportionate columns. Page-scoped only;
+   shared .kpi / .admin-table tokens and theme untouched. */
+.status-summary-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, 1fr); margin-bottom: 20px; }
+@media (min-width: 768px) { .status-summary-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 1200px) { .status-summary-grid { grid-template-columns: repeat(7, 1fr); } }
+.status-summary-grid .kpi { padding: 12px 14px; height: 100%; }
+.status-summary-grid .kpi__top { margin-bottom: 8px; }
+.status-summary-grid .kpi__icon { width: 32px; height: 32px; border-radius: 9px; font-size: 15px; }
+.status-summary-grid .kpi__value { font-size: 20px; }
+.status-summary-grid .kpi__label { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-toolbar { padding: 10px 14px; }
+.status-toolbar__form { gap: 8px; }
+.status-toolbar__form input, .status-toolbar__form select { height: 32px; font-size: 12px; }
+.status-toolbar__form .btn-admin--sm { height: 32px; }
+.status-toolbar__search { flex: 1 1 180px; min-width: 170px; }
+.status-toolbar__select { width: 140px; }
+.status-table { min-width: 960px; }
+.status-table th, .status-table td { padding: 8px 7px; }
+.status-table thead th { letter-spacing: 0.03em; font-size: 10.5px; }
+.status-table td code { white-space: nowrap; font-size: 10.5px; }
+.status-table .status-rider-email { display: block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-table th:nth-child(1) { min-width: 100px; }
+.status-table th:nth-child(2) { min-width: 95px; }
+.status-table th:nth-child(3) { min-width: 100px; }
+.status-table th:nth-child(4) { min-width: 95px; }
+.status-table th:nth-child(5) { min-width: 90px; }
+.status-table th:nth-child(6) { min-width: 60px; }
+.status-table th:nth-child(7) { min-width: 95px; }
+.status-table th:nth-child(8) { min-width: 120px; }
+.status-table th:nth-child(9) { min-width: 105px; }
+/* Empty sort markers still occupy their left margin in every header; hide
+   them until sorting fills them in (admin.js restores them on click). */
+.status-table th .sort-ind:empty { display: none; }
+/* Last-Updated cell: device timestamp stacked over its status badge with one
+   consistent gap — never inline-beside, so the pill cannot collide with or
+   wrap awkwardly around the timestamp. No badge renders at all for bicycles
+   without IoT hardware. Shared .bike-stale pill itself untouched. */
+.status-table .bike-updated { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.status-table .bike-updated .bike-stale { margin-left: 0; }
+
 .admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .admin-table thead th {
   background: var(--surface-2);
@@ -762,6 +1200,33 @@ html[data-theme="dark"] .admin-shell .text-muted { color: var(--text-2) !importa
 .admin-table tbody tr.selected:hover { background: color-mix(in srgb, var(--brand-soft) 60%, var(--surface-2) 40%); }
 .admin-table .cell-title { font-weight: 600; color: var(--text-1); }
 .admin-table .cell-sub { font-size: 12px; color: var(--text-3); }
+
+/* Clickable customer name: professional link-style button that opens the
+   existing verification/details modal. Subtle hover, clear focus, pointer
+   cursor — no visual clutter. */
+.customer-name-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.15s ease;
+}
+.customer-name-link:hover {
+  color: var(--brand-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+.customer-name-link:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
 
 /* Stacked cell: the primary value on top, its supporting facts underneath.
    Used where a column needs several related lines (bicycle, renter, rental). */
@@ -1101,6 +1566,46 @@ a.admin-pagination__item:hover { background: var(--surface-3); color: var(--text
 .admin-form .form-hint { font-size: 12.5px; color: var(--text-3); margin-bottom: 12px; line-height: 1.5; }
 .admin-form .is-invalid { border-color: var(--danger) !important; }
 .admin-form .invalid-feedback { font-size: 12px; }
+
+/* Register Customer: compact centered layout (1366x768 / 1920x1080).
+   Tightens card/field spacing only; shared tokens and theme untouched. */
+.register-form .admin-card { margin-bottom: 14px; }
+.register-form .admin-card__head { padding: 12px 16px 0; }
+.register-form .admin-card__body { padding: 12px 16px 16px; }
+.register-form .admin-card__title { font-size: 13px; }
+.register-form .form-label { margin-bottom: 4px; }
+
+/* Valid ID photo upload: dashed dropzone, preview and actions in the same
+   token palette as the rest of the form. Page-scoped to .register-form. */
+.register-form .id-upload-hint { font-size: 12.5px; color: var(--text-3); margin: 0 0 8px; line-height: 1.5; }
+.register-form .id-upload-dropzone {
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 18px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.register-form .id-upload-dropzone:hover,
+.register-form .id-upload-dropzone:focus-visible,
+.register-form .id-upload-dropzone.is-dragover {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  outline: none;
+}
+.register-form .id-upload-dropzone:focus-visible { box-shadow: 0 0 0 3px var(--brand-ring); }
+.register-form .id-upload-icon { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--brand-soft); color: var(--brand-strong); font-size: 18px; margin-bottom: 8px; }
+.register-form .id-upload-text { margin: 0; font-size: 13px; color: var(--text-2); }
+.register-form .id-upload-browse { background: none; border: none; padding: 0; color: var(--brand-strong); font-weight: 700; font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.register-form .id-upload-formats { display: block; margin-top: 6px; font-size: 11.5px; color: var(--text-3); }
+.register-form .id-upload-preview img { max-width: 100%; max-height: 260px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); object-fit: contain; background: var(--surface-3); }
+.register-form .id-upload-preview-actions { display: flex; align-items: center; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+.register-form .id-upload-filename { font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.register-form .id-upload-error { margin-top: 6px; }
+@media (max-width: 767.98px) {
+  .register-form .id-upload-dropzone { padding: 14px 12px; }
+}
 
 /* ============================================================
    MODALS / DRAWERS / TOASTS / SKELETON
@@ -1509,6 +2014,69 @@ a.admin-pagination__item:hover { background: var(--surface-3); color: var(--text
 @media (max-width: 1199.98px) {
   .admin-conn .label { display: none; }
   .admin-clock { display: none; }
+  /* Drawer never uses rail mode; always show the full logo + labels.
+     Tooltips stay off on touch. Hover preview is desktop-only. */
+  .admin-shell.sidebar-collapsed .admin-sidebar,
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-sidebar {
+    width: var(--sidebar-w);
+    box-shadow: none;
+  }
+  .admin-shell.sidebar-collapsed .admin-sidebar__brand,
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-sidebar__brand {
+    padding: 0 20px;
+    justify-content: flex-start;
+  }
+  .admin-shell.sidebar-collapsed .admin-sidebar__logo,
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-sidebar__logo {
+    width: 40px;
+    height: 40px;
+  }
+  .admin-shell.sidebar-collapsed .admin-sidebar__logo-img,
+  .admin-shell.sidebar-collapsed.sidebar-hovering .admin-sidebar__logo-img {
+    width: 32px;
+    height: 32px;
+  }
+  .admin-shell.sidebar-collapsed .admin-sidebar__nav {
+    display: block;
+    padding: 14px 12px 24px;
+    gap: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .admin-shell.sidebar-collapsed .admin-nav { gap: 4px; }
+  .admin-shell.sidebar-collapsed .admin-sidebar__name { display: block; }
+  .admin-shell.sidebar-collapsed .admin-nav__link span { display: block; }
+  .admin-shell.sidebar-collapsed .admin-nav__toggle { display: inline-grid; }
+  .admin-shell.sidebar-collapsed .admin-nav__sub { display: flex; }
+  .admin-shell.sidebar-collapsed .admin-navgroup__label { display: block; }
+  .admin-shell.sidebar-collapsed .admin-nav__link {
+    justify-content: flex-start;
+    align-items: center;
+    min-height: 40px;
+    height: auto;
+    padding: 8px 10px;
+    gap: 11px;
+  }
+  .admin-shell.sidebar-collapsed .admin-nav__link > i:first-child {
+    font-size: 16px;
+    width: 20px;
+    height: 20px;
+  }
+  .admin-shell.sidebar-collapsed .admin-nav__sub .admin-nav__link {
+    padding-left: 38px;
+    min-height: 36px;
+  }
+  .admin-shell.sidebar-collapsed .admin-nav__badge {
+    display: inline-grid;
+    position: static;
+  }
+  .admin-shell.sidebar-collapsed .admin-nav__link > .admin-nav__badge.admin-nav__group-badge {
+    display: none;
+  }
+  .admin-shell .admin-sidebar .admin-nav__link::after,
+  .admin-shell.sidebar-collapsed .admin-nav__link::after {
+    display: none !important;
+  }
 }
 
 @media (max-width: 991.98px) {

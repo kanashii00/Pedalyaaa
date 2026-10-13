@@ -29,66 +29,327 @@
     });
   }
 
-  /* ---------- Sidebar ---------- */
+  /* ---------- Sidebar (Classroom-style dual expand/collapse, shared pattern
+     with public/js/rider-sidebar.js) ----------
+     Desktop (>=1200px, fine pointer):
+     * Hover/focus the collapsed rail to TEMPORARILY expand it (labels,
+       badges, full logo). Leaving collapses it back. The rail overlays
+       content while previewing, so .admin-main never shifts.
+     * Click the hamburger to PIN the sidebar expanded; it then stays open
+       after the cursor leaves. Click again to unpin back to the rail.
+       The pin persists via localStorage ('pedalya_sidebar').
+     Hover never overrides the pinned state.
+     Mobile / touch (<1200px): hamburger-driven off-canvas drawer with a
+     backdrop. Selecting a destination auto-closes it. */
+  if (window.__pedalyaAdminSidebarInit) {
+    // Shared admin.js may be evaluated once per page load only; guard anyway.
+  } else {
+    window.__pedalyaAdminSidebarInit = true;
+  }
   const sidebar = $('#adminSidebar');
-  const overlay = $('.sidebar-overlay');
-  const toggleBtn = $('#sidebarToggle');
+  const nav = $('#adminSidebarNav');
+  const overlay = $('#adminSidebarOverlay') || $('.sidebar-overlay');
+  const indicator = nav ? nav.querySelector('.admin-nav-indicator') : null;
+  const sidebarToggles = $$('[data-sidebar-toggle]');
+  if (!sidebarToggles.length) {
+    const legacyToggle = $('#sidebarToggle');
+    if (legacyToggle) sidebarToggles.push(legacyToggle);
+  }
 
-  function isMobile() { return window.innerWidth <= 1199.98; }
+  const MOBILE_MAX = 1199.98;
+  const HOVER_OPEN_DELAY = 120;
+  const HOVER_CLOSE_DELAY = 180;
 
-  function setCollapsed(collapsed) {
+  function isMobile() { return window.innerWidth <= MOBILE_MAX; }
+
+  const hoverCapable = window.matchMedia &&
+    window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  const prefersReducedMotion = window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let hoverOpenTimer = null;
+  let hoverCloseTimer = null;
+  function clearHoverTimers() {
+    if (hoverOpenTimer) window.clearTimeout(hoverOpenTimer);
+    if (hoverCloseTimer) window.clearTimeout(hoverCloseTimer);
+    hoverOpenTimer = null;
+    hoverCloseTimer = null;
+  }
+
+  function isCollapsed() { return shell.classList.contains('sidebar-collapsed'); }
+  function isHovering() { return shell.classList.contains('sidebar-hovering'); }
+
+  function isVisibleLink(link) {
+    if (!link || !link.isConnected) return false;
+    const rect = link.getBoundingClientRect();
+    if (rect.height < 4 || rect.width < 4) return false;
+    // display:none ancestors (collapsed rail hides .admin-nav__sub) report
+    // zero rects; offsetParent null (outside fixed positioning) also hidden.
+    if (link.offsetParent === null && getComputedStyle(link).position !== 'fixed') {
+      // Sidebar itself is fixed, so check the nav-sub ancestor instead.
+      const sub = link.closest('.admin-nav__sub');
+      if (sub && getComputedStyle(sub).display === 'none') return false;
+    }
+    return true;
+  }
+
+  function activeLink() {
+    if (!nav) return null;
+    const serverActive = nav.querySelector('.admin-nav__link[aria-current="page"]') ||
+      nav.querySelector('.admin-nav__link.active');
+    if (!serverActive) return null;
+    // Collapsed rail hides nested subs via display:none: point the bar at
+    // the visible parent group button so it stays beside a real row.
+    if (isVisibleLink(serverActive)) return serverActive;
+    const group = serverActive.closest('.admin-nav[data-collapsible]');
+    if (group) {
+      const headerBtn = group.querySelector(':scope > .admin-nav__link');
+      if (headerBtn && isVisibleLink(headerBtn)) return headerBtn;
+    }
+    // Hover preview / expanded will reveal the child; keep the bar hidden
+    // until then rather than pointing at empty space.
+    if (!isCollapsed() || isHovering()) return serverActive;
+    const firstVisible = nav.querySelector('.admin-nav > .admin-nav__link, .admin-nav__link[href]');
+    if (firstVisible && isVisibleLink(firstVisible) && firstVisible === serverActive) return serverActive;
+    return group ? (group.querySelector(':scope > .admin-nav__link') || serverActive) : serverActive;
+  }
+
+  function moveIndicator(animate) {
+    if (!nav || !indicator) return;
+    const link = activeLink();
+    if (!link || !isVisibleLink(link)) {
+      indicator.classList.remove('is-visible');
+      return;
+    }
+    // Collapsed rail now uses display:none for hidden rows, so only visible
+    // rows measure; open groups are server-rendered, hover restores layout.
+    const navRect = nav.getBoundingClientRect();
+    const linkRect = link.getBoundingClientRect();
+    const top = linkRect.top - navRect.top + (nav.scrollTop || 0);
+    const left = linkRect.left - navRect.left;
+    if (!animate || prefersReducedMotion) {
+      const previous = indicator.style.transition;
+      indicator.style.transition = 'none';
+      indicator.style.transform = 'translate(' + left + 'px, ' + top + 'px)';
+      indicator.style.height = linkRect.height + 'px';
+      void indicator.offsetHeight;
+      indicator.style.transition = previous;
+    } else {
+      indicator.style.transform = 'translate(' + left + 'px, ' + top + 'px)';
+      indicator.style.height = linkRect.height + 'px';
+    }
+    indicator.classList.add('is-visible');
+  }
+
+  function refreshIndicator() {
+    if (prefersReducedMotion) {
+      moveIndicator(false);
+      return;
+    }
+    window.requestAnimationFrame(function () { moveIndicator(true); });
+  }
+
+  function syncToggles() {
+    const mobile = isMobile();
+    const collapsed = isCollapsed();
+    const hovering = isHovering();
+    const drawerOpen = shell.classList.contains('sidebar-open');
+    const expanded = mobile ? drawerOpen : (!collapsed || hovering);
+    const pinned = !collapsed;
+    const label = mobile
+      ? (drawerOpen ? 'Close navigation menu' : 'Open navigation menu')
+      : (pinned ? 'Collapse sidebar' : 'Expand sidebar');
+    sidebarToggles.forEach(function (btn) {
+      btn.setAttribute('data-state', expanded ? 'expanded' : 'collapsed');
+      btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      btn.setAttribute('aria-label', label);
+      btn.setAttribute('title', label);
+    });
+  }
+
+  function setHovering(expanded) {
+    // Temporary preview only: never engage while pinned open or on mobile.
+    if (!isCollapsed() || isMobile()) expanded = false;
+    if (expanded === isHovering()) return;
+    shell.classList.toggle('sidebar-hovering', expanded);
+    syncToggles();
+    refreshIndicator();
+  }
+
+  function setCollapsed(collapsed, persist) {
+    clearHoverTimers();
     shell.classList.toggle('sidebar-collapsed', collapsed);
-    localStorage.setItem('pedalya_sidebar', collapsed ? 'collapsed' : 'expanded');
+    if (collapsed) {
+      // Back to the rail; keep previewing only if the pointer is already
+      // over the panel (mirrors rider-sidebar.js unpin behavior).
+      if (hoverCapable && !isMobile() && sidebar.matches(':hover')) {
+        shell.classList.add('sidebar-hovering');
+      } else {
+        shell.classList.remove('sidebar-hovering');
+      }
+    } else {
+      // Pinned open: full width + content margin follow together.
+      shell.classList.remove('sidebar-hovering');
+    }
+    if (persist !== false) {
+      try {
+        localStorage.setItem('pedalya_sidebar', collapsed ? 'collapsed' : 'expanded');
+      } catch (e) { /* private mode: session-only */ }
+    }
+    syncToggles();
+    refreshIndicator();
   }
 
-  if (toggleBtn) {
-    toggleBtn.addEventListener('click', () => {
-      if (isMobile()) {
-        shell.classList.toggle('sidebar-open');
-        if (overlay) overlay.classList.toggle('show');
-      } else {
-        setCollapsed(!shell.classList.contains('sidebar-collapsed'));
-      }
-    });
+  function openDrawer() {
+    shell.classList.add('sidebar-open');
+    shell.classList.add('sidebar-drawer-open');
+    document.body.classList.add('sidebar-drawer-open');
+    if (overlay) {
+      overlay.classList.add('show');
+      overlay.setAttribute('aria-hidden', 'false');
+    }
+    syncToggles();
+    refreshIndicator();
   }
-  if (overlay) {
-    overlay.addEventListener('click', () => {
-      shell.classList.remove('sidebar-open');
+
+  function closeDrawer() {
+    if (!shell.classList.contains('sidebar-open')) {
+      syncToggles();
+      return;
+    }
+    shell.classList.remove('sidebar-open');
+    shell.classList.remove('sidebar-drawer-open');
+    document.body.classList.remove('sidebar-drawer-open');
+    if (overlay) {
       overlay.classList.remove('show');
+      overlay.setAttribute('aria-hidden', 'true');
+    }
+    syncToggles();
+  }
+
+  function handleToggle() {
+    // Mobile: hamburger opens/closes the drawer.
+    // Desktop: hamburger pins/unpins the expanded sidebar (persistent).
+    if (isMobile()) {
+      if (shell.classList.contains('sidebar-open')) closeDrawer();
+      else openDrawer();
+    } else {
+      setCollapsed(!isCollapsed());
+    }
+  }
+
+  sidebarToggles.forEach(function (btn) {
+    // Avoid double-binding if admin.js is evaluated twice.
+    if (btn.dataset.sidebarToggleReady === '1') return;
+    btn.dataset.sidebarToggleReady = '1';
+    btn.addEventListener('click', handleToggle);
+  });
+  if (overlay && overlay.dataset.overlayReady !== '1') {
+    overlay.dataset.overlayReady = '1';
+    overlay.addEventListener('click', closeDrawer);
+  }
+
+  // Mobile drawer: close after choosing a destination (regular full-page
+  // navigation still performs the route change).
+  if (nav) {
+    $$('.admin-nav__link[href]', nav).forEach(function (link) {
+      link.addEventListener('click', function () {
+        if (isMobile()) closeDrawer();
+      });
     });
   }
-  if (sidebar) {
-    const stored = localStorage.getItem('pedalya_sidebar');
-    if (stored === 'collapsed' && !isMobile()) setCollapsed(true);
-  }
-  window.addEventListener('resize', () => {
-    if (!isMobile() && shell.classList.contains('sidebar-open')) {
-      shell.classList.remove('sidebar-open');
-      if (overlay) overlay.classList.remove('show');
+
+  // Escape closes the drawer and returns focus to the toggle.
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && isMobile() && shell.classList.contains('sidebar-open')) {
+      closeDrawer();
+      const opener = document.querySelector('[data-sidebar-toggle]');
+      if (opener) opener.focus();
     }
   });
 
-  /* Expandable nav groups — only the group header button toggles */
+  // Hover-to-expand (fine pointers only). mouseenter/mouseleave do not
+  // bubble, so gliding between menu items cannot flicker. Short delays keep
+  // accidental pass-overs from popping the panel open. Pinned sidebar
+  // ignores mouse-leave: the persistent state always wins over hover.
+  if (hoverCapable && sidebar) {
+    sidebar.addEventListener('mouseenter', function () {
+      if (isMobile() || !isCollapsed()) return;
+      if (hoverCloseTimer) window.clearTimeout(hoverCloseTimer);
+      hoverCloseTimer = null;
+      if (isHovering()) return;
+      hoverOpenTimer = window.setTimeout(function () {
+        setHovering(true);
+      }, HOVER_OPEN_DELAY);
+    });
+    sidebar.addEventListener('mouseleave', function () {
+      if (hoverOpenTimer) window.clearTimeout(hoverOpenTimer);
+      hoverOpenTimer = null;
+      if (!isCollapsed() || !isHovering()) return;
+      hoverCloseTimer = window.setTimeout(function () {
+        setHovering(false);
+      }, HOVER_CLOSE_DELAY);
+    });
+    // Keyboard users get the same expansion when tabbing through (only when
+    // collapsed to the rail).
+    sidebar.addEventListener('focusin', function () {
+      if (isMobile() || !isCollapsed()) return;
+      clearHoverTimers();
+      if (!isHovering()) setHovering(true);
+    });
+    sidebar.addEventListener('focusout', function () {
+      window.setTimeout(function () {
+        if (!isCollapsed() || !isHovering()) return;
+        if (sidebar.contains(document.activeElement)) return;
+        if (sidebar.matches(':hover')) return;
+        setHovering(false);
+      }, 0);
+    });
+  }
+
+  /* Expandable nav groups — only the group header button toggles.
+     Preserves every existing module, route and permission: just opens the
+     group. When the rail is collapsed, the first click pins the sidebar
+     open so nested menus stay usable (same as before). */
   $$('.admin-nav[data-collapsible] > .admin-nav__link').forEach(btn => {
+    if (btn.dataset.collapsibleReady === '1') return;
+    btn.dataset.collapsibleReady = '1';
     btn.addEventListener('click', () => {
       const parent = btn.closest('.admin-nav');
-      if (shell.classList.contains('sidebar-collapsed')) setCollapsed(false);
+      if (isCollapsed() && !isMobile()) setCollapsed(false);
       parent.classList.toggle('admin-nav--open');
+      refreshIndicator();
     });
   });
 
-  /* Ensure exactly one sidebar link is active, matching the current URL.
-     Belt-and-suspenders alongside the server-side $isActive logic. */
+  /* Active link follows the actual current route.
+     Server-rendered aria-current is the source of truth (covers direct URL
+     access and browser back/forward on full page loads, plus role-based
+     query/section sibling logic in admin.blade.php). The URL fallback below
+     only applies when the server marked nothing active, so existing
+     permissions and page-specific behavior are never overridden. */
   function syncActiveFromUrl() {
-    const links = $$('.admin-nav__link[href]');
-    if (!links.length) return;
+    if (!nav) return false;
+    const links = $$('.admin-nav__link[href]', nav);
+    if (!links.length) return false;
+    // Server already resolved the route (including query/section siblings):
+    // keep it and just ensure its group is open.
+    const serverActive = nav.querySelector('.admin-nav__link[aria-current="page"]') ||
+      nav.querySelector('.admin-nav__link.active');
+    if (serverActive) {
+      const parent = serverActive.closest('.admin-nav[data-collapsible]');
+      if (parent) parent.classList.add('admin-nav--open');
+      return true;
+    }
     const cur = location.pathname + location.search;
     let match = null;
     for (const l of links) {
-      const u = new URL(l.href);
-      if ((u.pathname + u.search) === cur) { match = l; break; }
+      try {
+        const u = new URL(l.href);
+        if ((u.pathname + u.search) === cur) { match = l; break; }
+      } catch (e) { /* ignore unparsable hrefs */ }
     }
-    if (!match) return;
+    if (!match) return false;
     links.forEach(l => {
       const on = l === match;
       l.classList.toggle('active', on);
@@ -96,9 +357,76 @@
     });
     const parent = match.closest('.admin-nav[data-collapsible]');
     if (parent) parent.classList.add('admin-nav--open');
+    return true;
   }
   syncActiveFromUrl();
-  window.addEventListener('hashchange', syncActiveFromUrl);
+  moveIndicator(false);
+  window.addEventListener('hashchange', function () {
+    syncActiveFromUrl();
+    refreshIndicator();
+  });
+  // popstate covers back/forward for same-document (hash/query) navigation;
+  // full document loads re-render the server active link and snap on init.
+  window.addEventListener('popstate', function () {
+    syncActiveFromUrl();
+    refreshIndicator();
+  });
+
+  // Initial state: restore the user's pinned choice on desktop (default
+  // expanded, preserving existing behavior); drawer closed on mobile.
+  if (sidebar) {
+    try {
+      const stored = localStorage.getItem('pedalya_sidebar');
+      if (!isMobile()) {
+        setCollapsed(stored === 'collapsed', false);
+        closeDrawer();
+      } else {
+        clearHoverTimers();
+        shell.classList.remove('sidebar-hovering');
+        closeDrawer();
+      }
+    } catch (e) {
+      if (isMobile()) closeDrawer();
+    }
+  }
+
+  // Crossing the breakpoint cleans up drawer/hover state and re-syncs.
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    if (resizeTimer) window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(function () {
+      clearHoverTimers();
+      shell.classList.remove('sidebar-hovering');
+      if (isMobile()) {
+        if (!shell.classList.contains('sidebar-open')) closeDrawer();
+        else syncToggles();
+      } else {
+        // Re-apply the user's pinned choice; never reset it.
+        let stored = null;
+        try { stored = localStorage.getItem('pedalya_sidebar'); } catch (e) {}
+        setCollapsed(stored === 'collapsed', false);
+        closeDrawer();
+      }
+      refreshIndicator();
+    }, 120);
+  });
+
+  // Sidebar width animation shifts horizontal geometry; re-pin the bar once
+  // it settles. Fonts/images loading late can also move rows.
+  if (sidebar) {
+    sidebar.addEventListener('transitionend', function (event) {
+      if (event.target === sidebar && (event.propertyName === 'width' || event.propertyName === 'transform')) {
+        moveIndicator(false);
+      }
+    });
+  }
+  window.addEventListener('load', function () { moveIndicator(false); });
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () { moveIndicator(false); });
+  }
+  // First paint: snap to the active route with no slide-in.
+  moveIndicator(false);
+  syncToggles();
 
   /* ---------- Live clock ---------- */
   const clock = $('#adminClock');
@@ -112,11 +440,10 @@
     setInterval(tick, 1000);
   }
 
-  /* ---------- Connection indicators ---------- */
+  /* ---------- Connection indicators (IoT/GPS only; WS visual removed) ---------- */
   const indicators = {
     iot: $('#connIoT'),
     gps: $('#connGPS'),
-    ws: $('#connWS'),
   };
   function setConn(key, online) {
     const el = indicators[key];
@@ -131,13 +458,6 @@
   if (window.PedalyaStatus) {
     if (window.PedalyaStatus.iot !== undefined) setConn('iot', window.PedalyaStatus.iot);
     if (window.PedalyaStatus.gps !== undefined) setConn('gps', window.PedalyaStatus.gps);
-    if (window.PedalyaStatus.ws !== undefined) setConn('ws', window.PedalyaStatus.ws);
-  }
-  if (window.Echo) {
-    window.Echo.connector.pusher.connection.bind('state_change', (states) => {
-      setConn('ws', states.current === 'connected');
-    });
-    setConn('ws', window.Echo.connector.pusher.connection.state === 'connected');
   }
 
   /* ---------- Global search ---------- */

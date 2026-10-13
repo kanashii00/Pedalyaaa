@@ -187,19 +187,22 @@
 
 @section('body')
 
-{{-- Mobile drawer overlay --}}
-<div class="sidebar-overlay"></div>
+{{-- Mobile drawer overlay / backdrop (touch devices, no hover) --}}
+<div class="sidebar-overlay" id="adminSidebarOverlay" aria-hidden="true"></div>
 
 {{-- SIDEBAR --}}
-<aside class="admin-sidebar" id="adminSidebar">
+<aside class="admin-sidebar" id="adminSidebar" aria-label="Admin sidebar">
     <div class="admin-sidebar__brand">
-        <div class="admin-sidebar__logo">
-            <img src="{{ asset('assets/img/Logo.png') }}" alt="Pedalya" style="width:60px;height:60px;border-radius:16px;object-fit:cover;">
+        <div class="admin-sidebar__logo" aria-hidden="true">
+            <img src="{{ asset('assets/img/Logo.png') }}" alt="Pedalya" class="admin-sidebar__logo-img">
         </div>
         <div class="admin-sidebar__name">Peda<span>lya</span></div>
     </div>
 
-    <nav class="admin-sidebar__nav" id="adminSidebarNav">
+    <nav class="admin-sidebar__nav" id="adminSidebarNav" aria-label="Admin navigation">
+        {{-- Single sliding active indicator (positioned by admin.js from the
+              server-rendered aria-current link, same pattern as rider-sidebar.js). --}}
+        <span class="admin-nav-indicator" aria-hidden="true"></span>
         @foreach ($navGroups as $group)
             @php $groupLabel = $group['label']; @endphp
             <div class="admin-navgroup__label">{{ $groupLabel }}</div>
@@ -280,12 +283,21 @@
                 </a>
             @else
                 {{-- Regular collapsible group --}}
-                @php $groupOpen = collect($group['items'])->contains($isActive); @endphp
+                @php
+                    $groupOpen = collect($group['items'])->contains($isActive);
+                    // Aggregate badge for the collapsed icon rail: the per-item
+                    // pills hide with their submenu there, so the group header
+                    // surfaces their total on the icon corner instead.
+                    $groupBadge = collect($group['items'])->sum(fn ($item) => isset($item['badge']) ? (int) $item['badge'] : 0);
+                @endphp
                 <div class="admin-nav {{ $groupOpen ? 'admin-nav--open' : '' }}" data-collapsible>
                     <button type="button" class="admin-nav__link" data-tooltip="{{ $group['label'] }}">
                         <i class="bi {{ $group['icon'] }}"></i>
                         <span>{{ $group['label'] }}</span>
                         <i class="bi bi-chevron-down admin-nav__toggle"></i>
+                        @if($groupBadge > 0)
+                            <span class="admin-nav__badge admin-nav__group-badge" aria-hidden="true">{{ $groupBadge > 99 ? '99+' : $groupBadge }}</span>
+                        @endif
                     </button>
                     <div class="admin-nav__sub">
                         @foreach ($group['items'] as $item)
@@ -317,8 +329,12 @@
     {{-- TOPBAR --}}
     <header class="admin-topbar">
         <div class="admin-topbar__left">
-            <button class="admin-icon-btn" id="sidebarToggle" type="button" aria-label="Toggle sidebar">
-                <i class="bi bi-list"></i>
+            {{-- Dual-mode hamburger: click pins/unpins the expanded sidebar on
+                  desktop, opens the drawer on mobile. Always visible, same as
+                  the renter topbar toggle. --}}
+            <button class="admin-icon-btn" id="sidebarToggle" type="button" data-sidebar-toggle
+                    aria-controls="adminSidebar" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar" data-state="expanded">
+                <i class="bi bi-list" aria-hidden="true"></i>
             </button>
             <div class="admin-topbar__title">
                 <h1 id="adminPageTitle">{{ $currentPage['title'] }}</h1>
@@ -349,9 +365,6 @@
             </div>
             <div class="admin-conn online" id="connGPS" data-on="GPS Online" data-off="GPS Offline" title="GPS Connection">
                 <span class="dot"></span><span class="label">GPS</span>
-            </div>
-            <div class="admin-conn online" id="connWS" data-on="WS Online" data-off="WS Offline" title="WebSocket">
-                <span class="dot"></span><span class="label">WS</span>
             </div>
 
             <div class="admin-clock" id="adminClock"></div>

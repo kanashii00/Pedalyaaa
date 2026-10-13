@@ -3,8 +3,8 @@
 @section('title', 'Audit Log')
 
 @section('page-header')
-    <h1>Audit Log</h1>
-    <p>Track system activities and changes</p>
+    <h1>{{ ($tab ?? 'audit') === 'activity' ? 'Activity Logs' : 'Audit Log' }}</h1>
+    <p>{{ ($tab ?? 'audit') === 'activity' ? 'Routine operational events' : 'Security-sensitive changes and accountability' }}</p>
 @endsection
 
 @section('actions')
@@ -73,6 +73,14 @@
     .audit-detail__close:hover { background: var(--surface-3); border-color: var(--border-subtle); color: var(--text-1); }
     .audit-detail__close:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
     .audit-detail .modal-body { padding: 18px; color: var(--text-1); background: transparent; }
+    /* Flex-lock the dialog regions so only the body ever scrolls: the header
+       and footer can neither shrink nor be overlapped, the body keeps its
+       full top/bottom padding, and the first and last rows are never clipped
+       regardless of Bootstrap load order or viewport height. */
+    .modal-content.audit-detail { display: flex; flex-direction: column; }
+    .modal-content.audit-detail > .modal-header,
+    .modal-content.audit-detail > .modal-footer { flex-shrink: 0; }
+    .modal-content.audit-detail > .modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
     .audit-detail__foot {
         background: transparent; border-top: 1px solid var(--border-subtle);
         padding: 13px 18px; align-items: center;
@@ -147,7 +155,7 @@
             ['Rental', ['rentalId', 'rental_id']],
             ['Bicycle', ['bicycleSerial', 'bicycle_serial', 'bicycleId', 'bicycle_id']],
             ['Payment', ['paymentReference', 'payment_reference', 'paymentId', 'payment_id']],
-            ['User', ['userId', 'user_id', 'userEmail', 'user_email']],
+            ['User', ['userId', 'user_id', 'userEmail', 'user_email', 'riderId', 'rider_id', 'riderEmail', 'rider_email']],
             ['Geofence', ['geofenceId', 'geofence_id']],
             ['Maintenance', ['maintenanceId', 'maintenance_id']],
             ['Incident', ['accidentId', 'accident_id', 'theftId', 'theft_id', 'alertId', 'alert_id']],
@@ -165,27 +173,21 @@
     $detailMap = [];
 @endphp
 <div class="admin-table-wrap">
+    <div class="admin-tabs" role="tablist" aria-label="Log categories" style="padding: 14px 18px 0; margin-bottom: 0;">
+        <a href="{{ route('admin.audit-log.index') }}" role="tab" aria-selected="{{ ($tab ?? 'audit') === 'audit' ? 'true' : 'false' }}" class="tab {{ ($tab ?? 'audit') === 'audit' ? 'active' : '' }}" data-tab="audit">Audit Logs</a>
+        <a href="{{ route('admin.audit-log.index', ['tab' => 'activity']) }}" role="tab" aria-selected="{{ ($tab ?? 'audit') === 'activity' ? 'true' : 'false' }}" class="tab {{ ($tab ?? 'audit') === 'activity' ? 'active' : '' }}" data-tab="activity">Activity Logs</a>
+    </div>
     <div class="admin-table-toolbar">
         <form method="GET" action="{{ route('admin.audit-log.index') }}" id="auditFilterForm" class="d-flex gap-3 align-items-end flex-wrap">
+            @if(($tab ?? 'audit') === 'activity')
+                <input type="hidden" name="tab" value="activity">
+            @endif
             <div class="audit-filter-field">
                 <label class="audit-filter-label" for="auditAction">Action Type</label>
                 <select class="form-select form-select-sm" name="action" id="auditAction">
                     <option value="">All Actions</option>
-                    <option value="created" {{ request('action') == 'created' ? 'selected' : '' }}>Created</option>
-                    <option value="updated" {{ request('action') == 'updated' ? 'selected' : '' }}>Updated</option>
-                    <option value="deleted" {{ request('action') == 'deleted' ? 'selected' : '' }}>Deleted</option>
-                    <option value="login" {{ request('action') == 'login' ? 'selected' : '' }}>Login</option>
-                    <option value="logout" {{ request('action') == 'logout' ? 'selected' : '' }}>Logout</option>
-                    <option value="rental_started" {{ request('action') == 'rental_started' ? 'selected' : '' }}>Rental Started</option>
-                    <option value="rental_ended" {{ request('action') == 'rental_ended' ? 'selected' : '' }}>Rental Ended</option>
-                    <option value="payment" {{ request('action') == 'payment' ? 'selected' : '' }}>Payment</option>
-                    <option value="accident" {{ request('action') == 'accident' ? 'selected' : '' }}>Accident</option>
-                    <option value="maintenance" {{ request('action') == 'maintenance' ? 'selected' : '' }}>Maintenance</option>
-                    <option value="settings_changed" {{ request('action') == 'settings_changed' ? 'selected' : '' }}>Settings Changed</option>
-                    @foreach(($actionOptions ?? collect()) as $actionOption)
-                        @if(!in_array($actionOption, ['created', 'updated', 'deleted', 'login', 'logout', 'rental_started', 'rental_ended', 'payment', 'accident', 'maintenance', 'settings_changed'], true))
-                            <option value="{{ $actionOption }}" {{ request('action') == $actionOption ? 'selected' : '' }}>{{ ucfirst(str_replace('_', ' ', $actionOption)) }}</option>
-                        @endif
+                    @foreach(($actionOptions ?? []) as $actionOption)
+                        <option value="{{ $actionOption }}" {{ request('action') == $actionOption ? 'selected' : '' }}>{{ ucfirst(str_replace('_', ' ', $actionOption)) }}</option>
                     @endforeach
                 </select>
             </div>
@@ -231,9 +233,9 @@
                 @forelse($logs as $log)
                     @php
                         $actionBadgeType = match (true) {
-                            in_array($log->action, ['created', 'rental_started', 'rental_ended', 'rental_ended_by_admin', 'rental_approved', 'rental_return_processed', 'rental_marked_paid', 'gcash_payment_verified', 'payment', 'paid', 'rider_created'], true) => 'success',
-                            in_array($log->action, ['updated', 'login', 'rental_deadline_set', 'rider_verification_approved'], true) => 'info',
-                            in_array($log->action, ['deleted', 'accident', 'accident_acknowledged', 'theft_alert_acknowledged'], true) || str_starts_with($log->action, 'theft') => 'danger',
+                            in_array($log->action, ['created', 'rental_started', 'rental_ended', 'rental_ended_by_admin', 'rental_approved', 'rental_return_processed', 'rental_marked_paid', 'gcash_payment_verified', 'payment', 'paid', 'rider_created', 'login_success', 'lock_command_executed'], true) => 'success',
+                            in_array($log->action, ['updated', 'rental_deadline_set', 'rider_verification_approved'], true) => 'info',
+                            in_array($log->action, ['deleted', 'accident', 'accident_acknowledged', 'theft_alert_acknowledged', 'login_failed', 'login_blocked', 'lock_command_failed'], true) || str_starts_with($log->action, 'theft') => 'danger',
                             in_array($log->action, ['maintenance', 'maintenance_created', 'logout', 'expired', 'overdue'], true) || str_starts_with($log->action, 'overdue') => 'warning',
                             in_array($log->action, ['settings_changed', 'system_settings_updated'], true) => 'danger',
                             default => 'neutral',
@@ -242,14 +244,100 @@
                         $logDetails = is_array($log->details) ? $log->details : [];
                         $summary = $auditSummary($logDetails);
                         [$resource, $resourceId, $resourceKey] = $auditResource($logDetails);
-                        $outcomeRaw = $logDetails['new_status'] ?? $logDetails['result'] ?? $logDetails['outcome'] ?? $logDetails['status'] ?? null;
+                        // The outcome is displayed exactly once (Event Information):
+                        // remember which key supplied it so metadata skips it.
+                        $outcomeKey = null;
+                        $outcomeRaw = null;
+                        foreach (['new_status', 'result', 'outcome', 'status'] as $outcomeCandidate) {
+                            if (array_key_exists($outcomeCandidate, $logDetails)) {
+                                $outcomeKey = $outcomeCandidate;
+                                $outcomeRaw = $logDetails[$outcomeCandidate];
+                                break;
+                            }
+                        }
                         $outcome = (is_scalar($outcomeRaw) && (string) $outcomeRaw !== '')
                             ? ucfirst(str_replace('_', ' ', (string) $outcomeRaw))
                             : 'Not available';
+                        // Never mislabel the actor: a real user wins; otherwise the
+                        // attempted address recorded on the event (e.g. failed
+                        // logins); only genuine system processes read "System".
                         $actorName = $log->user->name ?? null;
+                        $actorEmail = null;
+                        if ($actorName === null) {
+                            $maybeEmail = $logDetails['email'] ?? $logDetails['actor_email'] ?? null;
+                            if (is_string($maybeEmail) && $maybeEmail !== '') {
+                                $actorEmail = $maybeEmail;
+                            }
+                        }
+                        $actorDisplay = $actorName ?? $actorEmail ?? 'System';
+                        $actorRole = $log->user->role ?? null;
+                        // Authentication events carry no affected entity: say so
+                        // plainly instead of inventing one.
+                        $hasNoResource = in_array($log->action, ['login_success', 'login_failed', 'login_blocked', 'logout'], true)
+                            && $resource === 'Not available';
+                        // Before/after pairs: prefer the explicit `changes` map
+                        // recorders write, then legacy previous_*/new_* shapes.
+                        // Keys consumed here are skipped in metadata below so
+                        // each value is displayed exactly once.
+                        $changeList = [];
+                        $consumedChangeKeys = [];
+                        $pushChange = function ($field, $from, $to, array $sourceKeys = []) use (&$changeList, &$consumedChangeKeys) {
+                            if (!is_scalar($from) && $from !== null) return;
+                            if (!is_scalar($to) && $to !== null) return;
+                            $changeList[] = [
+                                'field' => $field,
+                                'from' => $from === null || $from === '' ? null : (string) $from,
+                                'to' => $to === null || $to === '' ? null : (string) $to,
+                            ];
+                            foreach ($sourceKeys as $sourceKey) {
+                                $consumedChangeKeys[] = $sourceKey;
+                            }
+                        };
+                        if (isset($logDetails['changes']) && is_array($logDetails['changes'])) {
+                            foreach ($logDetails['changes'] as $field => $pair) {
+                                if (is_array($pair) && array_key_exists('from', $pair) && array_key_exists('to', $pair)) {
+                                    $pushChange((string) $field, $pair['from'], $pair['to']);
+                                }
+                            }
+                        }
+                        if ($changeList === []) {
+                            $legacyPairs = [
+                                ['previous_status', ['new_status', 'status']],
+                                ['previous_deadline', ['deadline']],
+                                ['previous_lock_status', ['lockStatus', 'lock_status']],
+                            ];
+                            foreach ($legacyPairs as [$fromKey, $toKeys]) {
+                                if (!array_key_exists($fromKey, $logDetails)) continue;
+                                foreach ((array) $toKeys as $toKey) {
+                                    if (array_key_exists($toKey, $logDetails)) {
+                                        $pushChange(preg_replace('/^previous_/', '', $fromKey), $logDetails[$fromKey], $logDetails[$toKey], [$fromKey, $toKey]);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        // Keys with a dedicated home elsewhere never repeat in metadata.
+                        // Email/role repeat only when they match what the Actor
+                        // section already shows; anything else stays as context.
+                        $shownEmail = $actorEmail ?? ($log->user->email ?? null);
+                        $shownRole = $actorRole !== null ? ucfirst($actorRole) : null;
+                        $metaSkip = ['outcome', 'changes', 'ip_address', 'request_id', 'http_method', 'http_path'];
+                        if ($outcomeKey !== null) {
+                            $metaSkip[] = $outcomeKey;
+                        }
+                        foreach ($consumedChangeKeys as $consumedKey) {
+                            $metaSkip[] = $consumedKey;
+                        }
                         $metaRows = [];
                         foreach ($logDetails as $metaKey => $metaValue) {
                             if ($metaKey === $resourceKey) continue;
+                            if (in_array($metaKey, $metaSkip, true)) continue;
+                            if (in_array($metaKey, ['email', 'actor_email'], true)
+                                && $shownEmail !== null && is_scalar($metaValue)
+                                && strcasecmp((string) $metaValue, (string) $shownEmail) === 0) continue;
+                            if ($metaKey === 'role'
+                                && $shownRole !== null && is_scalar($metaValue)
+                                && strcasecmp((string) $metaValue, (string) $shownRole) === 0) continue;
                             if (is_scalar($metaValue) || $metaValue === null) {
                                 $metaRows[$metaKey] = $metaValue;
                             } elseif (is_array($metaValue)) {
@@ -263,10 +351,18 @@
                         $detailMap[$log->id] = [
                             'title' => $actionLabel,
                             'timestamp' => ($log->timestamp ?? $log->created_at)->format('M d, Y h:i A'),
-                            'actor' => $actorName ?? 'System',
-                            'resource' => $resource,
-                            'resourceId' => $resourceId,
+                            'actor' => $actorDisplay,
+                            'email' => $actorEmail ?? ($log->user->email ?? null),
+                            'role' => $actorRole !== null ? ucfirst($actorRole) : null,
+                            'resource' => $hasNoResource ? 'No specific resource' : $resource,
+                            'resourceId' => $hasNoResource ? 'Not applicable' : $resourceId,
                             'outcome' => $outcome,
+                            'changes' => $changeList,
+                            'ip' => $logDetails['ip_address'] ?? null,
+                            'requestId' => $logDetails['request_id'] ?? null,
+                            'http' => isset($logDetails['http_method'], $logDetails['http_path'])
+                                ? $logDetails['http_method'] . ' ' . $logDetails['http_path']
+                                : null,
                             'meta' => $metaRows,
                             'raw' => $logDetails,
                         ];
@@ -279,8 +375,8 @@
                         <td data-label="Action / Event"><x-admin.badge :type="$actionBadgeType" :label="$actionLabel"/></td>
                         <td data-label="Performed By">
                             <div class="audit-user">
-                                <span class="audit-avatar" aria-hidden="true">{{ $actorName ? strtoupper(mb_substr($actorName, 0, 1)) : '–' }}</span>
-                                <span class="audit-user__name {{ $actorName ? '' : 'is-system' }}">{{ $actorName ?? 'System' }}</span>
+                                <span class="audit-avatar" aria-hidden="true">{{ $actorName ? strtoupper(mb_substr($actorName, 0, 1)) : ($actorEmail ? strtoupper(mb_substr($actorEmail, 0, 1)) : '–') }}</span>
+                                <span class="audit-user__name {{ $actorName ? '' : 'is-system' }}">{{ $actorDisplay }}</span>
                             </div>
                         </td>
                         <td data-label="Details">
@@ -380,6 +476,14 @@ function openAuditDetail(id) {
     if (!d) return;
     document.getElementById('auditDetailTitle').textContent = d.title || 'Event Details';
     document.getElementById('auditDetailSubtitle').textContent = d.timestamp || AUDIT_MISSING;
+    var changeRows = '';
+    (d.changes || []).forEach(function (c) {
+        var from = (c.from === null || c.from === undefined || c.from === '') ? AUDIT_MISSING : String(c.from);
+        var to = (c.to === null || c.to === undefined || c.to === '') ? AUDIT_MISSING : String(c.to);
+        var field = c.field ? c.field.charAt(0).toUpperCase() + c.field.slice(1).replace(/[_-]+/g, ' ') : AUDIT_MISSING;
+        changeRows += '<div class="ad-row"><dt>' + auditEsc(field) + '</dt><dd>'
+            + auditEsc(from) + ' &rarr; ' + auditEsc(to) + '</dd></div>';
+    });
     var metaRows = '';
     Object.keys(d.meta || {}).forEach(function (key) {
         var value = d.meta[key];
@@ -389,14 +493,26 @@ function openAuditDetail(id) {
             : ((value === null || value === undefined || value === '') ? AUDIT_MISSING : String(value));
         metaRows += auditRow(auditEsc(label), auditEsc(display), /^[₱\d]/.test(display));
     });
+    var securityRows = auditRow('IP Address', auditEsc(d.ip || AUDIT_MISSING), true)
+        + auditRow('Request ID', auditEsc(d.requestId || AUDIT_MISSING), true);
+    if (d.http) {
+        securityRows += auditRow('Request', auditEsc(d.http), true);
+    }
     var html = auditSection('bi-info-circle', 'Event Information',
-            auditRow('Title', auditEsc(d.title || AUDIT_MISSING))
+            auditRow('Event', auditEsc(d.title || AUDIT_MISSING))
             + auditRow('Timestamp', auditEsc(d.timestamp || AUDIT_MISSING))
-            + auditRow('Actor', auditEsc(d.actor || AUDIT_MISSING)))
+            + auditRow('Outcome', auditEsc(d.outcome || AUDIT_MISSING)))
+        + auditSection('bi-person-circle', 'Actor',
+            auditRow('Name', auditEsc(d.actor || AUDIT_MISSING))
+            + auditRow('Email', auditEsc(d.email || AUDIT_MISSING))
+            + auditRow('Role', auditEsc(d.role || AUDIT_MISSING)))
         + auditSection('bi-diagram-3', 'Affected Resource',
             auditRow('Resource', auditEsc(d.resource || AUDIT_MISSING))
-            + auditRow('Resource ID', auditEsc(d.resourceId || AUDIT_MISSING), true)
-            + auditRow('Outcome', auditEsc(d.outcome || AUDIT_MISSING)))
+            + auditRow('Resource ID', auditEsc(d.resourceId || AUDIT_MISSING), true))
+        + (changeRows
+            ? auditSection('bi-arrow-left-right', 'Change Details', changeRows)
+            : '')
+        + auditSection('bi-shield-check', 'Security Context', securityRows)
         + (metaRows
             ? auditSection('bi-list-ul', 'Event Metadata', metaRows)
             : auditSection('bi-list-ul', 'Event Metadata', auditRow('Details', 'No additional metadata recorded.')));
@@ -415,7 +531,11 @@ function auditMoneyFor(key, value) {
     return '₱' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function clearFilters() {
-    window.location.href = '{{ route("admin.audit-log.index") }}';
+    @if(($tab ?? 'audit') === 'activity')
+        window.location.href = '{{ route("admin.audit-log.index", ["tab" => "activity"]) }}';
+    @else
+        window.location.href = '{{ route("admin.audit-log.index") }}';
+    @endif
 }
 </script>
 @endsection

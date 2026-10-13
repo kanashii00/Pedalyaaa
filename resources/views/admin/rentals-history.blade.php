@@ -513,7 +513,7 @@
                             $durM = $rental->durationMinutes % 60;
                             $durLabel = $rental->durationMinutes ? ($durH ? $durH . 'h ' . $durM . 'm' : $durM . 'm') : null;
                         @endphp
-                        <tr class="rv-row" data-detail="rvd-{{ $rental->id }}">
+                        <tr class="rv-row">
                             <td><span class="rv-id"><small>REN</small>#{{ $rental->id }}</span></td>
                             <td>
                                 <div class="rv-rider">
@@ -593,9 +593,44 @@
                             </td>
                             <td>
                                 <div class="rv-actions">
+                                    @php
+                                        $detailBaseFee = ($rental->totalFee ?? 0) - (float) ($rental->overdueFee ?? 0);
+                                        $detailHasReturn = $rental->status === 'returned'
+                                            || $rental->returnProcessedAt
+                                            || $rental->returnCondition
+                                            || $rental->returnInspectedBy
+                                            || $rental->returnNote;
+                                        $detailData = [
+                                            'id'        => $rental->rentalId ?? ('REN-' . str_pad($rental->id, 4, '0', STR_PAD_LEFT)),
+                                            'status'    => $rental->status,
+                                            'rider'     => $rental->rider->name ?? 'Unknown',
+                                            'email'     => $rental->rider->email ?? '',
+                                            'bike'      => $rental->bicycle->name ?? 'Unknown',
+                                            'serial'    => $rental->bicycle->serialNumber ?? '',
+                                            'bikeRate'  => number_format((float) ($rental->bicycle->hourlyRate ?? $rental->ratePerHour ?? 0), 2),
+                                            'start'     => $rental->startTime?->format('M d, Y h:i A') ?? '',
+                                            'end'       => $rental->endTime?->format('M d, Y h:i A') ?? '',
+                                            'created'   => $rental->created_at?->format('M d, Y h:i A') ?? '',
+                                            'duration'  => $durLabel ?? '',
+                                            'rate'      => number_format((float) ($rental->ratePerHour ?? 0), 2),
+                                            'baseFee'   => number_format((float) $detailBaseFee, 2),
+                                            'hasOverdue'=> (float) ($rental->overdueFee ?? 0) > 0,
+                                            'overdue'   => number_format((float) ($rental->overdueFee ?? 0), 2),
+                                            'finalFee'  => number_format((float) ($rental->finalFee ?? $rental->totalFee ?? 0), 2),
+                                            'totalFee'  => number_format((float) ($rental->totalFee ?? 0), 2),
+                                            'condition' => $rental->returnCondition ? ucwords(str_replace('_', ' ', $rental->returnCondition)) : '',
+                                            'returnAt'  => $rental->returnProcessedAt?->format('M d, Y h:i A') ?? '',
+                                            'inspector' => $rental->returnInspectedBy ? 'User #' . $rental->returnInspectedBy : '',
+                                            'returnNote'=> $rental->returnNote ?? '',
+                                            'notes'     => $rental->notes ?? '',
+                                            'method'    => $rental->paymentMethod === 'gcash' ? 'GCash' : 'Cash',
+                                            'payStatus' => ucfirst($rental->paymentStatus ?? 'unpaid'),
+                                            'hasReturn' => (bool) $detailHasReturn,
+                                        ];
+                                    @endphp
                                     <button type="button" class="rv-btn rv-btn--view"
-                                            data-detail-toggle="rvd-{{ $rental->id }}"
-                                            title="View details">
+                                            data-rental-detail="{{ json_encode($detailData) }}"
+                                            title="View details" aria-label="View rental details">
                                         <i class="bi bi-eye"></i>
                                     </button>
                                     @php
@@ -632,131 +667,6 @@
                             </td>
                         </tr>
 
-                        {{-- Expandable detail row --}}
-                        <tr class="rv-detail" id="rvd-{{ $rental->id }}">
-                            <td colspan="11" class="rv-detail__cell">
-                                <div class="rv-detail__inner">
-                                    <div class="rv-detail__content">
-                                        <div class="rv-detail__card">
-                                            <div class="rv-detail__head">
-                                                <div class="rv-detail__title">
-                                                    <i class="bi bi-receipt"></i>
-                                                    Rental #{{ $rental->id }}
-                                                    @if($rental->status === 'completed')
-                                                        <span class="rv-status rv-status--completed rv-status--dot">Completed</span>
-                                                    @elseif($rental->status === 'returned')
-                                                        <span class="rv-status rv-status--returned rv-status--dot">Returned</span>
-                                                    @elseif($rental->status === 'cancelled')
-                                                        <span class="rv-status rv-status--cancelled rv-status--dot">Cancelled</span>
-                                                    @elseif($rental->status === 'expired')
-                                                        <span class="rv-status rv-status--expired rv-status--dot">Expired</span>
-                                                    @else
-                                                        <span class="rv-status rv-status--cancelled rv-status--dot">{{ ucfirst($rental->status) }}</span>
-                                                    @endif
-                                                </div>
-                                                <div class="rv-detail__meta">
-                                                    <i class="bi bi-clock-history me-1"></i>Created {{ $rental->created_at->format('M d, Y h:i A') }}
-                                                </div>
-                                            </div>
-                                            <div class="rv-detail__body">
-                                                <div class="rv-detail__grid">
-                                                    {{-- Rental timeline --}}
-                                                    <div class="rv-panel">
-                                                        <div class="rv-panel__label"><i class="bi bi-route"></i>Rental Details</div>
-                                                        <dl style="margin:0;">
-                                                            <div class="rv-kv"><dt>Start Time</dt><dd>{{ $rental->startTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                                            <div class="rv-kv"><dt>End Time</dt><dd>{{ $rental->endTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                                            <div class="rv-kv"><dt>Duration</dt><dd>{{ $durLabel ?? '—' }}</dd></div>
-                                                            @if($rental->hasRideExtensions())
-                                                                <div class="rv-kv"><dt>Ride Extended</dt>
-                                                                    <dd>{{ $rental->extensionCount }}&times; ({{ $rental->extensionMinutesLabel() }} extra) &middot; extension fee &#8369;{{ number_format((float) $rental->extensionFee, 2) }}
-                                                                        @if($rental->lastExtendedAt)
-                                                                            <br><small class="text-muted">Last extended {{ $rental->lastExtendedAt->format('M d, Y h:i A') }}</small>
-                                                                        @endif
-                                                                    </dd>
-                                                                </div>
-                                                            @endif
-                                                            <div class="rv-kv"><dt>Created</dt><dd>{{ $rental->created_at->format('M d, Y h:i A') }}</dd></div>
-                                                        </dl>
-                                                        @if($rental->notes)
-                                                            <div class="rv-notes"><strong><i class="bi bi-sticky me-1"></i>Notes</strong>{{ $rental->notes }}</div>
-                                                        @endif
-
-                                                        @if($rental->status === 'returned')
-                                                            <div class="rv-panel" style="margin-top:14px;">
-                                                                <div class="rv-panel__label"><i class="bi bi-arrow-return-left"></i>Return Details</div>
-                                                                <dl style="margin:0;">
-                                                                    <div class="rv-kv"><dt>Returned At</dt><dd>{{ $rental->returnProcessedAt?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                                                    <div class="rv-kv"><dt>Condition</dt><dd>{{ ucwords(str_replace('_', ' ', $rental->returnCondition ?? 'Not recorded')) }}</dd></div>
-                                                                    <div class="rv-kv"><dt>Base Fee</dt><dd>&#8369;{{ number_format(($rental->totalFee ?? 0) - (float) ($rental->overdueFee ?? 0), 2) }}</dd></div>
-                                                                    <div class="rv-kv"><dt>Overdue Fee</dt><dd>{{ (float) ($rental->overdueFee ?? 0) > 0 ? '₱'.number_format((float) $rental->overdueFee, 2) : '—' }}</dd></div>
-                                                                    <div class="rv-kv"><dt>Final Fee</dt><dd>&#8369;{{ number_format($rental->finalFee ?? $rental->totalFee ?? 0, 2) }}</dd></div>
-                                                                    @if($rental->returnInspectedBy)
-                                                                        <div class="rv-kv"><dt>Inspected By</dt><dd>User #{{ $rental->returnInspectedBy }}</dd></div>
-                                                                    @endif
-                                                                    @if($rental->returnNote)
-                                                                        <div class="rv-notes" style="margin-top:8px;"><strong><i class="bi bi-sticky me-1"></i>Return Note</strong>{{ $rental->returnNote }}</div>
-                                                                    @endif
-                                                                </dl>
-                                                            </div>
-                                                        @endif
-                                                    </div>
-
-                                                    {{-- Payment & Participants --}}
-                                                    <div class="rv-panel">
-                                                        <div class="rv-panel__label"><i class="bi bi-people"></i>Participants &amp; Payment</div>
-                                                        <div class="rv-parties">
-                                                            <div class="rv-party">
-                                                                <div class="user-avatar" style="width:32px;height:32px;font-size:12px;">{{ strtoupper(substr($rental->rider->name ?? 'U', 0, 1)) }}</div>
-                                                                <div style="min-width:0;">
-                                                                    <div class="rv-rider__name">{{ $rental->rider->name ?? 'Unknown' }}</div>
-                                                                    <div class="rv-rider__email">{{ $rental->rider->email ?? '—' }}</div>
-                                                                </div>
-                                                            </div>
-                                                            <div class="rv-party">
-                                                                <i class="bi bi-bicycle lead"></i>
-                                                                <div style="min-width:0;">
-                                                                    <div class="rv-rider__name">{{ $rental->bicycle->name ?? 'Unknown' }}</div>
-                                                                    <div class="rv-rider__email">&#8369;{{ number_format($rental->bicycle->hourlyRate ?? 0, 2) }}/hour</div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div class="rv-fees">
-                                                            <div class="rv-tile">
-                                                                <div class="rv-tile__label">Hourly Rate</div>
-                                                                <div class="rv-tile__value">&#8369;{{ number_format($rental->ratePerHour ?? 0, 2) }}</div>
-                                                            </div>
-                                                            <div class="rv-tile">
-                                                                <div class="rv-tile__label">Duration</div>
-                                                                <div class="rv-tile__value">{{ $durLabel ?? '—' }}</div>
-                                                            </div>
-                                                            <div class="rv-tile rv-tile--total">
-                                                                <div class="rv-tile__label">Total Fee</div>
-                                                                <div class="rv-tile__value">&#8369;{{ number_format($rental->totalFee ?? 0, 2) }}</div>
-                                                            </div>
-                                                        </div>
-                                                        <div class="rv-payline">
-                                                            @if($rental->paymentMethod === 'gcash')
-                                                                <span class="rv-method rv-method--gcash"><i class="bi bi-phone"></i>GCash</span>
-                                                            @else
-                                                                <span class="rv-method rv-method--cash"><i class="bi bi-cash-stack"></i>Cash</span>
-                                                            @endif
-                                                            @if($rental->paymentStatus === 'paid')
-                                                                <span class="rv-status rv-status--paid"><i class="bi bi-check-circle-fill"></i>Paid</span>
-                                                            @elseif($rental->paymentStatus === 'pending')
-                                                                <span class="rv-status rv-status--pending rv-status--dot">Pending</span>
-                                                            @else
-                                                                <span class="rv-status rv-status--unpaid rv-status--dot">{{ ucfirst($rental->paymentStatus ?? 'unpaid') }}</span>
-                                                            @endif
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
                     @empty
                         <tr>
                             <td colspan="11" class="rv-empty">
@@ -768,13 +678,119 @@
             </table>
         </div>
 
-        <div class="rv-foot">
-            <span>
-                <i class="bi bi-list-ul me-1"></i>Showing {{ $rentals->total() }} record{{ $rentals->total() === 1 ? '' : 's' }}
-            </span>
-            @if(method_exists($rentals, 'links'))
-                {{ $rentals->withQueryString()->links() }}
-            @endif
+        @if(method_exists($rentals, 'links'))
+            @php($historyPages = $rentals->withQueryString())
+            <div class="admin-table-foot">
+                <span class="admin-table-foot__info">
+                    @if($historyPages->total() > 0)
+                        Showing {{ $historyPages->firstItem() }}&ndash;{{ $historyPages->lastItem() }} of {{ $historyPages->total() }} records
+                    @else
+                        Showing 0 records
+                    @endif
+                </span>
+                <nav class="admin-pagination" aria-label="Rental history pages">
+                    @if($historyPages->onFirstPage())
+                        <span class="admin-pagination__item is-disabled" aria-disabled="true"><i class="bi bi-chevron-left"></i> Previous</span>
+                    @else
+                        <a class="admin-pagination__item" href="{{ $historyPages->previousPageUrl() }}" rel="prev"><i class="bi bi-chevron-left"></i> Previous</a>
+                    @endif
+                    @for($page = 1; $page <= $historyPages->lastPage(); $page++)
+                        @if($page === $historyPages->currentPage())
+                            <span class="admin-pagination__item is-active" aria-current="page">{{ $page }}</span>
+                        @else
+                            <a class="admin-pagination__item" href="{{ $historyPages->url($page) }}">{{ $page }}</a>
+                        @endif
+                    @endfor
+                    @if($historyPages->hasMorePages())
+                        <a class="admin-pagination__item" href="{{ $historyPages->nextPageUrl() }}" rel="next">Next <i class="bi bi-chevron-right"></i></a>
+                    @else
+                        <span class="admin-pagination__item is-disabled" aria-disabled="true">Next <i class="bi bi-chevron-right"></i></span>
+                    @endif
+                </nav>
+            </div>
+        @endif
+    </div>
+</div>
+
+{{-- ===== Rental details modal (floating, mirrors the Customer List review modal) ===== --}}
+<div class="admin-modal" id="rentalDetailModal">
+    <div class="admin-modal__backdrop" data-modal-close></div>
+    <div class="admin-modal__dialog admin-modal__dialog--lg" role="dialog" aria-modal="true" aria-label="Rental details">
+        <div class="admin-modal__head vr-review-head">
+            <span class="vr-header-icon" aria-hidden="true"><i class="bi bi-receipt"></i></span>
+            <div class="vr-review-head__text">
+                <h3 class="vr-review-head__title">Rental Details</h3>
+                <p class="vr-review-head__subtitle" id="rdSub">—</p>
+            </div>
+            <span id="rdStatus"></span>
+            <button type="button" class="vr-review-head__close" data-modal-close aria-label="Close" title="Close">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="admin-modal__body">
+            <div class="rv-parties" style="margin-bottom:14px;">
+                <div class="rv-party">
+                    <div class="user-avatar" id="rdAvatar" style="width:32px;height:32px;font-size:12px;">U</div>
+                    <div style="min-width:0;">
+                        <div class="rv-rider__name" id="rdRider">—</div>
+                        <div class="rv-rider__email" id="rdEmail">—</div>
+                    </div>
+                </div>
+                <div class="rv-party">
+                    <i class="bi bi-bicycle lead"></i>
+                    <div style="min-width:0;">
+                        <div class="rv-rider__name" id="rdBike">—</div>
+                        <div class="rv-rider__email" id="rdBikeSub">—</div>
+                    </div>
+                </div>
+            </div>
+            <div class="rv-detail__grid">
+                <div class="rv-panel">
+                    <div class="rv-panel__label"><i class="bi bi-route"></i>Rental Timeline</div>
+                    <dl style="margin:0;">
+                        <div class="rv-kv"><dt>Rental ID</dt><dd id="rdId">—</dd></div>
+                        <div class="rv-kv"><dt>Start Time</dt><dd id="rdStart">—</dd></div>
+                        <div class="rv-kv"><dt>End Time</dt><dd id="rdEnd">—</dd></div>
+                        <div class="rv-kv"><dt>Duration</dt><dd id="rdDuration">—</dd></div>
+                        <div class="rv-kv"><dt>Hourly Rate</dt><dd id="rdRate">—</dd></div>
+                        <div class="rv-kv"><dt>Created</dt><dd id="rdCreated">—</dd></div>
+                    </dl>
+                    <div class="rv-notes" id="rdNotesWrap" style="display:none;"><strong><i class="bi bi-sticky me-1"></i>Notes</strong><span id="rdNotes"></span></div>
+                </div>
+                <div class="rv-panel">
+                    <div class="rv-panel__label"><i class="bi bi-cash-coin"></i>Fees &amp; Payment</div>
+                    <div class="rv-fees">
+                        <div class="rv-tile">
+                            <div class="rv-tile__label">Base Fee</div>
+                            <div class="rv-tile__value" id="rdBase">—</div>
+                        </div>
+                        <div class="rv-tile">
+                            <div class="rv-tile__label">Overdue Fee</div>
+                            <div class="rv-tile__value" id="rdOverdue">—</div>
+                        </div>
+                        <div class="rv-tile rv-tile--total">
+                            <div class="rv-tile__label">Final Fee</div>
+                            <div class="rv-tile__value" id="rdFinal">—</div>
+                        </div>
+                    </div>
+                    <div class="rv-payline">
+                        <span class="rv-method" id="rdMethod">—</span>
+                        <span class="rv-status" id="rdPayStatus">—</span>
+                    </div>
+                </div>
+            </div>
+            <div class="rv-panel" id="rdReturnPanel" style="margin-top:14px;">
+                <div class="rv-panel__label"><i class="bi bi-arrow-return-left"></i>Return Details</div>
+                <dl style="margin:0;">
+                    <div class="rv-kv"><dt>Returned At</dt><dd id="rdReturnAt">—</dd></div>
+                    <div class="rv-kv"><dt>Condition</dt><dd id="rdCondition">—</dd></div>
+                    <div class="rv-kv"><dt>Inspected By</dt><dd id="rdInspector">—</dd></div>
+                </dl>
+                <div class="rv-notes" id="rdReturnNoteWrap" style="display:none;margin-top:8px;"><strong><i class="bi bi-sticky me-1"></i>Return Note</strong><span id="rdReturnNote"></span></div>
+            </div>
+        </div>
+        <div class="admin-modal__foot">
+            <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-modal-close>Close</button>
         </div>
     </div>
 </div>
@@ -886,49 +902,102 @@
 <script>
 (function () {
     var tbody = document.querySelector('#rvTable tbody');
-    if (!tbody) return;
+    var modal = document.getElementById('rentalDetailModal');
+    if (!tbody || !modal) return;
 
-    /* --- Expandable details --- */
-    function closeAll(exceptBtn) {
-        tbody.querySelectorAll('tr.rv-detail.open').forEach(function (r) { r.classList.remove('open'); });
-        tbody.querySelectorAll('tr.rv-row.is-open').forEach(function (r) { r.classList.remove('is-open'); });
-        tbody.querySelectorAll('.rv-btn--view.is-open').forEach(function (b) {
-            if (b !== exceptBtn) {
-                b.classList.remove('is-open');
-                var ic = b.querySelector('i');
-                if (ic) ic.className = 'bi bi-eye';
-            }
-        });
+    /* --- Floating rental-details modal (mirrors the Customer List review
+           modal: centered over a dark backdrop, table layout untouched) --- */
+    function setText(id, value) {
+        var node = document.getElementById(id);
+        if (node) node.textContent = value || '\u2014';
     }
 
-    tbody.querySelectorAll('[data-detail-toggle]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var target = document.getElementById(btn.getAttribute('data-detail-toggle'));
-            if (!target) return;
-            var wasOpen = target.classList.contains('open');
-            closeAll(btn);
-            if (!wasOpen) {
-                target.classList.add('open');
-                var main = tbody.querySelector('tr.rv-row[data-detail="' + btn.getAttribute('data-detail-toggle') + '"]');
-                if (main) main.classList.add('is-open');
-                btn.classList.add('is-open');
-                var ic = btn.querySelector('i');
-                if (ic) ic.className = 'bi bi-eye-slash';
+    function statusPill(status) {
+        var map = {
+            completed: ['rv-status--completed', 'Completed'],
+            returned: ['rv-status--returned', 'Returned'],
+            cancelled: ['rv-status--cancelled', 'Cancelled'],
+            expired: ['rv-status--expired', 'Expired']
+        };
+        var entry = map[String(status || '').toLowerCase()] || ['rv-status--cancelled', status ? status.charAt(0).toUpperCase() + status.slice(1) : '\u2014'];
+        var node = document.getElementById('rdStatus');
+        if (node) node.className = 'rv-status rv-status--dot ' + entry[0];
+        if (node) node.textContent = entry[1];
+    }
+
+    function openDetail(d) {
+        setText('rdSub', d.id);
+        statusPill(d.status);
+        var avatar = document.getElementById('rdAvatar');
+        if (avatar) avatar.textContent = String(d.rider || 'U').trim().charAt(0).toUpperCase() || 'U';
+        setText('rdRider', d.rider);
+        setText('rdEmail', d.email);
+        setText('rdBike', d.bike);
+        setText('rdBikeSub', (d.serial ? 'SN \u00B7 ' + d.serial : '') + (d.bikeRate ? ' \u00B7 \u20B1' + d.bikeRate + '/hour' : ''));
+        setText('rdId', d.id);
+        setText('rdStart', d.start);
+        setText('rdEnd', d.end);
+        setText('rdDuration', d.duration);
+        setText('rdRate', d.rate ? '\u20B1' + d.rate : '');
+        setText('rdCreated', d.created);
+        setText('rdBase', d.baseFee ? '\u20B1' + d.baseFee : '');
+        setText('rdOverdue', d.hasOverdue ? '\u20B1' + d.overdue : '');
+        setText('rdFinal', d.finalFee ? '\u20B1' + d.finalFee : '');
+        var method = document.getElementById('rdMethod');
+        if (method) {
+            method.textContent = d.method || '\u2014';
+            method.className = 'rv-method ' + (d.method === 'GCash' ? 'rv-method--gcash' : 'rv-method--cash');
+        }
+        var pay = document.getElementById('rdPayStatus');
+        if (pay) {
+            var st = String(d.payStatus || '').toLowerCase();
+            pay.textContent = d.payStatus || '\u2014';
+            pay.className = 'rv-status ' + (st === 'paid' ? 'rv-status--paid' : 'rv-status--unpaid') + (st === 'paid' ? '' : ' rv-status--dot');
+            if (st === 'paid') {
+                pay.innerHTML = '<i class="bi bi-check-circle-fill"></i>' + (d.payStatus || 'Paid');
             }
+        }
+        setText('rdReturnAt', d.returnAt);
+        setText('rdCondition', d.condition);
+        setText('rdInspector', d.inspector);
+        var returnPanel = document.getElementById('rdReturnPanel');
+        if (returnPanel) returnPanel.style.display = d.hasReturn ? '' : 'none';
+        var noteWrap = document.getElementById('rdNotesWrap');
+        if (noteWrap) {
+            noteWrap.style.display = d.notes ? '' : 'none';
+            setText('rdNotes', d.notes);
+        }
+        var returnNoteWrap = document.getElementById('rdReturnNoteWrap');
+        if (returnNoteWrap) {
+            returnNoteWrap.style.display = d.returnNote ? '' : 'none';
+            setText('rdReturnNote', d.returnNote);
+        }
+        modal.classList.add('open');
+    }
+
+    function closeDetail() { modal.classList.remove('open'); }
+
+    document.querySelectorAll('[data-rental-detail]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            try { openDetail(JSON.parse(btn.getAttribute('data-rental-detail'))); } catch (e) { /* ignore */ }
         });
     });
 
-    /* --- Client-side search --- */
+    modal.querySelectorAll('[data-modal-close]').forEach(function (node) {
+        node.addEventListener('click', closeDetail);
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal.classList.contains('open')) closeDetail();
+    });
+
+    /* --- Client-side search (table rows only; modal never alters layout) --- */
     var searchInput = document.querySelector('[data-table-search]');
     if (searchInput) {
         searchInput.addEventListener('input', function () {
             var q = searchInput.value.toLowerCase().trim();
             tbody.querySelectorAll('tr.rv-row').forEach(function (row) {
-                var hit = row.textContent.toLowerCase().indexOf(q) !== -1;
-                var det = document.getElementById(row.getAttribute('data-detail'));
-                row.style.display = hit ? '' : 'none';
-                if (!hit && det) { det.style.display = 'none'; det.classList.remove('open'); }
-                else if (det) { det.style.display = ''; }
+                row.style.display = row.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
             });
         });
     }

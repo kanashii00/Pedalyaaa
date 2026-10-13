@@ -83,17 +83,17 @@
     }
     .rv-table-scroll { overflow-x: auto; }
     .rv-table {
-        width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1060px;
+        width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1000px;
     }
     .rv-table thead th {
         position: sticky; top: 0; z-index: 2;
-        padding: 11px 16px; text-align: left; white-space: nowrap;
+        padding: 10px 10px; text-align: left; white-space: nowrap;
         font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em;
         text-transform: uppercase; color: var(--text-3); background: var(--surface-2);
         border-bottom: 1px solid var(--border-subtle); user-select: none;
     }
     .rv-table tbody td {
-        padding: 12px 16px; border-bottom: 1px solid var(--border-subtle);
+        padding: 10px 10px; border-bottom: 1px solid var(--border-subtle);
         color: var(--text-2); vertical-align: middle;
     }
     .rv-table tbody tr.rv-row { transition: background 0.12s; }
@@ -112,9 +112,9 @@
     .rv-id small { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--text-3); }
 
     /* Rider cell */
-    .rv-rider { display: flex; align-items: center; gap: 10px; min-width: 160px; }
+    .rv-rider { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .rv-rider__name { font-weight: 600; color: var(--text-1); font-size: 13px; line-height: 1.25; }
-    .rv-rider__email { font-size: 11.5px; color: var(--text-3); line-height: 1.3; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rv-rider__email { font-size: 11.5px; color: var(--text-3); line-height: 1.3; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* Bicycle cell */
     .rv-bike__name { font-weight: 600; color: var(--text-1); font-size: 13px; }
@@ -210,6 +210,17 @@
     }
     .rv-btn:hover[title]::after { opacity: 1; }
 
+    /* Tooltips are always rendered (opacity: 0, not display: none), so the
+       centered ::after on last-column buttons overhangs the table's right
+       edge (~55px for long labels like "End ride & settle the final fee")
+       and forces a permanent horizontal scrollbar. Anchoring last-column
+       tooltips to the button's right edge keeps them inside the table. */
+    .rv-table td:last-child .rv-btn[title]::after {
+        left: auto;
+        right: -4px;
+        transform: none;
+    }
+
     /* ---- Expandable detail rows ---- */
     tr.rv-detail { display: none; }
     tr.rv-detail.open { display: table-row; }
@@ -291,52 +302,6 @@
     /* ---- Empty state ---- */
     .rv-empty { padding: 48px 20px !important; }
 
-    /* ---- Print receipt button ---- */
-    .rv-btn--print { color: var(--text-3); border-color: var(--border-subtle); }
-    .rv-btn--print:hover { color: var(--brand); border-color: var(--brand); background: var(--brand-soft); }
-
-    /* ============================================================
-       Receipt preview modal
-       ============================================================ */
-    .rcpt-modal {
-        position: fixed; inset: 0; z-index: 2000;
-        display: flex; align-items: center; justify-content: center;
-        opacity: 0; visibility: hidden; transition: opacity 0.2s, visibility 0.2s;
-    }
-    .rcpt-modal.open { opacity: 1; visibility: visible; }
-    .rcpt-modal__backdrop {
-        position: absolute; inset: 0;
-        background: rgba(9, 12, 20, 0.6); backdrop-filter: blur(2px);
-    }
-    .rcpt-modal__dialog {
-        position: relative; z-index: 1; width: 100%; max-width: 460px;
-        max-height: 90vh; overflow-y: auto; margin: 16px;
-        background: var(--surface); border: 1px solid var(--border-subtle);
-        border-radius: 14px; box-shadow: var(--shadow-pop);
-        transform: translateY(12px) scale(0.97);
-        transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .rcpt-modal.open .rcpt-modal__dialog { transform: translateY(0) scale(1); }
-    .rcpt-modal__head {
-        display: flex; align-items: center; justify-content: space-between; gap: 12px;
-        padding: 16px 20px; border-bottom: 1px solid var(--border-subtle);
-    }
-    .rcpt-modal__head h3 {
-        margin: 0; font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px;
-    }
-    .rcpt-modal__head h3 i { color: var(--brand); font-size: 17px; }
-    .rcpt-modal__close {
-        width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
-        border-radius: 8px; border: 1px solid var(--border-subtle); background: transparent;
-        color: var(--text-2); font-size: 13px; cursor: pointer; transition: all 0.15s;
-    }
-    .rcpt-modal__close:hover { background: var(--surface-3); color: var(--text-1); }
-    .rcpt-modal__body { padding: 20px; }
-    .rcpt-modal__foot {
-        display: flex; align-items: center; justify-content: flex-end; gap: 10px;
-        padding: 14px 20px; border-top: 1px solid var(--border-subtle);
-    }
-
     /* ============================================================
        Mark as Paid confirmation modal
        ============================================================ */
@@ -398,130 +363,6 @@
         padding: 14px 20px; border-top: 1px solid var(--border-subtle);
     }
 
-    /* ---- Receipt sheet (white paper) ---- */
-    .rcpt-sheet {
-        background: #ffffff; color: #111827; border-radius: 10px;
-        padding: 22px 22px 16px; font-size: 13px; line-height: 1.45;
-        box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.06);
-    }
-    .rcpt-brandrow {
-        display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
-        padding-bottom: 12px; border-bottom: 3px solid #14532d;
-    }
-    .rcpt-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .rcpt-logo { width: 42px; height: 42px; border-radius: 10px; object-fit: cover; flex-shrink: 0; }
-    .rcpt-name { font-family: 'Poppins', sans-serif; font-size: 18px; font-weight: 700; line-height: 1.15; color: #14532d; }
-    .rcpt-name span { color: #16a34a; }
-    .rcpt-tagline { font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; color: #6b7280; font-weight: 600; margin-top: 1px; }
-    .rcpt-doc { text-align: right; flex-shrink: 0; }
-    .rcpt-doc__label { font-size: 9px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #6b7280; margin-bottom: 3px; }
-    .rcpt-doc__id {
-        display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        font-size: 11.5px; font-weight: 700; color: #14532d; white-space: nowrap;
-        background: #f0fdf4; border: 1px solid #bbf7d0; padding: 3px 8px; border-radius: 6px;
-    }
-    .rcpt-meta {
-        display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px;
-        padding: 8px 2px; border-bottom: 1px dashed #e5e7eb; font-size: 11px; color: #6b7280;
-    }
-    .rcpt-meta i { font-size: 11px; }
-    .rcpt-sec { margin-top: 12px; }
-    .rcpt-sec__label {
-        display: flex; align-items: center; gap: 5px; margin-bottom: 5px;
-        font-size: 9px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; color: #6b7280;
-    }
-    .rcpt-sec__label i { font-size: 11px; color: #16a34a; }
-    .rcpt-card {
-        background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 9px 12px;
-    }
-    .rcpt-strong { font-size: 13px; font-weight: 700; color: #111827; line-height: 1.3; }
-    .rcpt-sub { font-size: 11px; color: #6b7280; margin-top: 2px; overflow-wrap: anywhere; }
-    .rcpt-list { margin: 0; }
-    .rcpt-kv {
-        display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
-        padding: 5px 2px; border-bottom: 1px dashed #e5e7eb; font-size: 12px;
-    }
-    .rcpt-kv:last-child { border-bottom: none; }
-    .rcpt-kv dt { color: #6b7280; white-space: nowrap; }
-    .rcpt-kv dd { margin: 0; font-weight: 600; color: #111827; text-align: right; }
-    .rcpt-total {
-        display: flex; justify-content: space-between; align-items: center; gap: 10px;
-        background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;
-        padding: 10px 12px; margin: 0 0 8px;
-    }
-    .rcpt-total dt { font-size: 10px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: #14532d; }
-    .rcpt-total dd { margin: 0; font-size: 20px; font-weight: 800; color: #14532d; font-variant-numeric: tabular-nums; line-height: 1; }
-    .rcpt-ref {
-        display: flex; justify-content: space-between; align-items: center; gap: 10px;
-        font-size: 11.5px; padding: 6px 2px; border-bottom: 1px dashed #e5e7eb; margin-bottom: 8px;
-    }
-    .rcpt-ref span { color: #6b7280; font-weight: 600; }
-    .rcpt-ref strong { color: #111827; font-variant-numeric: tabular-nums; text-align: right; }
-    .rcpt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-    .rcpt-chip {
-        display: inline-flex; align-items: center; gap: 4px;
-        font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em;
-        border-radius: 999px; padding: 3px 10px; border: 1px solid transparent; white-space: nowrap;
-    }
-    .rcpt-chip i { font-size: 10.5px; }
-    .rcpt-chip--green { background: #ecfdf3; color: #15803d; border-color: #bbf7d0; }
-    .rcpt-chip--blue { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
-    .rcpt-chip--amber { background: #fffbeb; color: #b45309; border-color: #fde68a; }
-    .rcpt-chip--red { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
-    .rcpt-chip--live { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
-    .rcpt-footer {
-        margin-top: 14px; padding-top: 10px; border-top: 2px solid #14532d;
-        text-align: center; font-size: 11.5px; font-weight: 600; color: #374151;
-    }
-    .rcpt-footer small { display: block; margin-top: 3px; font-size: 9px; font-weight: 400; color: #9ca3af; line-height: 1.5; }
-
-    @media (max-width: 520px) {
-        .rcpt-modal__dialog { max-width: 100%; margin: 8px; }
-        .rcpt-sheet { padding: 16px 14px 12px; }
-        .rcpt-total dd { font-size: 17px; }
-    }
-
-    /* ============================================================
-       Print — output ONLY the receipt on a clean white page
-       ============================================================ */
-    @media print {
-        @page { size: A4 portrait; margin: 14mm; }
-        html, body { background: #ffffff !important; }
-        body.rcpt-printing .admin-sidebar,
-        body.rcpt-printing .sidebar-overlay,
-        body.rcpt-printing .admin-toasts,
-        body.rcpt-printing .admin-main > header.admin-topbar,
-        body.rcpt-printing .admin-pagehead,
-        body.rcpt-printing .alert-pedalya,
-        body.rcpt-printing .rv-filter-card,
-        body.rcpt-printing .rv-table-card { display: none !important; }
-        body.rcpt-printing * { visibility: hidden !important; box-shadow: none !important; }
-        body.rcpt-printing .rcpt-sheet,
-        body.rcpt-printing .rcpt-sheet * { visibility: visible !important; box-shadow: none !important; }
-        body.rcpt-printing .rcpt-modal {
-            position: static !important; display: block !important;
-            opacity: 1 !important; visibility: visible !important;
-            padding: 0 !important; overflow: visible !important;
-        }
-        body.rcpt-printing .rcpt-modal__backdrop,
-        body.rcpt-printing .rcpt-modal__head,
-        body.rcpt-printing .rcpt-modal__foot { display: none !important; }
-        body.rcpt-printing .rcpt-modal__dialog {
-            position: static !important; display: block !important;
-            width: auto !important; max-width: none !important; max-height: none !important;
-            border: none !important; border-radius: 0 !important;
-            background: transparent !important; transform: none !important; overflow: visible !important;
-        }
-        body.rcpt-printing .rcpt-modal__body { padding: 0 !important; overflow: visible !important; }
-        body.rcpt-printing .rcpt-sheet {
-            width: 100% !important; max-width: 100% !important;
-            margin: 0 !important; padding: 0 !important;
-            border-radius: 0 !important; box-shadow: none !important;
-        }
-        .rcpt-sheet, .rcpt-sheet * {
-            -webkit-print-color-adjust: exact; print-color-adjust: exact;
-        }
-    }
 </style>
 @endsection
 
@@ -641,7 +482,7 @@
                             $durM = $rental->durationMinutes % 60;
                             $durLabel = $rental->durationMinutes ? ($durH ? $durH . 'h ' . $durM . 'm' : $durM . 'm') : null;
                         @endphp
-                        <tr class="rv-row" data-detail="rvd-{{ $rental->id }}">
+                        <tr class="rv-row">
                             <td><span class="rv-id"><small>REN</small>#{{ $rental->id }}</span></td>
                             <td>
                                 <div class="rv-rider">
@@ -745,41 +586,49 @@
                             </td>
                             <td>
                                 <div class="rv-actions">
-                                    <button type="button" class="rv-btn rv-btn--view"
-                                            data-detail-toggle="rvd-{{ $rental->id }}"
-                                            title="View details">
-                                        <i class="bi bi-eye"></i>
-                                    </button>
                                     @php
-                                        $receiptData = [
+                                        $detailPenalty = '';
+                                        if ($rental->penaltyType) {
+                                            if ($rental->penaltyType === \App\Models\Rental::PENALTY_FIXED) {
+                                                $detailPenalty = 'Fixed ₱' . number_format((float) $rental->penaltyValue, 2);
+                                            } else {
+                                                $detailPenalty = '₱' . number_format((float) $rental->penaltyValue, 2)
+                                                    . ($rental->penaltyType === \App\Models\Rental::PENALTY_PER_MINUTE ? '/minute' : '/hour');
+                                            }
+                                        }
+                                        $detailData = [
                                             'id'        => $rental->rentalId ?? ('REN-' . str_pad($rental->id, 4, '0', STR_PAD_LEFT)),
+                                            'status'    => $rental->status,
                                             'rider'     => $rental->rider->name ?? $rental->riderName ?? 'Unknown',
                                             'email'     => $rental->rider->email ?? $rental->riderEmail ?? '',
                                             'bike'      => $rental->bicycle->name ?? $rental->bicycleName ?? 'Unknown',
                                             'serial'    => $rental->bicycle->serialNumber ?? $rental->bicycleSerial ?? '',
-                                            'start'     => $rental->startTime?->format('M d, Y \a\t h:i A') ?? '—',
-                                            'end'       => $rental->endTime?->format('M d, Y \a\t h:i A') ?? '',
-                                            'startIso'  => $rental->startTime?->toIso8601String() ?? '',
-                                            'hasEnd'    => (bool) $rental->endTime,
-                                            'duration'  => $durLabel,
+                                            'bikeRate'  => number_format((float) ($rental->bicycle->hourlyRate ?? $rental->ratePerHour ?? 0), 2),
+                                            'start'     => $rental->startTime?->format('M d, Y h:i A') ?? '',
+                                            'deadline'  => $rental->returnDeadline?->format('M d, Y h:i A') ?? '',
+                                            'deadlineBy'=> $rental->returnDeadlineSetBy ?? '',
+                                            'expected'  => $rental->expectedEndTime?->format('M d, Y h:i A') ?? '',
+                                            'expiredAt' => $rental->expiredAt?->format('M d, Y h:i A') ?? '',
+                                            'overdueAt' => $rental->overdueReturnAt?->format('M d, Y h:i A') ?? '',
+                                            'penalty'   => $detailPenalty,
+                                            'penaltyAccrued' => $rental->penaltyAccrued !== null ? number_format((float) $rental->penaltyAccrued, 2) : '',
+                                            'duration'  => $durLabel ?? '',
+                                            'created'   => $rental->created_at?->format('M d, Y h:i A') ?? '',
                                             'rate'      => number_format((float) ($rental->ratePerHour ?? 0), 2),
-                                            'total'     => number_format((float) ($rental->totalFee ?? 0), 2),
+                                            'totalFee'  => number_format((float) ($rental->totalFee ?? 0), 2),
+                                            'hasExt'    => (bool) $rental->hasRideExtensions(),
+                                            'extText'   => $rental->hasRideExtensions()
+                                                ? $rental->extensionCount . '× (' . $rental->extensionMinutesLabel() . ' extra) · extension fee ₱' . number_format((float) $rental->extensionFee, 2) : '',
+                                            'extLast'   => $rental->lastExtendedAt?->format('M d, Y h:i A') ?? '',
+                                            'notes'     => $rental->notes ?? '',
                                             'method'    => $rental->paymentMethod === 'gcash' ? 'GCash' : 'Cash',
-                                            'payStatus' => ucfirst($rental->paymentStatus ?? 'Unpaid'),
-                                            'reference' => $rental->paymentReference ?? ($rental->rentalId ?? ''),
-                                            'status'    => ucfirst($rental->status),
-                                            'extCount'  => (int) ($rental->extensionCount ?? 0),
-                                            'extMinutes'=> (int) ($rental->extendedMinutes ?? 0),
-                                            'extFee'    => number_format((float) ($rental->extensionFee ?? 0), 2),
-                                            'extLast'   => $rental->lastExtendedAt?->format('M d, Y \a\t h:i A') ?? '',
-                                            'extLines'  => $rental->extensionReceiptLines(),
-                                            'issued'    => now()->format('M d, Y \a\t h:i A'),
+                                            'payStatus' => ucfirst($rental->paymentStatus ?? 'unpaid'),
                                         ];
                                     @endphp
-                                    <button type="button" class="rv-btn rv-btn--print"
-                                            data-print-receipt="{{ json_encode($receiptData) }}"
-                                            title="Print receipt">
-                                        <i class="bi bi-printer"></i>
+                                    <button type="button" class="rv-btn rv-btn--view"
+                                            data-rental-detail="{{ json_encode($detailData) }}"
+                                            title="View details" aria-label="View rental details">
+                                        <i class="bi bi-eye"></i>
                                     </button>
                                     @if(in_array($rental->status, ['active', 'overdue'])
                                         && $rental->paymentStatus === 'pending'
@@ -849,140 +698,6 @@
                             </td>
                         </tr>
 
-                        {{-- Expandable detail row --}}
-                        <tr class="rv-detail" id="rvd-{{ $rental->id }}">
-                            <td colspan="11" class="rv-detail__cell">
-                                <div class="rv-detail__inner">
-                                    <div class="rv-detail__content">
-                                        <div class="rv-detail__card">
-                                            <div class="rv-detail__head">
-                                                <div class="rv-detail__title">
-                                                    <i class="bi bi-receipt"></i>
-                                                    Rental #{{ $rental->id }}
-                                                    @if($rental->status === 'active')
-                                                        <span class="rv-status rv-status--active rv-status--dot rv-status--live">Active</span>
-                                                    @elseif($rental->status === 'completed')
-                                                        <span class="rv-status rv-status--completed rv-status--dot">Completed</span>
-                                                    @elseif($rental->status === 'pending')
-                                                        <span class="rv-status rv-status--pending rv-status--dot">Pending</span>
-                                                    @elseif($rental->status === 'overdue')
-                                                        <span class="rv-status rv-status--overdue rv-status--dot rv-status--live">Overdue</span>
-                                                    @else
-                                                        <span class="rv-status rv-status--cancelled rv-status--dot">{{ ucfirst($rental->status) }}</span>
-                                                    @endif
-                                                </div>
-                                                <div class="rv-detail__meta">
-                                                    <i class="bi bi-clock-history me-1"></i>Created {{ $rental->created_at->format('M d, Y h:i A') }}
-                                                </div>
-                                            </div>
-                                            <div class="rv-detail__body">
-                                                <div class="rv-detail__grid">
-                                                    {{-- Rental timeline --}}
-                                                    <div class="rv-panel">
-                                                        <div class="rv-panel__label"><i class="bi bi-route"></i>Rental Details</div>
-                                                        <dl style="margin:0;">
-                                                            <div class="rv-kv"><dt>Start Time</dt><dd>{{ $rental->startTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                                            <div class="rv-kv"><dt>End Time</dt><dd>{{ $rental->endTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                                            <div class="rv-kv"><dt>Expected End Time</dt><dd>{{ $rental->expectedEndTime?->format('M d, Y h:i A') ?? '—' }}</dd></div>
-                                                            @if($rental->hasRideExtensions())
-                                                                <div class="rv-kv"><dt>Ride Extended</dt>
-                                                                    <dd>{{ $rental->extensionCount }}&times; ({{ $rental->extensionMinutesLabel() }} extra) &middot; extension fee &#8369;{{ number_format((float) $rental->extensionFee, 2) }}
-                                                                        @if($rental->lastExtendedAt)
-                                                                            <br><small class="text-muted">Last extended {{ $rental->lastExtendedAt->format('M d, Y h:i A') }}</small>
-                                                                        @endif
-                                                                    </dd>
-                                                                </div>
-                                                            @endif
-                                                            @if($rental->expiredAt)
-                                                                <div class="rv-kv"><dt>Expired At</dt><dd>{{ $rental->expiredAt->format('M d, Y h:i A') }}</dd></div>
-                                                            @endif
-                                                            @if($rental->returnDeadline)
-                                                                <div class="rv-kv"><dt>Return Deadline</dt><dd>{{ $rental->returnDeadline->format('M d, Y h:i A') }}
-                                                                    <span class="rv-grace" data-return-countdown="{{ $rental->returnDeadline->toIso8601String() }}"><i class="bi bi-hourglass-split"></i><span data-return-countdown-text>&mdash;</span></span>
-                                                                </dd></div>
-                                                            @endif
-                                                            @if($rental->returnDeadlineSetBy)
-                                                                <div class="rv-kv"><dt>Deadline Set By</dt><dd>{{ $rental->returnDeadlineSetBy }}</dd></div>
-                                                            @endif
-                                                            @if($rental->penaltyType)
-                                                                <div class="rv-kv"><dt>Penalty Rule</dt><dd>
-                                                                    @if($rental->penaltyType === \App\Models\Rental::PENALTY_FIXED)
-                                                                        Fixed &#8369;{{ number_format((float) $rental->penaltyValue, 2) }}
-                                                                    @else
-                                                                        &#8369;{{ number_format((float) $rental->penaltyValue, 2) }}
-                                                                        {{ $rental->penaltyType === \App\Models\Rental::PENALTY_PER_MINUTE ? '/minute' : '/hour' }}
-                                                                    @endif
-                                                                </dd></div>
-                                                            @endif
-                                                            @if($rental->penaltyAccrued !== null)
-                                                                <div class="rv-kv"><dt>Penalty Accrued</dt><dd>&#8369;{{ number_format((float) $rental->penaltyAccrued, 2) }}</dd></div>
-                                                            @endif
-                                                            @if($rental->overdueReturnAt)
-                                                                <div class="rv-kv"><dt>Overdue Return At</dt><dd>{{ $rental->overdueReturnAt->format('M d, Y h:i A') }}</dd></div>
-                                                            @endif
-                                                            <div class="rv-kv"><dt>Duration</dt><dd>{{ $durLabel ?? '—' }}</dd></div>
-                                                            <div class="rv-kv"><dt>Created</dt><dd>{{ $rental->created_at->format('M d, Y h:i A') }}</dd></div>
-                                                        </dl>
-                                                        @if($rental->notes)
-                                                            <div class="rv-notes"><strong><i class="bi bi-sticky me-1"></i>Notes</strong>{{ $rental->notes }}</div>
-                                                        @endif
-                                                    </div>
-
-                                                    {{-- Payment & Participants --}}
-                                                    <div class="rv-panel">
-                                                        <div class="rv-panel__label"><i class="bi bi-people"></i>Participants &amp; Payment</div>
-                                                        <div class="rv-parties">
-                                                            <div class="rv-party">
-                                                                <div class="user-avatar" style="width:32px;height:32px;font-size:12px;">{{ strtoupper(substr($rental->rider->name ?? 'U', 0, 1)) }}</div>
-                                                                <div style="min-width:0;">
-                                                                    <div class="rv-rider__name">{{ $rental->rider->name ?? 'Unknown' }}</div>
-                                                                    <div class="rv-rider__email">{{ $rental->rider->email ?? '—' }}</div>
-                                                                </div>
-                                                            </div>
-                                                            <div class="rv-party">
-                                                                <i class="bi bi-bicycle lead"></i>
-                                                                <div style="min-width:0;">
-                                                                    <div class="rv-rider__name">{{ $rental->bicycle->name ?? 'Unknown' }}</div>
-                                                                    <div class="rv-rider__email">&#8369;{{ number_format($rental->bicycle->hourlyRate ?? 0, 2) }}/hour</div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div class="rv-fees">
-                                                            <div class="rv-tile">
-                                                                <div class="rv-tile__label">Hourly Rate</div>
-                                                                <div class="rv-tile__value">&#8369;{{ number_format($rental->ratePerHour ?? 0, 2) }}</div>
-                                                            </div>
-                                                            <div class="rv-tile">
-                                                                <div class="rv-tile__label">Duration</div>
-                                                                <div class="rv-tile__value">{{ $durLabel ?? '—' }}</div>
-                                                            </div>
-                                                            <div class="rv-tile rv-tile--total">
-                                                                <div class="rv-tile__label">Total Fee</div>
-                                                                <div class="rv-tile__value">&#8369;{{ number_format($rental->totalFee ?? 0, 2) }}</div>
-                                                            </div>
-                                                        </div>
-                                                        <div class="rv-payline">
-                                                            @if($rental->paymentMethod === 'gcash')
-                                                                <span class="rv-method rv-method--gcash"><i class="bi bi-phone"></i>GCash</span>
-                                                            @else
-                                                                <span class="rv-method rv-method--cash"><i class="bi bi-cash-stack"></i>Cash</span>
-                                                            @endif
-                                                            @if($rental->paymentStatus === 'paid')
-                                                                <span class="rv-status rv-status--paid"><i class="bi bi-check-circle-fill"></i>Paid</span>
-                                                            @elseif($rental->paymentStatus === 'pending')
-                                                                <span class="rv-status rv-status--pending rv-status--dot">Pending</span>
-                                                            @else
-                                                                <span class="rv-status rv-status--unpaid rv-status--dot">{{ ucfirst($rental->paymentStatus ?? 'unpaid') }}</span>
-                                                            @endif
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
                     @empty
                         <tr>
                             <td colspan="11" class="rv-empty">
@@ -1004,6 +719,86 @@
             @if(method_exists($rentals, 'links'))
                 {{ $rentals->withQueryString()->links() }}
             @endif
+        </div>
+    </div>
+</div>
+
+{{-- ===== Rental details modal (floating, mirrors the Customer List review modal) ===== --}}
+<div class="admin-modal" id="rentalDetailModal">
+    <div class="admin-modal__backdrop" data-modal-close></div>
+    <div class="admin-modal__dialog admin-modal__dialog--lg" role="dialog" aria-modal="true" aria-label="Rental details">
+        <div class="admin-modal__head vr-review-head">
+            <span class="vr-header-icon" aria-hidden="true"><i class="bi bi-receipt"></i></span>
+            <div class="vr-review-head__text">
+                <h3 class="vr-review-head__title">Rental Details</h3>
+                <p class="vr-review-head__subtitle" id="rdSub">—</p>
+            </div>
+            <span id="rdStatus"></span>
+            <button type="button" class="vr-review-head__close" data-modal-close aria-label="Close" title="Close">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="admin-modal__body">
+            <div class="rv-parties" style="margin-bottom:14px;">
+                <div class="rv-party">
+                    <div class="user-avatar" id="rdAvatar" style="width:32px;height:32px;font-size:12px;">U</div>
+                    <div style="min-width:0;">
+                        <div class="rv-rider__name" id="rdRider">—</div>
+                        <div class="rv-rider__email" id="rdEmail">—</div>
+                    </div>
+                </div>
+                <div class="rv-party">
+                    <i class="bi bi-bicycle lead"></i>
+                    <div style="min-width:0;">
+                        <div class="rv-rider__name" id="rdBike">—</div>
+                        <div class="rv-rider__email" id="rdBikeSub">—</div>
+                    </div>
+                </div>
+            </div>
+            <div class="rv-detail__grid">
+                <div class="rv-panel">
+                    <div class="rv-panel__label"><i class="bi bi-route"></i>Rental Timeline</div>
+                    <dl style="margin:0;">
+                        <div class="rv-kv"><dt>Rental ID</dt><dd id="rdId">—</dd></div>
+                        <div class="rv-kv"><dt>Start Time</dt><dd id="rdStart">—</dd></div>
+                        <div class="rv-kv" id="rowRdDeadline"><dt>Return Deadline</dt><dd id="rdDeadline">—</dd></div>
+                        <div class="rv-kv" id="rowRdDeadlineBy"><dt>Deadline Set By</dt><dd id="rdDeadlineBy">—</dd></div>
+                        <div class="rv-kv" id="rowRdExpected"><dt>Expected End</dt><dd id="rdExpected">—</dd></div>
+                        <div class="rv-kv" id="rowRdExpired"><dt>Expired At</dt><dd id="rdExpired">—</dd></div>
+                        <div class="rv-kv" id="rowRdOverdue"><dt>Overdue Return At</dt><dd id="rdOverdueAt">—</dd></div>
+                        <div class="rv-kv" id="rowRdPenalty"><dt>Penalty Rule</dt><dd id="rdPenalty">—</dd></div>
+                        <div class="rv-kv" id="rowRdPenaltyAcc"><dt>Penalty Accrued</dt><dd id="rdPenaltyAcc">—</dd></div>
+                        <div class="rv-kv"><dt>Duration</dt><dd id="rdDuration">—</dd></div>
+                        <div class="rv-kv" id="rowRdExt"><dt>Ride Extended</dt><dd><span id="rdExt"></span><br><small class="text-muted" id="rdExtLast"></small></dd></div>
+                        <div class="rv-kv"><dt>Created</dt><dd id="rdCreated">—</dd></div>
+                    </dl>
+                    <div class="rv-notes" id="rdNotesWrap" style="display:none;"><strong><i class="bi bi-sticky me-1"></i>Notes</strong><span id="rdNotes"></span></div>
+                </div>
+                <div class="rv-panel">
+                    <div class="rv-panel__label"><i class="bi bi-cash-coin"></i>Fees &amp; Payment</div>
+                    <div class="rv-fees">
+                        <div class="rv-tile">
+                            <div class="rv-tile__label">Hourly Rate</div>
+                            <div class="rv-tile__value" id="rdRate">—</div>
+                        </div>
+                        <div class="rv-tile">
+                            <div class="rv-tile__label">Duration</div>
+                            <div class="rv-tile__value" id="rdDurationTile">—</div>
+                        </div>
+                        <div class="rv-tile rv-tile--total">
+                            <div class="rv-tile__label">Current Fee</div>
+                            <div class="rv-tile__value" id="rdTotal">—</div>
+                        </div>
+                    </div>
+                    <div class="rv-payline">
+                        <span class="rv-method" id="rdMethod">—</span>
+                        <span class="rv-status" id="rdPayStatus">—</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="admin-modal__foot">
+            <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-modal-close>Close</button>
         </div>
     </div>
 </div>
@@ -1054,112 +849,6 @@
                 <button type="submit" class="btn-admin btn-admin--warning">End Ride &amp; Settle</button>
             </div>
         </form>
-    </div>
-</div>
-
-{{-- ===== Receipt preview modal ===== --}}
-<div class="rcpt-modal" id="rcptModal">
-    <div class="rcpt-modal__backdrop" data-rcpt-close></div>
-    <div class="rcpt-modal__dialog" role="dialog" aria-modal="true" aria-label="Rental receipt preview">
-        <div class="rcpt-modal__head">
-            <h3><i class="bi bi-receipt"></i>Receipt Preview</h3>
-            <button type="button" class="rcpt-modal__close" data-rcpt-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
-        </div>
-        <div class="rcpt-modal__body">
-            <div class="rcpt-sheet" id="rcptSheet">
-                <div class="rcpt-brandrow">
-                    <div class="rcpt-brand">
-                        <img src="{{ asset('assets/img/Logo.png') }}" alt="Pedalya logo" class="rcpt-logo">
-                        <div style="min-width:0;">
-                            <div class="rcpt-name">Peda<span>lya</span></div>
-                            <div class="rcpt-tagline">IoT Bicycle Rental System</div>
-                        </div>
-                    </div>
-                    <div class="rcpt-doc">
-                        <div class="rcpt-doc__label">Official Receipt</div>
-                        <span class="rcpt-doc__id" id="rcptId">&mdash;</span>
-                    </div>
-                </div>
-
-                <div class="rcpt-meta">
-                    <span><i class="bi bi-clock-history me-1"></i>Issued: <strong id="rcptIssued" style="color:#111827;">&mdash;</strong></span>
-                    <span class="rcpt-chip rcpt-chip--blue" id="rcptExtChip" style="display:none;"><i class="bi bi-plus-circle"></i>Extended</span>
-                    <span class="rcpt-chip rcpt-chip--live" id="rcptRideChip"><i class="bi bi-play-fill"></i>Ride in progress</span>
-                </div>
-
-                <div class="rcpt-sec">
-                    <div class="rcpt-sec__label"><i class="bi bi-person-circle"></i>Rider</div>
-                    <div class="rcpt-card">
-                        <div class="rcpt-strong" id="rcptRiderName">&mdash;</div>
-                        <div class="rcpt-sub" id="rcptRiderContact">&mdash;</div>
-                    </div>
-                </div>
-
-                <div class="rcpt-sec">
-                    <div class="rcpt-sec__label"><i class="bi bi-bicycle"></i>Bicycle</div>
-                    <div class="rcpt-card">
-                        <div class="rcpt-strong" id="rcptBikeName">&mdash;</div>
-                        <div class="rcpt-sub" id="rcptBikeSub">&mdash;</div>
-                    </div>
-                </div>
-
-                <div class="rcpt-sec">
-                    <div class="rcpt-sec__label"><i class="bi bi-calendar3"></i>Rental Period</div>
-                    <dl class="rcpt-list">
-                        <div class="rcpt-kv"><dt>Start</dt><dd id="rcptStart">&mdash;</dd></div>
-                        <div class="rcpt-kv"><dt>End</dt><dd id="rcptEnd">In progress</dd></div>
-                        <div class="rcpt-kv">
-                            <dt>Duration</dt>
-                            <dd><span id="rcptDuration">&mdash;</span> <small style="font-weight:500;font-size:10px;color:#c2410c;" id="rcptDurationNote"></small></dd>
-                        </div>
-                        <div class="rcpt-kv"><dt>Rate</dt><dd>&#8369;<span id="rcptRate">0.00</span> / hour</dd></div>
-                    </dl>
-                </div>
-
-                {{-- Ride extensions: shown only when the rider bought extra time,
-                     so staff can read an extended ride instead of an overdue one. --}}
-                <div class="rcpt-sec" id="rcptExtSec" style="display:none;">
-                    <div class="rcpt-sec__label"><i class="bi bi-plus-circle"></i>Ride Extended</div>
-                    <dl class="rcpt-list">
-                        <div class="rcpt-kv"><dt>Extensions</dt><dd id="rcptExtCount">&mdash;</dd></div>
-                        <div class="rcpt-kv"><dt>Extra Time</dt><dd id="rcptExtMinutes">&mdash;</dd></div>
-                        <div class="rcpt-kv"><dt>Extension Fee</dt><dd>&#8369;<span id="rcptExtFee">0.00</span></dd></div>
-                        <div class="rcpt-kv"><dt>Last Extended</dt><dd id="rcptExtLast">&mdash;</dd></div>
-                    </dl>
-                    <ul id="rcptExtLines" style="margin:6px 0 0;padding-left:16px;font-size:10.5px;color:#6b6b6b;"></ul>
-                </div>
-
-                <div class="rcpt-sec">
-                    <div class="rcpt-sec__label"><i class="bi bi-cash-coin"></i>Payment</div>
-                    <dl class="rcpt-total">
-                        <dt>Total Fee</dt>
-                        <dd>&#8369;<span id="rcptTotal">0.00</span></dd>
-                    </dl>
-                    <div class="rcpt-ref">
-                        <span>Transaction / Ref No.</span>
-                        <strong id="rcptRef">&mdash;</strong>
-                    </div>
-                    <div class="rcpt-chips">
-                        <span class="rcpt-chip" id="rcptMethod">&mdash;</span>
-                        <span class="rcpt-chip" id="rcptPayStatus">&mdash;</span>
-                    </div>
-                </div>
-
-                <div class="rcpt-footer">
-                    Thank you for riding with Pedalya!
-                    <small>
-                        Pedalya IoT Bicycle Rental Management System &bull; Azuela Cove, Davao City<br>
-                        This receipt was generated electronically and is valid without signature.
-                    </small>
-                </div>
-            </div>
-        </div>
-        <div class="rcpt-modal__foot">
-            <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-rcpt-close>Close</button>
-            <button type="button" class="btn-admin btn-admin--primary btn-admin--sm" id="rcptPrintBtn">
-                <i class="bi bi-printer me-1"></i>Print Receipt
-            </button>
-        </div>
     </div>
 </div>
 
@@ -1220,183 +909,128 @@
 <script>
 (function () {
     var tbody = document.querySelector('#rvTable tbody');
-    if (!tbody) return;
+    var modal = document.getElementById('rentalDetailModal');
+    if (!tbody || !modal) return;
 
-    /* --- Expandable details --- */
-    function closeAll(exceptBtn) {
-        tbody.querySelectorAll('tr.rv-detail.open').forEach(function (r) { r.classList.remove('open'); });
-        tbody.querySelectorAll('tr.rv-row.is-open').forEach(function (r) { r.classList.remove('is-open'); });
-        tbody.querySelectorAll('.rv-btn--view.is-open').forEach(function (b) {
-            if (b !== exceptBtn) {
-                b.classList.remove('is-open');
-                var ic = b.querySelector('i');
-                if (ic) ic.className = 'bi bi-eye';
-            }
-        });
+    /* --- Floating rental-details modal (mirrors the Customer List review
+           modal: centered over a dark backdrop, table layout untouched) --- */
+    function setText(id, value) {
+        var node = document.getElementById(id);
+        if (node) node.textContent = value || '\u2014';
     }
 
+    function setRowVisible(rowId, visible) {
+        var row = document.getElementById(rowId);
+        if (row) row.style.display = visible ? '' : 'none';
+    }
+
+    function statusPill(status) {
+        var map = {
+            active: ['rv-status--active rv-status--dot rv-status--live', 'Active'],
+            pending: ['rv-status--pending rv-status--dot', 'Pending'],
+            overdue: ['rv-status--overdue rv-status--dot rv-status--live', 'Overdue'],
+            expired: ['rv-status--overdue rv-status--dot rv-status--live', 'Expired'],
+            completed: ['rv-status--completed rv-status--dot', 'Completed'],
+            cancelled: ['rv-status--cancelled rv-status--dot', 'Cancelled']
+        };
+        var key = String(status || '').toLowerCase();
+        var entry = map[key] || ['rv-status--cancelled rv-status--dot', status ? status.charAt(0).toUpperCase() + status.slice(1) : '\u2014'];
+        var node = document.getElementById('rdStatus');
+        if (node) node.className = 'rv-status ' + entry[0];
+        if (node) node.textContent = entry[1];
+    }
+
+    function openDetail(d) {
+        setText('rdSub', d.id);
+        statusPill(d.status);
+        var avatar = document.getElementById('rdAvatar');
+        if (avatar) avatar.textContent = String(d.rider || 'U').trim().charAt(0).toUpperCase() || 'U';
+        setText('rdRider', d.rider);
+        setText('rdEmail', d.email);
+        setText('rdBike', d.bike);
+        setText('rdBikeSub', (d.serial ? 'SN \u00B7 ' + d.serial : '') + (d.bikeRate ? ' \u00B7 \u20B1' + d.bikeRate + '/hour' : ''));
+        setText('rdId', d.id);
+        setText('rdStart', d.start);
+        setText('rdDeadline', d.deadline);
+        setText('rdDeadlineBy', d.deadlineBy);
+        setText('rdExpected', d.expected);
+        setText('rdExpired', d.expiredAt);
+        setText('rdOverdueAt', d.overdueAt);
+        setText('rdPenalty', d.penalty);
+        setText('rdPenaltyAcc', d.penaltyAccrued ? '\u20B1' + d.penaltyAccrued : '');
+        setText('rdDuration', d.duration);
+        setText('rdDurationTile', d.duration);
+        setText('rdCreated', d.created);
+        setText('rdRate', d.rate ? '\u20B1' + d.rate : '');
+        setText('rdTotal', d.totalFee ? '\u20B1' + d.totalFee : '');
+        setRowVisible('rowRdDeadline', !!d.deadline);
+        setRowVisible('rowRdDeadlineBy', !!d.deadlineBy);
+        setRowVisible('rowRdExpected', !!d.expected);
+        setRowVisible('rowRdExpired', !!d.expiredAt);
+        setRowVisible('rowRdOverdue', !!d.overdueAt);
+        setRowVisible('rowRdPenalty', !!d.penalty);
+        setRowVisible('rowRdPenaltyAcc', !!d.penaltyAccrued);
+        setRowVisible('rowRdExt', !!d.hasExt);
+        if (d.hasExt) {
+            setText('rdExt', d.extText);
+            setText('rdExtLast', d.extLast ? 'Last extended ' + d.extLast : '');
+        }
+        var noteWrap = document.getElementById('rdNotesWrap');
+        if (noteWrap) {
+            noteWrap.style.display = d.notes ? '' : 'none';
+            setText('rdNotes', d.notes);
+        }
+        var method = document.getElementById('rdMethod');
+        if (method) {
+            method.textContent = d.method || '\u2014';
+            method.className = 'rv-method ' + (d.method === 'GCash' ? 'rv-method--gcash' : 'rv-method--cash');
+        }
+        var pay = document.getElementById('rdPayStatus');
+        if (pay) {
+            var st = String(d.payStatus || '').toLowerCase();
+            pay.textContent = d.payStatus || '\u2014';
+            pay.className = 'rv-status ' + (st === 'paid' ? 'rv-status--paid' : 'rv-status--unpaid') + (st === 'paid' ? '' : ' rv-status--dot');
+            if (st === 'paid') {
+                pay.innerHTML = '<i class="bi bi-check-circle-fill"></i>' + (d.payStatus || 'Paid');
+            }
+        }
+        modal.classList.add('open');
+    }
+
+    function closeDetail() { modal.classList.remove('open'); }
+
     /* Idempotent: the live sync re-calls this after swapping tbody HTML so
-       freshly rendered rows toggle too, without double-binding survivors. */
-    function bindDetailToggles() {
-        tbody.querySelectorAll('[data-detail-toggle]').forEach(function (btn) {
+       freshly rendered rows open the modal too, without double-binding. */
+    function bindDetailModal() {
+        document.querySelectorAll('[data-rental-detail]').forEach(function (btn) {
             if (btn.dataset.liveBound === '1') return;
             btn.dataset.liveBound = '1';
             btn.addEventListener('click', function () {
-                var target = document.getElementById(btn.getAttribute('data-detail-toggle'));
-                if (!target) return;
-                var wasOpen = target.classList.contains('open');
-                closeAll(btn);
-                if (!wasOpen) {
-                    target.classList.add('open');
-                    var main = tbody.querySelector('tr.rv-row[data-detail="' + btn.getAttribute('data-detail-toggle') + '"]');
-                    if (main) main.classList.add('is-open');
-                    btn.classList.add('is-open');
-                    var ic = btn.querySelector('i');
-                    if (ic) ic.className = 'bi bi-eye-slash';
-                }
+                try { openDetail(JSON.parse(btn.getAttribute('data-rental-detail'))); } catch (e) { /* ignore */ }
             });
         });
     }
-    bindDetailToggles();
-    window.__rentalsBindDetails = bindDetailToggles;
+    bindDetailModal();
+    window.__rentalsBindDetails = bindDetailModal;
 
-    /* --- Client-side search --- */
+    modal.querySelectorAll('[data-modal-close]').forEach(function (node) {
+        node.addEventListener('click', closeDetail);
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal.classList.contains('open')) closeDetail();
+    });
+
+    /* --- Client-side search (table rows only; modal never alters layout) --- */
     var searchInput = document.querySelector('[data-table-search]');
     if (searchInput) {
         searchInput.addEventListener('input', function () {
             var q = searchInput.value.toLowerCase().trim();
             tbody.querySelectorAll('tr.rv-row').forEach(function (row) {
-                var hit = row.textContent.toLowerCase().indexOf(q) !== -1;
-                var det = document.getElementById(row.getAttribute('data-detail'));
-                row.style.display = hit ? '' : 'none';
-                if (!hit && det) { det.style.display = 'none'; det.classList.remove('open'); }
-                else if (det) { det.style.display = ''; }
+                row.style.display = row.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
             });
         });
     }
-})();
-
-/* --- Receipt preview & print --- */
-(function () {
-    var modal = document.getElementById('rcptModal');
-    if (!modal) return;
-    var current = null;
-    var tick = null;
-
-    function el(id) { return document.getElementById(id); }
-
-    function fmtDuration(totalMin) {
-        var h = Math.floor(totalMin / 60), m = totalMin % 60;
-        return h ? h + 'h ' + m + 'm' : m + 'm';
-    }
-
-    function chip(node, text, tone) { node.textContent = text; node.className = 'rcpt-chip ' + tone; }
-
-    /* Ride extensions: hides the section entirely for a rental that was never
-       extended, otherwise lists every extension the rider bought. */
-    function paintExtensions(d) {
-        var count = Number(d.extCount) || 0;
-        var sec = el('rcptExtSec');
-        var extChip = el('rcptExtChip');
-        if (extChip) extChip.style.display = count > 0 ? '' : 'none';
-        if (!sec) return;
-        sec.style.display = count > 0 ? '' : 'none';
-        if (!count) return;
-        el('rcptExtCount').textContent = count + (count === 1 ? ' extension' : ' extensions');
-        el('rcptExtMinutes').textContent = fmtDuration(Number(d.extMinutes) || 0);
-        el('rcptExtFee').textContent = d.extFee || '0.00';
-        el('rcptExtLast').textContent = d.extLast || '\u2014';
-        var list = el('rcptExtLines');
-        if (list) {
-            list.innerHTML = '';
-            (d.extLines || []).forEach(function (line) {
-                var li = document.createElement('li');
-                li.textContent = line;
-                list.appendChild(li);
-            });
-        }
-    }
-
-    function refreshLive() {
-        if (!current || current.hasEnd) return;
-        var start = new Date(current.startIso).getTime();
-        var mins = isNaN(start) ? 0 : Math.max(0, Math.floor((Date.now() - start) / 60000));
-        el('rcptDuration').textContent = fmtDuration(mins);
-        el('rcptDurationNote').textContent = '(ongoing)';
-    }
-
-    function openReceipt(d) {
-        current = d;
-        el('rcptId').textContent = d.id;
-        el('rcptIssued').textContent = d.issued;
-        el('rcptRiderName').textContent = d.rider;
-        var contact = [d.email].filter(Boolean).join('');
-        el('rcptRiderContact').textContent = contact || '\u2014';
-        el('rcptRiderContact').style.display = contact ? '' : 'none';
-        el('rcptBikeName').textContent = d.bike;
-        el('rcptBikeSub').textContent = d.serial ? 'SN \u00B7 ' + d.serial : '\u2014';
-        el('rcptStart').textContent = d.start;
-        el('rcptEnd').textContent = d.hasEnd ? d.end : 'In progress';
-        el('rcptDurationNote').textContent = '';
-        if (d.duration && d.hasEnd) { el('rcptDuration').textContent = d.duration; }
-        else { refreshLive(); }
-        el('rcptRate').textContent = d.rate;
-        el('rcptTotal').textContent = d.total;
-        paintExtensions(d);
-        var refNode = el('rcptRef');
-        if (refNode) refNode.textContent = d.reference || '\u2014';
-        chip(el('rcptMethod'), d.method, d.method === 'GCash' ? 'rcpt-chip--blue' : 'rcpt-chip--green');
-        var st = String(d.payStatus).toLowerCase();
-        chip(el('rcptPayStatus'), d.payStatus,
-             st === 'paid' ? 'rcpt-chip--green' : (st === 'pending' ? 'rcpt-chip--amber' : 'rcpt-chip--red'));
-        var ride = String(d.status || '').toLowerCase();
-        var rideTone = ride === 'completed' ? 'rcpt-chip--green'
-                     : (ride === 'pending' ? 'rcpt-chip--amber'
-                     : (ride === 'cancelled' ? 'rcpt-chip--red'
-                     : (ride === 'overdue' ? 'rcpt-chip--red' : 'rcpt-chip--live')));
-        var rideIcon = ride === 'completed' ? 'bi-check-circle-fill'
-                     : (ride === 'pending' ? 'bi-hourglass-split'
-                     : (ride === 'cancelled' ? 'bi-x-circle-fill'
-                     : (ride === 'overdue' ? 'bi-exclamation-triangle-fill' : 'bi-play-fill')));
-        var rideLabel = ride === 'active' ? 'Ride in progress' : d.status;
-        var rc = el('rcptRideChip');
-        rc.className = 'rcpt-chip ' + rideTone;
-        rc.innerHTML = '<i class="bi ' + rideIcon + '"></i>' + rideLabel;
-        modal.classList.add('open');
-        document.body.classList.add('rcpt-printing');
-        if (tick) clearInterval(tick);
-        tick = setInterval(refreshLive, 30000);
-    }
-
-    function closeReceipt() {
-        modal.classList.remove('open');
-        document.body.classList.remove('rcpt-printing');
-        if (tick) { clearInterval(tick); tick = null; }
-        current = null;
-    }
-
-    function bindReceiptButtons() {
-        document.querySelectorAll('[data-print-receipt]').forEach(function (btn) {
-            if (btn.dataset.liveBound === '1') return;
-            btn.dataset.liveBound = '1';
-            btn.addEventListener('click', function () {
-                try { openReceipt(JSON.parse(btn.getAttribute('data-print-receipt'))); } catch (e) { /* ignore */ }
-            });
-        });
-    }
-    bindReceiptButtons();
-    window.__rentalsBindReceipts = bindReceiptButtons;
-
-    modal.querySelectorAll('[data-rcpt-close]').forEach(function (node) {
-        node.addEventListener('click', closeReceipt);
-    });
-
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && modal.classList.contains('open')) closeReceipt();
-    });
-
-    var printBtn = el('rcptPrintBtn');
-    if (printBtn) printBtn.addEventListener('click', function () { window.print(); });
 })();
 
 /* ==================== Mark as Paid confirmation modal ==================== */
@@ -1481,7 +1115,7 @@ initRvCountdowns();
 /* Live-sync hook (rental-live.js): re-bind row buttons + countdowns after
    the table regions are swapped with fresh server HTML. */
 window.PedalyaRentalsLiveRefresh = function () {
-    ['__rentalsBindDetails', '__rentalsBindReceipts', '__rentalsBindPay'].forEach(function (key) {
+    ['__rentalsBindDetails', '__rentalsBindPay'].forEach(function (key) {
         if (typeof window[key] === 'function') {
             try { window[key](); } catch (e) { /* keep old rows working */ }
         }
@@ -1491,5 +1125,6 @@ window.PedalyaRentalsLiveRefresh = function () {
         try { window.PedalyaRowMenuInit(document); } catch (e) { /* guarded internally */ }
     }
 };
+
 </script>
 @endsection

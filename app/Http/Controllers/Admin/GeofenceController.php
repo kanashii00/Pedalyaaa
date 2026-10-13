@@ -105,6 +105,12 @@ class GeofenceController extends Controller
             return response()->json(['message' => 'Radius is required for a circular geofence.'], 422);
         }
 
+        // Snapshot before the write: updateOrCreate mutates the active row in
+        // place, so previous values must be captured first for the audit trail.
+        $previousGeofence = Geofence::where('isActive', true)->first()?->only([
+            'centerLat', 'centerLng', 'radius', 'shapeType',
+        ]);
+
         $geofence = Geofence::updateOrCreate(
             ['isActive' => true],
             [
@@ -131,6 +137,19 @@ class GeofenceController extends Controller
             SystemSetting::setValue('geofenceWarningThreshold', (string) $validated['warningThreshold']);
         }
 
+        $geofenceChanges = [];
+        foreach ([
+            'centerLat' => $geofence->centerLat,
+            'centerLng' => $geofence->centerLng,
+            'radius' => $geofence->radius,
+            'shapeType' => $geofence->shapeType,
+        ] as $field => $to) {
+            $from = $previousGeofence[$field] ?? null;
+            if ((string) $from !== (string) $to) {
+                $geofenceChanges[$field] = ['from' => $from, 'to' => $to];
+            }
+        }
+
         AuditLog::record('geofence_updated', auth()->id(), [
             'geofenceId' => $geofence->id,
             'centerLat' => $validated['centerLat'],
@@ -142,6 +161,8 @@ class GeofenceController extends Controller
             'rotation' => $rotation,
             'points' => $points,
             'warningThreshold' => $validated['warningThreshold'] ?? null,
+            'outcome' => 'success',
+            'changes' => $geofenceChanges,
         ]);
 
         return response()->json([

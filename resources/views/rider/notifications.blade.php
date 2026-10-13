@@ -4,10 +4,10 @@
 
 @section('content')
 <div class="row justify-content-center">
-    <div class="col-lg-8">
-        <div class="card-pedalya">
-            <div class="card-pedalya-header d-flex justify-content-between align-items-center">
-                <div class="d-flex align-items-center gap-3">
+    <div class="col-12 col-xl-10">
+        <div class="card-pedalya notif-panel">
+            <div class="card-pedalya-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
                     <span><strong>Notifications</strong></span>
                     <span class="notification-unread-label" id="riderNotifUnreadLabel" data-notif-unread-label>{{ $unreadCount }} unread</span>
                     <div class="btn-group btn-group-sm">

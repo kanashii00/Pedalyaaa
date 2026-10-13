@@ -1,0 +1,21 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: pedalya-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: pedalya-secret
+      MYSQL_DATABASE: pedalya
+      TZ: Asia/Manila
+    ports:
+      - "3307:3306"
+    volumes:
+      - pedalya-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ppedalya-secret"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pedalya-mysql-data:

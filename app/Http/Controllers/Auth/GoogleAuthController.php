@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Services\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -97,6 +98,13 @@ class GoogleAuthController extends Controller
         $request->session()->regenerate();
 
         $this->recordLogin($user);
+
+        AuditLogger::record(AuditLogger::LOGIN_SUCCESS, [
+            'email' => $user->email,
+            'role' => $user->role,
+            'provider' => 'google',
+            'outcome' => 'success',
+        ], $user->id);
 
         return $user->isAdmin()
             ? redirect()->intended(route('admin.dashboard'))

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\Bicycle;
 use App\Models\DeviceStatus;
+use App\Services\AuditLogger;
 use App\Services\GeofenceService;
 use App\Services\IoTService;
 use App\Services\MaintenanceService;
@@ -210,13 +211,26 @@ class BicycleController extends Controller
             }
         }
 
+        $before = $bicycle->only([
+            'name', 'serialNumber', 'model', 'batteryLevel', 'status',
+            'hourlyRate', 'description', 'currentLat', 'currentLng', 'lockStatus',
+        ]);
+
         $bicycle->update($validated);
 
         if (array_key_exists('currentLat', $validated) || array_key_exists('currentLng', $validated)) {
             $this->reconcilePosition($bicycle);
         }
 
-        AuditLog::record('bicycle_updated', auth()->id(), ['bicycleId' => $bicycle->id]);
+        AuditLog::record('bicycle_updated', auth()->id(), [
+            'bicycleId' => $bicycle->id,
+            'serialNumber' => $bicycle->serialNumber,
+            'outcome' => 'success',
+            'changes' => AuditLogger::changes($before, $bicycle->fresh()->only([
+                'name', 'serialNumber', 'model', 'batteryLevel', 'status',
+                'hourlyRate', 'description', 'currentLat', 'currentLng', 'lockStatus',
+            ])),
+        ]);
 
         return back()->with('success', 'Bicycle updated successfully.');
     }
@@ -314,7 +328,14 @@ class BicycleController extends Controller
 
         AuditLog::record('bicycle_lock_'.$validated['action'], auth()->id(), [
             'bicycleId' => $bicycle->id,
-            'lockStatus' => $validated['action'] === 'lock' ? 'locked' : 'unlocked',
+            'serialNumber' => $bicycle->serialNumber,
+            'outcome' => 'success',
+            'changes' => [
+                'lockStatus' => [
+                    'from' => $bicycle->lockStatus,
+                    'to' => $validated['action'] === 'lock' ? 'locked' : 'unlocked',
+                ],
+            ],
         ]);
 
         return back()->with('success', "Remote {$validated['action']} command sent to device.");

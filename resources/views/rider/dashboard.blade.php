@@ -2,6 +2,22 @@
 
 @section('title', 'Rider Dashboard')
 
+@section('styles')
+<style>
+    /* Active Rental live layout: single-column flow so the fixed-width
+       countdown, fee, badges and return-confirmation panel can never spill
+       over each other in this half-width card. Sections stack with even
+       spacing at every viewport; nothing uses fixed positioning. */
+    .rental-live-grid { display: block; }
+    .rental-live-main { min-width: 0; }
+    .rental-live-side { min-width: 0; margin-top: 12px; display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
+    .rental-live-side .countdown-timer { flex-wrap: wrap; justify-content: flex-start; }
+    @media (max-width: 420px) {
+        .rental-live-side .countdown-item .countdown-value { padding: 8px 10px; min-width: 48px; }
+    }
+</style>
+@endsection
+
 @section('content')
 <!-- Welcome Banner -->
 <div class="rider-welcome mb-4">
@@ -71,11 +87,11 @@
     }
 @endphp
                     <div class="active-rental-card">
-                        <div class="row align-items-center">
-                            <div class="col-8">
+                        <div class="rental-live-grid">
+                            <div class="rental-live-main">
                                 <h6 class="mb-1">Bicycle <strong>{{ $activeRental->bicycle->serialNumber ?? 'N/A' }}</strong> - {{ $activeRental->bicycle->name ?? '' }}</h6>
                                 <p class="mb-2 text-muted" style="font-size:0.85rem;">Started: {{ $activeRental->startTime->format('M d, g:i A') }}</p>
-                                <div class="d-flex gap-3">
+                                <div class="d-flex gap-3 flex-wrap">
                                     <span><i class="bi bi-clock text-primary"></i> <strong id="rentalTimer">0:00:00</strong></span>
                                     <span><i class="bi bi-battery-three-quarters text-success"></i> {{ $activeRental->bicycle->batteryLevel ?? 0 }}%</span>
                                 </div>
@@ -107,7 +123,7 @@
                                     </div>
                                     @endif
                             </div>
-                            <div class="col-4 text-end">
+                            <div class="rental-live-side">
                                 <div class="countdown-timer">
                                     <div class="countdown-item"><span class="countdown-value" id="cdHours">0</span><span class="countdown-label">Hrs</span></div>
                                     <div class="countdown-item"><span class="countdown-value" id="cdMins">0</span><span class="countdown-label">Min</span></div>

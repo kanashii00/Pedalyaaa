@@ -113,6 +113,31 @@
     }
     .bike-status-dot.online { background: var(--success); }
     .bike-status-dot.stale { background: var(--warning); }
+
+    /* Last-command status box: token surfaces so it reads on dark navy.
+       Replaces the hardcoded #f6f7fb background that rendered theme-aware
+       light text nearly invisible in dark mode. */
+    .dev-cmd {
+        background: var(--surface-2);
+        border: 1px solid var(--border-subtle);
+        border-radius: 9px;
+        color: var(--text-1);
+        padding: 8px 10px;
+        font-size: 11.5px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+    }
+    .dev-cmd strong { color: var(--text-1); }
+    .dev-cmd__status { font-weight: 700; white-space: nowrap; }
+    .dev-cmd__status--pending { color: var(--warning); }
+    .dev-cmd__status--success { color: var(--success); }
+    .dev-cmd__status--error { color: var(--danger); }
+
+    /* Bootstrap's fixed text utilities go dim on dark navy (notably the dark
+       #198754 green), so remap them to theme tokens inside monitor cards.
+       Beats Bootstrap's !important; page-scoped, nothing else affected. */
+    .bike-monitor-card .text-success { color: var(--success) !important; }
+    .bike-monitor-card .text-danger { color: var(--danger) !important; }
     .bike-status-dot.offline { background: var(--text-3); }
     /* Placeholder for bicycles without a registered device: visibly not live. */
     .bike-monitor-card--unregistered {
@@ -408,7 +433,7 @@
                         </div>
                     </div>
 
-                    <hr class="my-2" style="border-color:#f0f0f0;">
+                    <hr class="my-2">
 
                     <div class="row g-1">
                         <div class="col-6">
@@ -421,10 +446,18 @@
                         </div>
                     </div>
 
-                    <div class="mt-2 p-2 rounded" data-dev="command" style="background:#f6f7fb; font-size:11.5px;">
+                    @php
+                        $cmdStatusClass = match($cmd?->status) {
+                            'pending', 'sent' => 'dev-cmd__status--pending',
+                            'executed' => 'dev-cmd__status--success',
+                            'failed' => 'dev-cmd__status--error',
+                            default => '',
+                        };
+                    @endphp
+                    <div class="mt-2 dev-cmd" data-dev="command">
                         @if($cmd)
                             <strong>Last command:</strong> {{ $cmd->command }}
-                            <span class="text-muted"> · {{ $cmd->status }}@if($cmd->response) — “{{ \Illuminate\Support\Str::limit($cmd->response, 60) }}”@endif · {{ $cmd->updated_at?->diffForHumans() }}</span>
+                            <span class="dev-cmd__status {{ $cmdStatusClass }}"> · {{ $cmd->status }}</span><span class="text-muted">@if($cmd->response) — “{{ \Illuminate\Support\Str::limit($cmd->response, 60) }}”@endif · {{ $cmd->updated_at?->diffForHumans() }}</span>
                         @else
                             <span class="text-muted">No lock commands recorded.</span>
                         @endif
@@ -638,12 +671,18 @@
         }
         var strong = document.createElement('strong');
         strong.textContent = 'Last command: ' + cmd.command + ' ';
+        var statusClass = cmd.status === 'executed' ? 'dev-cmd__status--success'
+            : (cmd.status === 'failed' ? 'dev-cmd__status--error'
+            : ((cmd.status === 'pending' || cmd.status === 'sent') ? 'dev-cmd__status--pending' : ''));
+        var status = document.createElement('span');
+        status.className = ('dev-cmd__status ' + statusClass).trim();
+        status.textContent = '· ' + cmd.status;
         var meta = document.createElement('span');
         meta.className = 'text-muted';
-        meta.textContent = '· ' + cmd.status
-            + (cmd.response ? ' — “' + cmd.response + '”' : '')
+        meta.textContent = (cmd.response ? ' — “' + cmd.response + '”' : '')
             + (cmd.at && ago(cmd.at) ? ' · ' + ago(cmd.at) : '');
         host.appendChild(strong);
+        host.appendChild(status);
         host.appendChild(meta);
     }
 

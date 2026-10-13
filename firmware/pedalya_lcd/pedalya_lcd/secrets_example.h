@@ -34,7 +34,7 @@
 #define PEDALYA_API_KEY ""
 #endif
 
-// APN of the SIM in the SIM7600 modem, needed only for the cellular fallback
+// APN of the SIM in the EC20F modem, needed only for the cellular fallback
 // path. Ask the carrier for the exact value (e.g. from the plan confirmation
 // or SIM pack); never guess one, a wrong APN simply refuses to attach.
 // The modem is left in its "no data link yet" state while this placeholder is

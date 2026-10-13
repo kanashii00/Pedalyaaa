@@ -114,37 +114,34 @@ class MonitoringController extends Controller
 
     private function buildStatusSummary($bicycles): array
     {
+        // Essential seven only. IoT Online/Offline count genuinely registered
+        // devices (fitted hardware + stored credential, i.e. PDY-001) by fresh
+        // vs stale heartbeat; bicycles without hardware are excluded from both
+        // so they are never incorrectly marked offline.
         $summary = [
             'total'         => 0,
             'available'     => 0,
             'rented'        => 0,
             'maintenance'   => 0,
             'out_of_service'=> 0,
-            'locked'        => 0,
-            'unlocked'      => 0,
             'online'        => 0,
             'offline'       => 0,
         ];
 
         $cutoff = now()->subMinutes(5);
         foreach ($bicycles as $bike) {
-            $online = $bike->lastHeartbeat !== null && $bike->lastHeartbeat->gt($cutoff);
+            $equipped = $bike->hasRegisteredDevice();
+            $online = $equipped && $bike->lastHeartbeat !== null && $bike->lastHeartbeat->gt($cutoff);
             $summary['total']++;
             $summary[$bike->status] = ($summary[$bike->status] ?? 0) + 1;
 
-            if ($bike->lockStatus === 'locked') {
-                $summary['locked']++;
-            } else {
-                $summary['unlocked']++;
-            }
-
             if ($online) {
                 $summary['online']++;
-            } else {
+            } elseif ($equipped) {
                 $summary['offline']++;
             }
 
-            $bike->connectivity = $online ? 'online' : 'offline';
+            $bike->connectivity = ! $equipped ? 'none' : ($online ? 'online' : 'offline');
         }
 
         return $summary;

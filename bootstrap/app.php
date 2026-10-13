@@ -19,7 +19,15 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->trustProxies(
             at: '*',
-            headers: Request::HEADER_X_FORWARDED_PROTO,
+            // Dev Tunnels terminates TLS and forwards the request to the local
+            // PHP server as http://localhost. Trust the complete standard
+            // X-Forwarded set so Laravel reconstructs the original public
+            // host, port and HTTPS scheme when generating asset() and url().
+            headers: Request::HEADER_X_FORWARDED_FOR
+                | Request::HEADER_X_FORWARDED_HOST
+                | Request::HEADER_X_FORWARDED_PORT
+                | Request::HEADER_X_FORWARDED_PROTO
+                | Request::HEADER_X_FORWARDED_PREFIX,
         );
 
         $middleware->alias([

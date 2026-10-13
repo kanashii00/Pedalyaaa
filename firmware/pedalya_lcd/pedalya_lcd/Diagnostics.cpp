@@ -39,8 +39,14 @@ void printActuatorConfig() {
 }
 
 void printBanner() {
-    Serial.printf("[cfg] server  %s://%s:%d%s\n", USE_HTTPS ? "https" : "http", SERVER_HOST,
+#if USE_HTTPS
+    // 443 is implicit in https and never printed, so the log shows the exact
+    // URL the modem requests: https://<host><path>.
+    Serial.printf("[cfg] server  https://%s%s\n", SERVER_HOST, SERVER_PATH);
+#else
+    Serial.printf("[cfg] server  http://%s:%d%s\n", SERVER_HOST,
                   SERVER_PORT, SERVER_PATH);
+#endif
     Serial.printf("[cfg] commands %s\n", COMMANDS_PATH);
     Serial.printf("[cfg] accident %s\n", ACCIDENT_REPORT_PATH);
     Serial.printf("[api] API key configured: %s\n", apiKeyConfigured() ? "YES" : "NO");
@@ -50,10 +56,11 @@ void printBanner() {
     Serial.printf("[cfg] gps     UART1 (GPIO%d, GPIO%d)\n", GPS_RX_PIN, GPS_TX_PIN);
     if (SIM_ENABLED) {
         const bool placeholder = strcmp(SIM_APN, "YOUR_APN_HERE") == 0;
-        Serial.printf("[cfg] EC20F UART2 (GPIO%d, GPIO%d) APN: %s\n", SIM_RX_PIN, SIM_TX_PIN,
-                      placeholder ? "<not set>" : SIM_APN);
+        Serial.printf("[cfg] ec20f   UART2 (GPIO%d, GPIO%d) APN: %s%s\n", SIM_RX_PIN, SIM_TX_PIN,
+                      placeholder ? "<not set>" : SIM_APN,
+                      SIM_ONLY_MODE ? " (SIM-only: Wi-Fi off)" : "");
     } else {
-        Serial.println("[cfg] EC20F disabled (SIM_ENABLED 0)");
+        Serial.println("[cfg] cellular disabled (SIM_ENABLED 0)");
     }
 }
 

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AuditLog;
 use App\Models\Bicycle;
 use App\Models\DeviceCommand;
 use App\Models\DeviceStatus;
@@ -75,6 +76,7 @@ class DeviceCommandService
         }
 
         $validStatus = $this->normalizeCommandStatus($status);
+        $previousStatus = $command->status;
 
         $command->update([
             'status' => $validStatus,
@@ -84,6 +86,28 @@ class DeviceCommandService
 
         if ($validStatus === 'executed') {
             $this->applyCommandEffect($command);
+        }
+
+        // Device-reported outcome: logged once per real transition so polling
+        // or duplicate acknowledgements can never double-record it. There is
+        // no authenticated actor here — the device reported back — so the
+        // record carries the originating admin for accountability instead of
+        // claiming one.
+        if ($previousStatus !== $validStatus && in_array($validStatus, ['executed', 'failed'], true)) {
+            AuditLog::record(
+                $validStatus === 'executed' ? 'lock_command_executed' : 'lock_command_failed',
+                null,
+                [
+                    'bicycleId' => $command->bicycleId,
+                    'command' => $command->command,
+                    'issuedBy' => $command->issuedBy,
+                    'reported_by' => 'device',
+                    'outcome' => $validStatus === 'executed' ? 'success' : 'failed',
+                    'changes' => [
+                        'status' => ['from' => $previousStatus, 'to' => $validStatus],
+                    ],
+                ]
+            );
         }
 
         return true;

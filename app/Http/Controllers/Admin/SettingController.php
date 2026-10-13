@@ -64,6 +64,10 @@ class SettingController extends Controller
             'returnGraceSeconds'     => ['sometimes', 'integer', 'min:0', 'max:86400'],
         ]);
 
+        $previousValues = SystemSetting::whereIn('key', array_keys($validated))
+            ->pluck('value', 'key')
+            ->all();
+
         foreach ($validated as $key => $value) {
             SystemSetting::updateOrCreate(
                 ['key' => $key],
@@ -85,7 +89,20 @@ class SettingController extends Controller
             Geofence::where('isActive', true)->where('id', '!=', $geofence->id)->update(['isActive' => false]);
         }
 
-        AuditLog::record('system_settings_updated', auth()->id(), ['keys' => array_keys($validated)]);
+        $settingChanges = [];
+        foreach ($validated as $key => $value) {
+            $newValue = is_bool($value) ? $value : (string) $value;
+            $oldValue = $previousValues[$key] ?? null;
+            if ((string) $oldValue !== (string) $newValue) {
+                $settingChanges[$key] = ['from' => $oldValue, 'to' => $newValue];
+            }
+        }
+
+        AuditLog::record('system_settings_updated', auth()->id(), [
+            'keys' => array_keys($validated),
+            'outcome' => 'success',
+            'changes' => $settingChanges,
+        ]);
 
         return response()->json(['message' => 'Settings updated successfully.']);
     }

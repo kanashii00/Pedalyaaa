@@ -19,11 +19,21 @@ use App\Observers\RentalObserver;
 use App\Observers\SystemSettingObserver;
 use App\Observers\UserObserver;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\URL;
 
 class AppServiceProvider extends ServiceProvider
 {
     public function boot(): void
     {
+        // A Dev Tunnel terminates TLS before forwarding to php artisan serve.
+        // TrustProxies restores the original public host and scheme from the
+        // standard X-Forwarded headers; force only that restored HTTPS scheme.
+        // This keeps asset() and url() same-origin without storing a temporary
+        // tunnel hostname in APP_URL or ASSET_URL.
+        $request = request();
+        if ($request->isSecure()) {
+            URL::forceScheme('https');
+        }
         // Automated settlement rule: rental Completed + Paid -> bicycle
         // Available, smart-lock controls Locked (RentalObserver).
         Rental::observe(RentalObserver::class);
