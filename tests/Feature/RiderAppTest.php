@@ -51,18 +51,19 @@ class RiderAppTest extends TestCase
         );
     }
 
-    public function test_login_page_shows_demo_accounts_when_a_demo_password_is_configured(): void
+    public function test_login_page_never_shows_demo_accounts_even_when_a_demo_password_is_configured(): void
     {
         config(['services.demo_account_password' => 'public-demo-pass']);
 
         $this->get(route('login'))
             ->assertOk()
-            ->assertSee('Demo accounts')
-            ->assertSee('admin@pedalya.com')
-            ->assertSee('juan.delacruz@jmc.edu.ph')
-            ->assertSee('pedro.mendoza@jmc.edu.ph')
-            ->assertSee('public-demo-pass')
-            ->assertSee('shared public demo accounts');
+            ->assertDontSee('Demo accounts')
+            ->assertDontSee('demo-accounts-title')
+            ->assertDontSee('admin@pedalya.com')
+            ->assertDontSee('juan.delacruz@jmc.edu.ph')
+            ->assertDontSee('pedro.mendoza@jmc.edu.ph')
+            ->assertDontSee('public-demo-pass')
+            ->assertDontSee('shared public demo accounts');
     }
 
     public function test_login_page_hides_demo_accounts_when_no_demo_password_is_configured(): void
@@ -73,6 +74,16 @@ class RiderAppTest extends TestCase
             ->assertOk()
             ->assertDontSee('Demo accounts')
             ->assertDontSee('admin@pedalya.com');
+    }
+
+    public function test_login_page_still_renders_the_sign_in_form(): void
+    {
+        $this->get(route('login'))
+            ->assertOk()
+            ->assertSee('Sign In', false)
+            ->assertSee('Email Address', false)
+            ->assertSee('Password', false)
+            ->assertSee('Remember me', false);
     }
 
     public function test_login_rider_succeeds(): void

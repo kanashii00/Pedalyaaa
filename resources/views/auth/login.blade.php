@@ -78,26 +78,6 @@
             </button>
         </form>
 
-        @if(config('services.demo_account_password'))
-            <section class="demo-accounts" aria-labelledby="demo-accounts-title">
-                <h2 id="demo-accounts-title">Demo accounts</h2>
-                <strong>Admin</strong>
-                <ul>
-                    <li><code>admin@pedalya.com</code></li>
-                </ul>
-                <strong>Rider accounts</strong>
-                <ul>
-                    <li><code>juan.delacruz@jmc.edu.ph</code></li>
-                    <li><code>maria.santos@jmc.edu.ph</code></li>
-                    <li><code>jose.reyes@jmc.edu.ph</code></li>
-                    <li><code>ana.garcia@jmc.edu.ph</code></li>
-                    <li><code>pedro.mendoza@jmc.edu.ph</code></li>
-                </ul>
-                <strong>Shared password:</strong> <code>{{ config('services.demo_account_password') }}</code>
-                <p class="demo-accounts-note">These are shared public demo accounts. Please do not enter personal or real rider data.</p>
-            </section>
-        @endif
-
         <div class="d-flex align-items-center my-4">
             <div style="flex:1; height:1px; background: rgba(255,255,255,0.25);"></div>
             <span class="px-3 auth-footer-text" style="font-size:0.85rem; font-weight:600;">OR</span>

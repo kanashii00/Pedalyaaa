@@ -34,12 +34,6 @@
 .auth-hint { color: rgba(255,255,255,0.85) !important; font-weight: 500; font-size: 0.82rem; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
 .google-btn { background:#fff !important; color:#333 !important; font-weight:600; border:1px solid rgba(0,0,0,0.12); display:flex; align-items:center; justify-content:center; }
 .google-btn:hover { background:#f6f6f6 !important; color:#111 !important; box-shadow:0 4px 14px rgba(0,0,0,0.15); }
-.demo-accounts { margin-top: 1.25rem; padding: 1rem; border: 1px solid rgba(255,255,255,0.28); border-radius: 12px; background: rgba(0,0,0,0.2); color: rgba(255,255,255,0.95); font-size: 0.85rem; }
-.demo-accounts h2 { margin: 0 0 0.65rem; color: #fff; font-size: 1rem; font-weight: 700; }
-.demo-accounts ul { margin: 0.2rem 0 0.65rem; padding-left: 1.2rem; }
-.demo-accounts li { margin: 0.15rem 0; overflow-wrap: anywhere; }
-.demo-accounts code { color: #fff; font-size: 0.82rem; overflow-wrap: anywhere; }
-.demo-accounts-note { margin: 0.65rem 0 0; font-size: 0.78rem; opacity: 0.9; }
 /* Glass error bar for the auth pages: dark translucent surface, thin subtle
    border and rounded corners matching the frosted card, a small red-outlined
    icon on the left and clean white text. Fixed flex row keeps a compact
