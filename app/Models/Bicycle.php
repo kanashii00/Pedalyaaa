@@ -372,8 +372,22 @@ class Bicycle extends Model
         return static::where('deviceApiKey', hash('sha256', $plain))->first();
     }
 
+    /**
+     * Per-request zone snapshot written by the monitoring/geofence controllers
+     * (`$bike->zone = $service->checkPoint(...)`), falling back to "unknown"
+     * when nobody wrote one.
+     *
+     * The fallback matters because the accessor otherwise shadows the assigned
+     * value: without reading the stored attribute first, every row would
+     * permanently read as unknown/no-GPS no matter what the controllers
+     * computed.
+     */
     public function getZoneAttribute(): array
     {
-        return ['inside' => null, 'distance' => null, 'level' => 'unknown', 'warning' => false];
+        $stored = $this->attributes['zone'] ?? null;
+
+        return is_array($stored)
+            ? $stored
+            : ['inside' => null, 'distance' => null, 'level' => 'unknown', 'warning' => false];
     }
 }

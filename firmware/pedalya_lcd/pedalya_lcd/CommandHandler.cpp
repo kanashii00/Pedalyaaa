@@ -6,7 +6,7 @@ CommandHandler::CommandHandler(LcdDisplay& display, LockActuator& lock,
                                RentalController& controller, PedalyaApi& api)
     : display_(display), lock_(lock), controller_(controller), api_(api) {}
 
-void CommandHandler::pollAndExecute(const RentalState& rental) {
+void CommandHandler::pollAndExecute(RentalState& rental) {
     DeviceCommand commands[MAX_PENDING_COMMANDS];
     size_t count = 0;
     String error;
@@ -23,7 +23,7 @@ void CommandHandler::pollAndExecute(const RentalState& rental) {
     }
 }
 
-void CommandHandler::execute(const DeviceCommand& command, const RentalState& rental) {
+void CommandHandler::execute(const DeviceCommand& command, RentalState& rental) {
     bool executed = true;
     String result = "executed";
 
@@ -33,20 +33,34 @@ void CommandHandler::execute(const DeviceCommand& command, const RentalState& re
         Serial.println("[command] actuator command failed: servo unavailable");
     } else if (command.command == "lock") {
         lock_.lockAtConfiguredAngle();
+        rental.bicycleLockStatus = "locked";
         Serial.println("[servo] manual lock command accepted");
     } else if (command.command == "unlock") {
-        // Allowed only while the rental has not expired. A queued or mistimed
-        // unlock must not release a wheel whose time is already up, so the
-        // refusal immediately re-issues the lock rather than merely declining.
-        if (controller_.rentalIsExpired(rental)) {
+        // Refuse unlock if:
+        // 1. Rental is expired or overdue
+        // 2. Rental is explicitly returned or cancelled
+        // 3. Bicycle is under maintenance
+        // 4. API authorization failed (e.g. 401/403)
+        const bool expired = controller_.rentalIsExpired(rental);
+        const bool terminated = (rental.status == "returned" || rental.status == "cancelled");
+        const bool maintenance = (rental.bicycleStatus == "maintenance");
+        const bool authFailed = (api_.lastStatus() == 401 || api_.lastStatus() == 403);
+
+        if (expired || terminated || maintenance || authFailed) {
             executed = false;
-            result = "unlock blocked: rental expired";
-            Serial.println("[command] unlock blocked: rental expired");
-            lock_.writePhysical(SERVO_LOCK_ANGLE, "unlock-blocked-expired");
+            if (expired) result = "unlock blocked: rental expired";
+            else if (terminated) result = "unlock blocked: rental terminated";
+            else if (maintenance) result = "unlock blocked: bicycle in maintenance";
+            else result = "unlock blocked: unauthorized";
+
+            Serial.printf("[command] %s\n", result.c_str());
+            lock_.writePhysical(SERVO_LOCK_ANGLE, "unlock-blocked");
             lock_.setLocked(true);
+            rental.bicycleLockStatus = "locked";
         } else {
             lock_.release();
-            Serial.println("[servo] manual unlock command accepted");
+            rental.bicycleLockStatus = "unlocked";
+            Serial.println("[servo] unlock command accepted");
         }
     } else if (command.command == "buzzer") {
         // A server command can never be the reason the buzzer sounds before the
@@ -60,9 +74,11 @@ void CommandHandler::execute(const DeviceCommand& command, const RentalState& re
                           actuatorStateName(controller_.state()));
         }
     } else if (command.command == "lcd") {
-        display_.showMessageFor(3000UL, "PEDALYA",
-                                command.message.length() ? command.message : "RENTAL WARNING");
         Serial.printf("[actuator] LCD command: %s\n", command.message.c_str());
+        if (command.message.length() > 0) {
+            uint32_t dur = (command.durationMs > 0 && command.durationMs <= 10000) ? command.durationMs : 4000;
+            display_.showMessageFor(dur, "SERVER MESSAGE  ", command.message);
+        }
     } else if (command.command == "calibrate") {
         if (ACTUATOR_CALIBRATION_MODE && command.servoAngle >= 0 && command.servoAngle <= 180) {
             lock_.writePhysical(command.servoAngle, "calibration-command");

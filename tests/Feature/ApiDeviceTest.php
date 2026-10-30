@@ -99,6 +99,14 @@ class ApiDeviceTest extends TestCase
         $this->postJson('/api/iot/bicycle/99999/status', [], $this->deviceHeaders())->assertStatus(404);
     }
 
+    public function test_rental_endpoint_404s_for_unknown_bicycle(): void
+    {
+        // Route model binding resolves {bicycle} by id ahead of the key check,
+        // so an unknown bicycle id is a routing 404 - not an auth failure.
+        // This is the failure class the ESP32 poll() reports as "404 not found".
+        $this->getJson('/api/iot/bicycle/99999/rental', $this->deviceHeaders())->assertStatus(404);
+    }
+
     public function test_acknowledge_command(): void
     {
         $bike = $this->makeBicycle();

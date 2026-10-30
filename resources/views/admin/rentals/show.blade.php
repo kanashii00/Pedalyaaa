@@ -71,6 +71,7 @@
                     <tr><th class="text-muted">Bicycle</th><td>{{ $rental->bicycle->name ?? $rental->bicycleName }} ({{ $rental->bicycleSerial ?? '—' }})</td></tr>
                     <tr><th class="text-muted">Rate Per Hour</th><td>₱{{ number_format($rental->ratePerHour, 2) }}</td></tr>
                     <tr><th class="text-muted">Start Time</th><td>{{ $rental->startTime ? $rental->startTime->format('M d, Y g:i A') : '—' }}</td></tr>
+                    <tr><th class="text-muted">Return Submitted At</th><td>{{ $rental->returnRequestedAt ? $rental->returnRequestedAt->format('M d, Y g:i A') : '—' }}</td></tr>
                     <tr><th class="text-muted">End Time</th><td>{{ $rental->endTime ? $rental->endTime->format('M d, Y g:i A') : '—' }}</td></tr>
                     <tr><th class="text-muted">Duration</th><td>{{ $rental->durationFormatted ?? ($rental->durationMinutes ? floor($rental->durationMinutes / 60) . 'h ' . ($rental->durationMinutes % 60) . 'm' : '—') }}</td></tr>
                     <tr><th class="text-muted">Charged Hours</th><td>{{ $rental->chargedHours }}</td></tr>
@@ -101,9 +102,25 @@
                         </tr>
                     @endif
                     <tr><th class="text-muted">Payment Status</th>
-                        <td>@if($rental->paymentStatus === 'paid')<x-admin.badge type="success" label="Paid"/>@else<x-admin.badge type="warning" label="Pending"/>@endif</td>
+                        <td>
+                            @if($rental->paymentStatus === 'paid')
+                                <x-admin.badge type="success" label="Paid"/>
+                            @elseif($rental->paymentStatus === 'partial')
+                                <x-admin.badge type="warning" label="Partial"/>
+                            @else
+                                <x-admin.badge type="warning" label="Pending"/>
+                            @endif
+                        </td>
                     </tr>
                     <tr><th class="text-muted">Payment Method</th><td>{{ $rental->paymentMethod ? ucfirst($rental->paymentMethod) : '—' }}</td></tr>
+                    @php($rentalPayment = $rental->payment)
+                    @if($rentalPayment && (float) $rentalPayment->latePenalty > 0)
+                        <tr><th class="text-muted">Late Penalty</th><td class="text-danger">₱{{ number_format($rentalPayment->latePenalty, 2) }}</td></tr>
+                    @endif
+                    @if($rentalPayment)
+                        <tr><th class="text-muted">Amount Paid</th><td class="text-success">₱{{ number_format($rentalPayment->amountPaid, 2) }}</td></tr>
+                        <tr><th class="text-muted">Balance Due</th><td class="{{ (float) $rentalPayment->balanceDue > 0 ? 'text-danger fw-bold' : 'text-muted' }}">₱{{ number_format($rentalPayment->balanceDue, 2) }}</td></tr>
+                    @endif
                     <tr><th class="text-muted">Reference</th><td>{{ $rental->paymentReference ?? '—' }}</td></tr>
                     <tr><th class="text-muted">Overdue</th><td>{{ $rental->isOverdue ? 'Yes' : 'No' }}</td></tr>
                 </tbody>

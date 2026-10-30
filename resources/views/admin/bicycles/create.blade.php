@@ -45,13 +45,6 @@
                             </div>
                             <small class="text-muted">Auto-generated, unique. Cannot be changed.</small>
                         </div>
-                        <div class="col-12">
-                            <label class="form-label">QR Code</label>
-                            <div class="form-control-plaintext vr-readonly-field">
-                                <code class="vr-mono">{{ $nextQr }}</code>
-                            </div>
-                            <small class="text-muted">Auto-generated, unique. Cannot be changed.</small>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -170,7 +163,7 @@
     <div class="d-flex justify-content-between align-items-center mt-4 mb-3">
         <small class="text-muted">
             <i class="bi bi-info-circle me-1"></i>
-            Serial Number <strong>{{ $nextSerial }}</strong> and QR Code <strong>{{ $nextQr }}</strong> will be assigned on save.
+            Serial Number <strong>{{ $nextSerial }}</strong> will be assigned on save.
         </small>
         <div class="d-flex gap-2">
             <a href="{{ route('admin.bicycles.index') }}" class="btn-admin btn-admin--secondary">

@@ -218,10 +218,10 @@ class DeviceRentalDisplayTest extends TestCase
 
         $response = $this->getJson($this->endpoint($this->bike), $this->deviceHeaders())->assertOk();
 
-        $response->assertJsonPath('data.rental.penalty.rule', Rental::PENALTY_PER_HOUR);
+        $response->assertJsonPath('data.rental.penalty.rule', Rental::PENALTY_PER_5_MINUTES);
         $response->assertJsonPath('data.rental.penalty.isDefaultRate', true);
-        // ceil(90/60) = 2 hours x the PHP 30 global rate.
-        $this->assertEqualsWithDelta(60.0, $response->json('data.rental.penalty.accrued'), 5.0);
+        // floor(90/5) = 18 completed 5-minute intervals x the PHP 30 global rate.
+        $this->assertEqualsWithDelta(540.0, $response->json('data.rental.penalty.accrued'), 5.0);
     }
 
     public function test_legacy_expected_end_time_surcharge_is_shown_before_a_deadline_exists(): void

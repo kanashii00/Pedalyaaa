@@ -39,21 +39,29 @@ class AdminTableActionsTest extends TestCase
 
         $html = $this->adminPage('admin.riders.index');
 
-        // Fixed-width column on header and body cells.
+        // Fixed-width column on header and body cells, scoped so only the
+        // Customer List column tightens to the two remaining actions.
+        $this->assertStringContainsString('class="admin-table admin-table--customer-list"', $html);
         $this->assertStringContainsString('<th class="col-actions">Actions</th>', $html);
         $this->assertStringContainsString('data-label="Actions" class="col-actions"', $html);
 
         // One flex row per record with a uniform gap.
         $this->assertStringContainsString('<div class="actions-row">', $html);
 
-        // Icon-only buttons expose accessible names mirroring their tooltips.
-        foreach (['Review Verification', 'Disable', 'Suspend'] as $action) {
+        // The redundant review shortcut is gone from the row: clicking the
+        // customer name already opens the verification/details dialog.
+        $this->assertStringNotContainsString('title="Review Verification"', $html);
+        $this->assertStringNotContainsString('aria-label="Review Verification"', $html);
+        $this->assertStringContainsString('class="customer-name-link"', $html);
+        $this->assertStringContainsString('onclick="openVerifyReview(this)"', $html);
+
+        // The remaining status actions keep their accessible names.
+        foreach (['Disable', 'Suspend'] as $action) {
             $this->assertStringContainsString('title="' . $action . '"', $html);
             $this->assertStringContainsString('aria-label="' . $action . '"', $html);
         }
 
-        // Handlers, permissions and verification flow are untouched.
-        $this->assertStringContainsString('openVerifyReview(this)', $html);
+        // Permissions and status actions are untouched.
         $this->assertStringContainsString(route('admin.riders.status', 1), $html);
         $this->assertStringContainsString('data-confirm="Disable this rider?"', $html);
         $this->assertStringContainsString('data-confirm="Suspend this rider?"', $html);
@@ -122,5 +130,10 @@ class AdminTableActionsTest extends TestCase
         $this->assertStringContainsString('.actions-row > *', $css);
         $this->assertStringContainsString('box-sizing: border-box', $css);
         $this->assertStringContainsString('.actions-row .btn-admin--sm i', $css);
+
+        // The Customer List column is scoped to the two actions that remain,
+        // without changing the shared column width used by other tables.
+        $this->assertStringContainsString('.admin-table--customer-list th.col-actions { width: 100px; min-width: 100px; }', $css);
+        $this->assertStringContainsString('.admin-table--customer-list td.col-actions { padding-right: 16px; }', $css);
     }
 }

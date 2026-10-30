@@ -279,16 +279,12 @@ class RiderRentalDurationMinutesTest extends TestCase
         );
     }
 
-    public function test_a_minute_rental_is_charged_the_whole_hour_minimum(): void
+    public function test_rentals_are_charged_at_150_per_minute_without_rounding(): void
     {
-        $rental = $this->rentFor(15);
+        $rental = $this->rentFor(20);
 
-        $this->assertSame(1, (int) $rental->chargedHours, 'part hours round up to the 1 hour minimum');
-        $this->assertEquals(
-            (float) $rental->ratePerHour,
-            (float) $rental->totalFee,
-            'a 15 minute rental is billed at the one hour minimum'
-        );
+        $this->assertSame(20, (int) $rental->durationMinutes);
+        $this->assertSame(30.00, (float) $rental->totalFee);
     }
 
     public function test_rider_history_shows_the_saved_duration(): void

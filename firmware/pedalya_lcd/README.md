@@ -161,6 +161,19 @@ Everything else stays in `config.h`:
 Save the file. Only `secrets.h` is ever edited per unit; the rest of the sketch
 is shared.
 
+### Temporary Wi-Fi API health test
+
+`config.h` defaults to `CONNECTIVITY_MODE_WIFI_HEALTH_TEST`. This mode joins
+the configured Wi-Fi network and sends only an unauthenticated, certificate-
+verified HTTPS `GET https://nfdfn4j8-8000.asse.devtunnels.ms:443/api/health`.
+It does not poll rental state, process server commands, or send heartbeat, GPS,
+or accident requests. The Serial Monitor reports Wi-Fi association, HTTP status,
+and health-response success separately.
+
+For the EC20F/SIM deployment, change `CONNECTIVITY_MODE` in `config.h` to
+`CONNECTIVITY_MODE_EC20F_SIM`. `SIM_ONLY_MODE` remains independently
+configurable and keeps its existing SIM-only behavior.
+
 ### 6. Upload
 
 Click the **right-arrow (Upload)** button. First compile is slow, and the IDE
@@ -177,7 +190,7 @@ prints the library paths and sketch size as it goes. A successful run ends with
 [api] fleet key configured: YES (heartbeat, accident-report)
 [api] API key header configured: YES (X-API-Key)
 [cfg] gps     UART1 (GPIO25, GPIO26)
-[cfg] sim7600 UART2 (GPIO16, GPIO17) APN: <not set>
+[cfg] EC20F UART2 (GPIO16, GPIO17) APN: <not set>
 [cfg] display I2C 0x27  SDA 21  SCL 22
 [wifi] connecting to "PLDTHOMEFIBRZ47rS"
 WiFi connected!
@@ -360,14 +373,14 @@ Longitude: ...` pair (~1 Hz). Moving GPS off GPIO2 is deliberate: that pin is
 also an ESP32 boot strapping pin, and TX GPIO4 was hiding under the LCD's I2C
 address scan on some benches.
 
-#### Cellular fallback (SIM7600CE)
+#### Cellular fallback (EC20F)
 
-The SIM7600CE is only a modem: the ESP32 keeps every Pedalya decision, every
+The EC20F is only a modem: the ESP32 keeps every Pedalya decision, every
 endpoint, the API key and all JSON handling, and the SIM link is a second route
 to the same server used whenever Wi-Fi is not associated. It is wired on UART2
 and must not use GPIO1/GPIO3, which the USB-UART0 monitor owns:
 
-| SIM7600 | ESP32 | Note |
+| EC20F | ESP32 | Note |
 | --- | --- | --- |
 | `VCC` | regulated 3.7-4.2V | a supply sized for GSM bursts (peaks of ~2 A); not the ESP32 3V3 pin |
 | `GND` | `GND` | common ground |

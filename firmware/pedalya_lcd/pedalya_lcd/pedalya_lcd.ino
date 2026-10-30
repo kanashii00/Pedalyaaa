@@ -13,6 +13,7 @@
 #include "RentalController.h"
 #include "RentalTimer.h"
 #include "Sim7600.h"
+#include "EC20FDiagnostic.h"
 #include "config.h"
 #include <WiFi.h>
 /*
@@ -80,7 +81,9 @@ struct PendingAccident {
 };
 
 static PendingAccident pendingAccident;
+#if ACCIDENT_ENABLED
 static uint32_t lastAccidentTraceMs = 0;
+#endif
 
 /**
  * Latch a detected crash for delivery.
@@ -117,6 +120,7 @@ static void queueAccidentReport(const AccidentEvent& event) {
     }
 }
 
+#if ACCIDENT_ENABLED
 /**
  * Why the detector will or will not report a crash, in a few words.
  *
@@ -147,24 +151,32 @@ static const char* accidentArmNote() {
     }
     return "";
 }
+#endif
 
 /**
  * Sample the IMU and, if it fires, announce the crash on the LCD and the Serial
  * Monitor and queue it for the backend.
  */
 static void pollAccidentDetection() {
+#if !ACCIDENT_ENABLED
+    // No MPU6050 fitted on this hardware build (ACCIDENT_ENABLED 0): nothing
+    // to sample and nothing to log. Queued-report delivery in
+    // serviceAccidentReport() below is untouched.
+    return;
+#endif
     accidentDetector.poll();
 
-#if ACCIDENT_SERIAL_TRACE
+#if ACCIDENT_SERIAL_TRACE && ACCIDENT_ENABLED
     const uint32_t now = millis();
     if (now - lastAccidentTraceMs >= ACCIDENT_TRACE_INTERVAL_MS) {
         lastAccidentTraceMs = now;
         const AccidentReading& sample = accidentDetector.reading();
+        const bool valid = accidentDetector.hasValidSample();
         Serial.printf("[mpu] a=%.2f,%.2f,%.2f g  |a|=%.2f g  w=%.0f dps  tilt=%.0f deg%s%s\n",
                       (double)sample.accelXG, (double)sample.accelYG, (double)sample.accelZG,
                       (double)sample.magnitudeG, (double)sample.gyroMagnitudeDps,
                       (double)sample.tiltDegrees,
-                      accidentDetector.present() ? "" : "  [sensor missing]",
+                      valid ? "" : "  [stale/invalid reading]",
                       accidentArmNote());
     }
 #endif
@@ -182,9 +194,8 @@ static void pollAccidentDetection() {
         Serial.println("[accident] no valid GPS fix; the report will carry no location");
     }
 
-    // Takes the screen over until the window closes; paintScreen() yields to it.
-    display.showMessageFor(ACCIDENT_LCD_HOLD_MS, "POSSIBLE ACCIDENT", "SENDING TO ADMIN");
     queueAccidentReport(event);
+    paintScreen();
 }
 
 /**
@@ -213,7 +224,6 @@ static void serviceAccidentReport() {
     if (pendingAccident.attempts >= ACCIDENT_REPORT_MAX_ATTEMPTS) {
         Serial.printf("[accident] giving up after %lu attempts; the admin was never reached\n",
                       (unsigned long)pendingAccident.attempts);
-        display.showMessageFor(ACCIDENT_LCD_HOLD_MS, "ACCIDENT DETECTED", "ALERT NOT SENT");
         pendingAccident.active = false;
         return;
     }
@@ -230,8 +240,9 @@ static void serviceAccidentReport() {
         Serial.printf("[accident] admin notified (attempt %lu)%s\n",
                       (unsigned long)pendingAccident.attempts,
                       pendingAccident.hasFix ? " with GPS location" : " without GPS location");
-        display.showMessageFor(ACCIDENT_LCD_HOLD_MS, "ACCIDENT SENT", "ADMIN NOTIFIED");
+        display.showMessageFor(3000, "! ACCIDENT ALERT", pendingAccident.hasFix ? "ADMIN NOTIF +GPS" : "ADMIN NOTIFIED  ");
         pendingAccident.active = false;
+        paintScreen();
         return;
     }
 
@@ -253,7 +264,6 @@ static void serviceAccidentReport() {
         Serial.println("[accident]      DEVICE_API_KEY and reflash the bike.");
         Serial.println("[accident]   3. the report is only lost for this crash; the next one");
         Serial.println("[accident]      will be delivered once the key matches.");
-        display.showMessageFor(ACCIDENT_LCD_HOLD_MS, "ACCIDENT NOT SENT", "CHECK DEVICE KEY");
         pendingAccident.active = false;
         return;
     }
@@ -269,24 +279,31 @@ static const uint32_t RETRY_SECONDS = 5;
 static const uint32_t BUZZER_LOOP_MAX_SLEEP_MS = 500;
 
 static uint32_t lastPollMs = 0;
+#if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST || !SIM_ONLY_MODE
 static uint32_t lastWifiRetry = 0;
+#endif
 static uint32_t lastSimRetry = 0;
 static uint32_t lastHeartbeatMs = 0;
 static uint32_t lastGpsReportMs = 0;
 static bool everSynced = false;
-static bool wifiAnnounced = false;
 static bool polledOnce = false;
 static bool serverReachable = false;
+// Health-gated LCD latch. True only after the EC20F completes the read-only
+// /api/health GET with HTTP 200; cleared whenever the link drops or a check
+// fails. Startup, modem power-on and cellular registration alone never set
+// it, so they can only ever show PEDALYA CONNECTING.
+static bool serverVerified = false;
 static bool heartbeatAttempted = false;
 static String lastError;
 
 static uint32_t pollIntervalMs() { return (uint32_t)state.pollAfterSeconds * 1000UL; }
 
+#if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST || !SIM_ONLY_MODE
 static void connectWifi() {
     api.begin();
-    wifiAnnounced = false;
     lastWifiRetry = millis();
 }
+#endif
 
 /**
  * Heartbeat and GPS upload.
@@ -316,28 +333,271 @@ static void reportTelemetry() {
     }
 }
 
+/**
+ * Truthful, nonblocking 16x2 LCD status state machine.
+ *
+ * Shows distinct states: WIFI CONNECTING -> WIFI CONNECTED -> SERVER CHECK
+ * -> SERVER ONLINE / SERVER OFFLINE -> rental countdown / expiry.
+ *
+ * Does NOT claim SERVER ONLINE just because Wi-Fi or DNS works. Requires
+ * a successful /api/health HTTP 200 (serverVerified). Row writes are
+ * deduplicated in LcdDisplay::row, so calling every pass costs nothing once
+ * settled, and no other path may write the display.
+ */
 static void paintScreen() {
-    // A message the server sent owns the screen until its window closes.
-    if (display.messageActive()) return;
-
-    const ActuatorState current = controller.state();
-    if (current == ActuatorState::Expired) {
-        display.showExpiredPhase(timer.seconds(), timer.penalty());
-    } else if (current == ActuatorState::Warning) {
-        display.showExpiryWarning(state);
-    } else if (current == ActuatorState::AwaitingReturn) {
-        display.showMessage("BIKE LOCKED", "RETURN PENDING");
-    } else if (state.hasRental) {
-        display.showRental(state);
-    } else {
-        display.showIdle();
+    if (display.messageActive()) {
+        return;
     }
+
+    // 1. Safety Event (Accident) Screen
+    // Only shown when an actual sensor event is detected and pending delivery.
+    // If a rental is active, alternate 2s alert / 2s rental so countdown is never lost.
+    if (pendingAccident.active) {
+        const uint32_t now = millis();
+        if (state.hasRental) {
+            if (((now / 2000UL) % 2) == 0) {
+                display.showAccidentAlert(false, pendingAccident.hasFix);
+                return;
+            }
+            // Alternate pass falls through to rental screen
+        } else {
+            display.showAccidentAlert(false, pendingAccident.hasFix);
+            return;
+        }
+    }
+
+    // 2. Active Rental Screen (takes priority over idle screens)
+    if (state.hasRental) {
+        if (state.expired() || controller.rentalIsExpired(state)) {
+            display.showExpiredPhase(timer.seconds(), timer.penalty(), lock.locked());
+        } else {
+            display.showRental(state, lock.locked());
+        }
+        return;
+    }
+
+    // 3. Network & Connectivity state
+    const bool wifiUp = WiFi.status() == WL_CONNECTED;
+    const bool modReady = SIM_ENABLED && simIsReady();
+    // Cellular is actively routing traffic only when Wi-Fi is down and API is connected via SIM
+    const bool cellActive = (!wifiUp && modReady && api.connected());
+    const char* serial = (state.bicycleSerial.length() > 0) ? state.bicycleSerial.c_str() : "PDY-001";
+
+    if (serverVerified) {
+        // Authoritative Ready Screen: truthful bicycle ID, connection indicators, lock state, real battery
+        display.showReady(serial, wifiUp, modReady, cellActive, serverVerified,
+                          lock.locked(), state.bicycleBatteryLevel, state.bicycleStatus.c_str());
+        return;
+    }
+
+    // Server not verified yet (starting up, checking, or network failure)
+    if (!wifiUp) {
+        if (!simPresent()) {
+            display.showStatus(SystemStatus::ModemInit, serial);
+            return;
+        }
+        if (!simIsRegistered()) {
+            display.showStatus(SystemStatus::WaitingForService, serial);
+            return;
+        }
+        if (!modReady) {
+            display.showStatus(SystemStatus::CellularConnecting, serial);
+            return;
+        }
+        if (api.lastStatus() > 0 && api.lastStatus() != 200) {
+            display.showStatus(SystemStatus::ApiOffline, serial);
+            return;
+        }
+        display.showStatus(SystemStatus::ServerCheck, serial);
+        return;
+    }
+
+    if (wifiUp) {
+        if (api.lastStatus() > 0 && api.lastStatus() != 200) {
+            display.showStatus(SystemStatus::ServerOffline, serial);
+            return;
+        }
+        display.showStatus(SystemStatus::ServerCheck, serial);
+        return;
+    }
+
+    display.showStatus(SystemStatus::WifiConnecting, serial);
+}
+
+#if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+static bool wifiTestStatusKnown = false;
+static bool wifiTestWasConnected = false;
+static bool wifiTestHealthAttempted = false;
+static uint32_t lastWifiTestHealthMs = 0;
+
+static void serviceWifiHealthTest() {
+    const uint32_t now = millis();
+    const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+
+    if (!wifiTestStatusKnown || wifiConnected != wifiTestWasConnected) {
+        wifiTestStatusKnown = true;
+        wifiTestWasConnected = wifiConnected;
+        Serial.printf("[wifi-test] Wi-Fi connection status: %s\n",
+                      wifiConnected ? "CONNECTED" : "DISCONNECTED");
+        if (!wifiConnected) {
+            Serial.println("[wifi-test] health HTTP status: not attempted; "
+                           "server response success: NOT TESTED");
+            wifiTestHealthAttempted = false;
+        } else {
+            wifiTestHealthAttempted = false;
+        }
+    }
+
+    if (!wifiConnected) {
+        serverVerified = false;
+        paintScreen();
+        if (lastWifiRetry == 0 || now - lastWifiRetry >= WIFI_RETRY_INTERVAL_MS) {
+            connectWifi();
+        }
+        return;
+    }
+
+    if (!wifiTestHealthAttempted ||
+        now - lastWifiTestHealthMs >= WIFI_RETRY_INTERVAL_MS) {
+        wifiTestHealthAttempted = true;
+        lastWifiTestHealthMs = now;
+
+        String detail;
+        const bool responseOk = api.checkHealth(detail);
+        const int status = api.lastStatus();
+        const bool responseSuccess = responseOk && status >= 200 && status < 300;
+        serverVerified = responseSuccess;
+        Serial.printf("[wifi-test] Wi-Fi connection status: CONNECTED; "
+                      "health HTTP status: %d; server response success: %s (%s)\n",
+                      status, responseSuccess ? "YES" : "NO", detail.c_str());
+        paintScreen();
+    }
+}
+#endif
+
+#if CONNECTIVITY_MODE == CONNECTIVITY_MODE_EC20F_SIM
+static bool cellTestStatusKnown = false;
+static bool cellTestHealthAttempted = false;
+static uint32_t lastCellTestHealthMs = 0;
+
+static void serviceCellularHealthTest() {
+    const uint32_t now = millis();
+
+    // Stage 1: Modem AT communication
+    if (!simPresent()) {
+        serverVerified = false;
+        display.showStatus(SystemStatus::ModemInit);
+        if (!cellTestStatusKnown) {
+            Serial.println("[sim-test] Cellular connection status: MODEM_ABSENT");
+            Serial.println("[sim-test] health HTTP status: not attempted; server response success: NOT TESTED");
+            cellTestStatusKnown = true;
+        }
+        if (lastSimRetry == 0 || now - lastSimRetry >= SIM_RETRY_INTERVAL_MS) {
+            lastSimRetry = now;
+            simInit();
+        }
+        return;
+    }
+
+    // Stage 2: SIM and Network registration
+    if (!simIsRegistered()) {
+        serverVerified = false;
+        display.showStatus(SystemStatus::WaitingForService);
+        if (!cellTestStatusKnown) {
+            Serial.println("[sim-test] Cellular connection status: SEARCHING_SERVICE");
+            Serial.println("[sim-test] health HTTP status: not attempted; server response success: NOT TESTED");
+            cellTestStatusKnown = true;
+        }
+        if (lastSimRetry == 0 || now - lastSimRetry >= SIM_RETRY_INTERVAL_MS) {
+            lastSimRetry = now;
+            simConnectInternet(SIM_APN);
+        }
+        return;
+    }
+
+    // Stage 3: Packet data attachment / PDP context
+    if (!simIsReady()) {
+        serverVerified = false;
+        display.showStatus(SystemStatus::CellularConnecting);
+        if (!cellTestStatusKnown) {
+            Serial.println("[sim-test] Cellular connection status: ATTACHING_DATA");
+            Serial.println("[sim-test] health HTTP status: not attempted; server response success: NOT TESTED");
+            cellTestStatusKnown = true;
+        }
+        if (lastSimRetry == 0 || now - lastSimRetry >= SIM_RETRY_INTERVAL_MS) {
+            lastSimRetry = now;
+            simConnectInternet(SIM_APN);
+        }
+        return;
+    }
+
+    // Stage 4 & 5: HTTPS request to /api/health over modem-native stack
+    if (!cellTestHealthAttempted || now - lastCellTestHealthMs >= SIM_RETRY_INTERVAL_MS) {
+        cellTestHealthAttempted = true;
+        lastCellTestHealthMs = now;
+        display.showStatus(SystemStatus::ServerCheck);
+
+        String detail;
+        const bool responseOk = api.checkHealth(detail);
+        const int status = api.lastStatus();
+        const bool responseSuccess = responseOk && status >= 200 && status < 300;
+        serverVerified = responseSuccess;
+
+        Serial.printf("[sim-test] Cellular connection status: CONNECTED; "
+                      "health HTTP status: %d; server response success: %s (%s)\n",
+                      status, responseSuccess ? "YES" : "NO", detail.c_str());
+
+        if (responseSuccess) {
+            display.showStatus(SystemStatus::CellularOnline);
+        } else {
+            display.showStatus(SystemStatus::ApiOffline);
+        }
+    }
+}
+#endif
+
+/**
+ * One-shot read-only boot probe of the configured EC20F route.
+ *
+ * Runs once at the end of setup(). It brings up the same cellular bearer the
+ * loop would (bounded by the SIM_* timeouts), then performs a single
+ * unauthenticated GET to HEALTH_PATH via PedalyaApi::checkHealth(). No
+ * rental, lock, GPS-update or accident-report traffic is sent here. The LCD
+ * latch is set strictly on HTTP 200: anything else leaves PEDALYA CONNECTING
+ * on the screen. The verdict also goes to Serial; a missing device or
+ * network simply logs its stage and continues.
+ */
+static void runBootHealthProbe() {
+    const bool wifiUp = WiFi.status() == WL_CONNECTED;
+
+    // When Wi-Fi is already associated, skip the blocking cellular bearer
+    // setup: a silent EC20F costs up to SIM_NET_TIMEOUT_MS (8 s) and blocks
+    // the health GET that only needs Wi-Fi. The modem is attempted only when
+    // Wi-Fi is not available (i.e. it would be the only route to the server).
+    if (!wifiUp && SIM_ENABLED && !simIsReady()) {
+        Serial.println("[boot] Wi-Fi not up; attempting cellular bearer for health probe");
+        simConnectInternet(SIM_APN);
+    } else if (wifiUp && SIM_ENABLED && !simIsReady()) {
+        Serial.println("[boot] Wi-Fi connected; skipping blocking cellular attach");
+    }
+
+    String verdict;
+    const bool ok = api.checkHealth(verdict);
+    serverVerified = (ok && api.lastStatus() == 200);
+    paintScreen();
+    Serial.printf("[boot] health probe %s (%s)\n", serverVerified ? "OK" : "FAILED",
+                  verdict.c_str());
 }
 
 void setup() {
     Serial.begin(115200);
     delay(200);
     Serial.println("\n[boot] pedalya lcd display + actuators");
+    Diagnostics::printBootDiagnostics();
+
+    // EC20F UART diagnostic (compile-time opt-in, EC20F_UART_DIAGNOSTIC=1).
+    // Runs before simInit() so Serial2 is fresh. No-op in production builds.
+    runEC20FDiagnostic();
 
     if (STATUS_LED_PIN >= 0) {
         pinMode(STATUS_LED_PIN, OUTPUT);
@@ -357,25 +617,52 @@ void setup() {
     }
 
     display.begin();
-    display.splash();
+    display.showStartup("STARTING...", "PDY-001");
     Diagnostics::printBanner();
 
     gps.begin();
+#if SIM_ONLY_MODE || CONNECTIVITY_MODE == CONNECTIVITY_MODE_EC20F_SIM
+    // SIM-only build: power off the Wi-Fi radio so it never broadcasts, associates,
+    // or draws RF power.
+    WiFi.mode(WIFI_OFF);
+    Serial.println("[net] SIM-only mode: Wi-Fi radio powered off");
     simInit();
-#if SIM_ONLY_MODE
-    // SIM-only build: the EC20F is the only route, so no Wi-Fi association is
-    // ever started. api.begin() logs the mode; the call is kept so the
-    // announcement still prints from the same place.
-    api.begin();
-#else
+    if (simPresent()) simRunDiagnostics();
+#elif CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+    Serial.println("[net] Wi-Fi health-test mode: EC20F and business requests are disabled");
     connectWifi();
+#else
+    // Start association before the bounded AT readiness probe. Wi-Fi runs in
+    // the ESP32 networking task while the EC20F finishes its boot banner, so
+    // a weak or absent modem cannot postpone Wi-Fi's first association.
+    connectWifi();
+    simInit();
+    if (simPresent()) simRunDiagnostics();
 #endif
 
     // The IMU shares the I²C bus with the LCD, which has already claimed it in
     // display.begin(). Naming the pins here keeps the intent explicit; Wire is
     // idempotent for the same pair.
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+    // One-time bus census, so a silent sensor reads as hardware state rather
+    // than a software guess: expect 0x27 (LCD). No MPU6050 is fitted on this
+    // hardware build (ACCIDENT_ENABLED 0), so 0x68/0x69 are absent by design.
+    // Bounded (~120 quick probes) and runs once; the loop never scans.
+    Serial.print("[i2c] scan: ");
+    uint8_t i2cFound = 0;
+    for (uint8_t addr = 0x08; addr <= 0x77; addr++) {
+        Wire.beginTransmission(addr);
+        if (Wire.endTransmission(true) == 0) {
+            Serial.printf("0x%02X ", addr);
+            i2cFound++;
+        }
+    }
+    if (i2cFound == 0) Serial.print("(no devices)");
+    Serial.println();
+#if ACCIDENT_ENABLED
     if (accidentDetector.begin()) {
+        Serial.printf("[accident] MPU6050 answering at 0x%02X\n",
+                      accidentDetector.address());
         Serial.printf("[accident] monitoring: impact >= %.1f g or %.1f g/sample, rotation >= %.0f dps, "
                       "tilt >= %.0f deg\n",
                       (double)ACCIDENT_IMPACT_G, (double)ACCIDENT_JERK_G,
@@ -386,9 +673,37 @@ void setup() {
         Serial.printf("[accident] no MPU6050 at 0x%02X; accident detection is off for now\n",
                       (unsigned)MPU6050_I2C_ADDRESS);
     }
+#else
+    // No MPU6050 fitted on this hardware build (ACCIDENT_ENABLED 0): skip the
+    // probe entirely so startup never waits on a sensor that cannot answer.
+    // MPU presence is not required for startup or server connectivity.
+    Serial.println("[accident] MPU6050 not fitted; accident sampling disabled");
+#endif
+
+    // Normal mode one-shot boot probe. If Wi-Fi is enabled, allow up to 3s for association.
+#if CONNECTIVITY_MODE != CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+#if !SIM_ONLY_MODE
+    uint32_t waitStart = millis();
+    while (!api.connected() && (millis() - waitStart < 3000)) {
+        delay(100);
+    }
+#endif
+    runBootHealthProbe();
+#endif
 }
 
 void loop() {
+#if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+    gps.update();
+    pollAccidentDetection();
+    serviceWifiHealthTest();
+    delay(100);
+#elif CONNECTIVITY_MODE == CONNECTIVITY_MODE_EC20F_SIM
+    gps.update();
+    pollAccidentDetection();
+    serviceCellularHealthTest();
+    delay(100);
+#else
     gps.update();
 
     // Accident detection runs ahead of every early return below, including the
@@ -405,10 +720,6 @@ void loop() {
         controller.maintainDuringNetworkFailure(state);
 #if !SIM_ONLY_MODE
         if (now - lastWifiRetry > WIFI_RETRY_INTERVAL_MS) connectWifi();
-#else
-        // SIM-only build: no Wi-Fi retry. The cellular attach below is the
-        // only reconnect path, so a dead link can never drift onto Wi-Fi.
-        (void)lastWifiRetry;
 #endif
 
         // Bring up the cellular route in parallel with the Wi-Fi retry: the
@@ -425,20 +736,23 @@ void loop() {
             simConnectInternet(SIM_APN);
         }
 
-        if (!wifiAnnounced) {
-            display.showWifiConnecting();
-            wifiAnnounced = true;
-        }
+        // No verified server link: the LCD returns to PEDALYA CONNECTING.
+        // Startup, modem power and cellular registration alone never count
+        // as a connection; only a health-200 sets the latch.
+        serverVerified = false;
+        paintScreen();
         delay(250);
         return;
     }
 
     if (!everSynced) {
-        display.showWifiConnecting();
+        paintScreen();
+#if !SIM_ONLY_MODE
         if (WiFi.status() == WL_CONNECTED) {
             Serial.print("[ip] ");
             Serial.println(WiFi.localIP());
         }
+#endif
         everSynced = true;
     }
 
@@ -465,18 +779,26 @@ void loop() {
 
     if (!serverReachable) {
         // Still enforce expiry safety on the last known state, so a network blip
-        // cannot unlock a timed-out wheel or silence its alarm.
+        // cannot unlock a timed-out wheel or silence its alarm. The LCD updates
+        // to SERVER OFFLINE or WIFI CONNECTING via paintScreen() (SystemStatus).
+        // Only a fresh health-200 may show SERVER ONLINE.
         controller.maintainDuringNetworkFailure(state);
-        // A rejected key is a different fault from an unreachable server, and
-        // conflating them points the wrong person at the wrong problem.
-        const int status = api.lastStatus();
-        if (status == 401 || status == 403) {
-            display.showKeyRejected(lastError);
-        } else {
-            display.showNoServer(lastError);
-        }
+        serverVerified = false;
+        paintScreen();
         delay(500);
         return;
+    }
+
+    // Re-verify at poll cadence while the link is up but STARTED is not yet
+    // earned (boot failure, or a connection lost earlier). Strictly
+    // health-gated: only an HTTP 200 from the read-only /api/health GET sets
+    // the latch. No rental, lock, GPS or accident traffic decides this.
+    if (!serverVerified && polledThisPass) {
+        String healthVerdict;
+        const bool healthOk = api.checkHealth(healthVerdict);
+        serverVerified = (healthOk && api.lastStatus() == 200);
+        Serial.printf("[loop] health re-check %s (%s)\n",
+                      serverVerified ? "OK" : "FAILED", healthVerdict.c_str());
     }
 
     // 2. Attach only after a successful authenticated poll, so booting without a
@@ -516,4 +838,5 @@ void loop() {
     } else {
         delay(200);
     }
+#endif
 }

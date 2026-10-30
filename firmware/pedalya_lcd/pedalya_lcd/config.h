@@ -10,18 +10,20 @@
 
 // Real values live in the gitignored secrets.h. These are only fallbacks so the
 // sketch still builds on a machine where secrets.h has not been created yet.
+// They are placeholders and must never hold real credentials: secrets.h wins
+// via #ifndef whenever it is present.
 #ifndef WIFI_SSID
-#define WIFI_SSID "PLDTHOMEFIBRZ47rS" //wifi nako
+#define WIFI_SSID "YOUR_WIFI_SSID"
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "PLDTWIFIZ2953"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 #endif
 
 // Hostname only: never a scheme, never a port, never a trailing slash. The
 // scheme (https) and the path come from USE_HTTPS and the *_PATH macros.
 #ifndef SERVER_HOST
-#define SERVER_HOST "b3xs8k13-8000.asse.devtunnels.ms"
+#define SERVER_HOST "snf075nb-8000.asse.devtunnels.ms"
 #endif
 
 // HTTPS port for Dev Tunnel.
@@ -54,20 +56,122 @@
 #define ACCIDENT_REPORT_PATH "/api/iot/accident-report"
 #endif
 
+// Public read-only connectivity probe. No API key is sent here: the backend's
+// /api/health route sits outside every auth middleware, so this GET exercises
+// modem attach, TLS and HTTP without touching rental, lock, GPS or accident
+// state. Used only by PedalyaApi::checkHealth().
+#ifndef HEALTH_PATH
+#define HEALTH_PATH "/api/health"
+#endif
+
+// Connectivity modes:
+// 1 = Diagnostic Wi-Fi health test mode (probes /api/health only, skips business requests)
+// 2 = Normal IoT operational mode (Wi-Fi primary with EC20F cellular fallback)
+// 3 = EC20F cellular-only operational mode (cellular only, Wi-Fi off)
+#ifndef CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+#define CONNECTIVITY_MODE_WIFI_HEALTH_TEST 1
+#endif
+
+#ifndef CONNECTIVITY_MODE_NORMAL
+#define CONNECTIVITY_MODE_NORMAL 2
+#endif
+
+#ifndef CONNECTIVITY_MODE_EC20F_SIM
+#define CONNECTIVITY_MODE_EC20F_SIM 3
+#endif
+
+#ifndef CONNECTIVITY_MODE
+#define CONNECTIVITY_MODE CONNECTIVITY_MODE_NORMAL
+#endif
+
+#if CONNECTIVITY_MODE != CONNECTIVITY_MODE_WIFI_HEALTH_TEST && \
+    CONNECTIVITY_MODE != CONNECTIVITY_MODE_NORMAL && \
+    CONNECTIVITY_MODE != CONNECTIVITY_MODE_EC20F_SIM
+#error "CONNECTIVITY_MODE must select Wi-Fi health test, Normal (Wi-Fi + EC20F fallback), or EC20F SIM-only"
+#endif
+
+// The diagnostic health probe must exercise the same deployment as the normal
+// API calls.  A separate default tunnel can return a valid TLS response but a
+// misleading 404 from an unrelated service.  Units that deliberately need a
+// different diagnostic target may still override these in ignored secrets.h.
+#ifndef WIFI_TEST_SERVER_HOST
+#define WIFI_TEST_SERVER_HOST SERVER_HOST
+#endif
+
+#ifndef WIFI_TEST_SERVER_PORT
+#define WIFI_TEST_SERVER_PORT SERVER_PORT
+#endif
+
+#ifndef WIFI_TEST_HEALTH_PATH
+#define WIFI_TEST_HEALTH_PATH HEALTH_PATH
+#endif
+
 // Kept in step with the "1" in the per-bicycle paths above.
 #ifndef ACCIDENT_BICYCLE_ID
 #define ACCIDENT_BICYCLE_ID 1
+#endif
+
+// The bicycle this unit is bolted to. Kept in step with the digit in the
+// per-bicycle paths above and with the row the backend provisioned a
+// per-bicycle key for.
+#ifndef BICYCLE_ID
+#define BICYCLE_ID 1
+#endif
+
+// Identifier this unit reports as in fleet-wide payloads (heartbeat,
+// accident-report). This is a device name, never a key: the value is stored
+// in the database and shown on the admin dashboard.
+#ifndef DEVICE_ID
+#define DEVICE_ID "pedalya-esp32-1"
 #endif
 
 // Recorded as the reporter on the accident row. This must be a device
 // identifier, never DEVICE_API_KEY: the value is stored in the database and
 // shown on the admin dashboard.
 #ifndef ACCIDENT_DEVICE_ID
-#define ACCIDENT_DEVICE_ID "pedalya-esp32-1"
+#define ACCIDENT_DEVICE_ID DEVICE_ID
 #endif
 
 #ifndef USE_HTTPS
-#define USE_HTTPS 0
+#define USE_HTTPS 1
+#endif
+
+// Trusted Root CA certificates for TLS verification (Microsoft Root G2 for Dev Tunnels).
+// Overridable in secrets.h if custom certificates are needed.
+#ifndef SERVER_ROOT_CA
+#define SERVER_ROOT_CA \
+"-----BEGIN CERTIFICATE-----\n" \
+"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\n" \
+"eM+HJyMso/L+NgtC+eHXJLur5sg=\n" \
+"-----END CERTIFICATE-----\n"
 #endif
 
 #ifndef SERVER_FINGERPRINT
@@ -234,9 +338,11 @@
  *  route: Wi-Fi is never associated and never consulted.
  *
  *  Wiring (never GPIO1/GPIO3, those are the USB-UART0 monitor pins):
- *      EC20F TXD -> ESP32 RX2 GPIO16 (SIM_RX_PIN)
- *      EC20F RXD -> ESP32 TX2 GPIO17 (SIM_TX_PIN)
+ *      EC20F TXD -> ESP32 GPIO16 (SIM_RX_PIN)
+ *      EC20F RXD -> ESP32 GPIO17 (SIM_TX_PIN)
  *      EC20F GND -> ESP32 GND
+ *
+ *  GPS lives on UART1 (GPIO25/26), so no pin is shared with the modem.
  *
  *  Every timeout below bounds one blocking AT exchange, so a modem that is
  *  absent or dead costs one bounded wait instead of parking the main loop.
@@ -246,12 +352,10 @@
 #define SIM_ENABLED 1
 #endif
 
-// 1 = the ESP32 reports only over the EC20F + SIM. Wi-Fi code stays in the
-// sketch untouched, but PedalyaApi never associates, never polls WiFi.status()
-// for routing, and never sends API traffic over it. 0 restores the old
-// Wi-Fi-first behaviour with the modem as fallback.
+// 0 = Dual connectivity: Wi-Fi primary with cellular (EC20F) fallback.
+// 1 = Cellular-only: Wi-Fi radio stays off.
 #ifndef SIM_ONLY_MODE
-#define SIM_ONLY_MODE 1
+#define SIM_ONLY_MODE (CONNECTIVITY_MODE == CONNECTIVITY_MODE_EC20F_SIM)
 #endif
 
 #ifndef SIM_RX_PIN
@@ -273,10 +377,26 @@
 #define SIM_APN "internet.globe.com.ph"
 #endif
 
+// EC20F TLS verification uses a certificate file already provisioned in the
+// modem's UFS.  Do not put a PEM or a secret here: upload the approved CA by
+// the modem provisioning process, then set its UFS filename in ignored
+// secrets.h.  Leaving this empty makes cellular HTTPS fail closed.
+#ifndef SIM_TLS_CA_FILE
+#define SIM_TLS_CA_FILE ""
+#endif
+
 
 // One ordinary AT exchange (AT, AT+CGDCONT, AT+QHTTPCFG, ...).
 #ifndef SIM_CMD_TIMEOUT_MS
 #define SIM_CMD_TIMEOUT_MS 2000UL
+#endif
+
+// How long simInit() keeps probing AT after UART2 comes up. A cold EC20F can
+// emit its RDY boot banner (and only start answering AT) seconds after power,
+// so the probe window must outlast the boot banner or the modem is wrongly
+// declared dead. Bounded: simInit() never blocks longer than this.
+#ifndef SIM_MODEM_READY_WINDOW_MS
+#define SIM_MODEM_READY_WINDOW_MS 8000UL
 #endif
 
 // Network attach and PDP activation, which are genuinely slower than a local
@@ -328,6 +448,10 @@
 // is picked up without resetting the board.
 #ifndef ACCIDENT_PROBE_INTERVAL_MS
 #define ACCIDENT_PROBE_INTERVAL_MS 5000UL
+#endif
+
+#ifndef ACCIDENT_STARTUP_SETTLE_MS
+#define ACCIDENT_STARTUP_SETTLE_MS 2500UL
 #endif
 
 // 100 ms is 10 samples/s: fast enough to catch an impact transient, slow
@@ -578,7 +702,7 @@
 #endif
 
 #ifndef REQUEST_TIMEOUT_MS
-#define REQUEST_TIMEOUT_MS 8000
+#define REQUEST_TIMEOUT_MS 12000
 #endif
 
 #ifndef NTP_SERVER
@@ -595,4 +719,40 @@
 
 #ifndef STATUS_LED_ON_ERROR
 #define STATUS_LED_ON_ERROR 1
+#endif
+
+// -----------------------------------------------------------------------
+//  EC20F UART Diagnostic (temporary, opt-in)
+//
+//  Set to 1 in secrets.h to activate a multi-baud AT probe at boot.
+//  The diagnostic runs once in setup(), before simInit(), and logs results
+//  to the Serial monitor.  It NEVER changes modem-persistent settings.
+//  Set back to 0 and reflash to restore normal production firmware.
+//  See EC20FDiagnostic.h for full documentation.
+// -----------------------------------------------------------------------
+#ifndef EC20F_UART_DIAGNOSTIC
+#define EC20F_UART_DIAGNOSTIC 0
+#endif
+
+// Diagnostic per-baud-rate receive window (milliseconds).
+#ifndef EC20F_DIAG_TIMEOUT_MS
+#define EC20F_DIAG_TIMEOUT_MS 600UL
+#endif
+
+// Quiet-period threshold: stop reading once the modem has been silent this
+// long after its last byte.  Must be >= 200 ms: EC20F replies can arrive in
+// bursts with short inter-burst gaps; 80 ms cut replies too early.
+// NOTE: config.h is included before EC20FDiagnostic.h so this value wins.
+#ifndef EC20F_DIAG_QUIET_MS
+#define EC20F_DIAG_QUIET_MS 200UL
+#endif
+
+// Maximum raw bytes to hex-dump per baud-rate attempt in the diagnostic log.
+#ifndef EC20F_DIAG_HEX_LIMIT
+#define EC20F_DIAG_HEX_LIMIT 32
+#endif
+
+// Settle time after Serial2.begin() before the diagnostic sends AT.
+#ifndef EC20F_DIAG_SETTLE_MS
+#define EC20F_DIAG_SETTLE_MS 150UL
 #endif

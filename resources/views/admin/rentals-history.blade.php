@@ -585,6 +585,11 @@
                             <td>
                                 @if($rental->paymentStatus === 'paid')
                                     <span class="rv-status rv-status--paid"><i class="bi bi-check-circle-fill"></i>Paid</span>
+                                @elseif($rental->paymentStatus === 'partial')
+                                    <span class="rv-status rv-status--pending rv-status--dot">Partial</span>
+                                    @if($rental->payment && (float) $rental->payment->balanceDue > 0)
+                                        <div class="rv-fee__sub text-danger">Due &#8369;{{ number_format($rental->payment->balanceDue, 2) }}</div>
+                                    @endif
                                 @elseif($rental->paymentStatus === 'pending')
                                     <span class="rv-status rv-status--pending rv-status--dot">Pending</span>
                                 @else
@@ -595,6 +600,12 @@
                                 <div class="rv-actions">
                                     @php
                                         $detailBaseFee = ($rental->totalFee ?? 0) - (float) ($rental->overdueFee ?? 0);
+                                        $historyPayment = $rental->payment;
+                                        $historyPaid = (float) ($historyPayment->amountPaid ?? 0);
+                                        if ($historyPaid <= 0 && $historyPayment && $historyPayment->status === 'paid') {
+                                            $historyPaid = (float) ($historyPayment->totalAmount ?? 0);
+                                        }
+                                        $historyDue = (float) ($historyPayment->balanceDue ?? 0);
                                         $detailHasReturn = $rental->status === 'returned'
                                             || $rental->returnProcessedAt
                                             || $rental->returnCondition
@@ -625,6 +636,9 @@
                                             'notes'     => $rental->notes ?? '',
                                             'method'    => $rental->paymentMethod === 'gcash' ? 'GCash' : 'Cash',
                                             'payStatus' => ucfirst($rental->paymentStatus ?? 'unpaid'),
+                                            'hasPayment'=> (bool) $historyPayment,
+                                            'amountPaid'=> number_format($historyPaid, 2, '.', ''),
+                                            'balanceDue'=> number_format($historyDue, 2, '.', ''),
                                             'hasReturn' => (bool) $detailHasReturn,
                                         ];
                                     @endphp
@@ -777,6 +791,10 @@
                         <span class="rv-method" id="rdMethod">—</span>
                         <span class="rv-status" id="rdPayStatus">—</span>
                     </div>
+                    <dl style="margin:8px 0 0;">
+                        <div class="rv-kv" id="rowRdPaidHistory"><dt>Amount Paid</dt><dd id="rdPaidHistory">—</dd></div>
+                        <div class="rv-kv" id="rowRdDueHistory"><dt>Balance Due</dt><dd id="rdDueHistory">—</dd></div>
+                    </dl>
                 </div>
             </div>
             <div class="rv-panel" id="rdReturnPanel" style="margin-top:14px;">
@@ -943,6 +961,12 @@
         setText('rdBase', d.baseFee ? '\u20B1' + d.baseFee : '');
         setText('rdOverdue', d.hasOverdue ? '\u20B1' + d.overdue : '');
         setText('rdFinal', d.finalFee ? '\u20B1' + d.finalFee : '');
+        setText('rdPaidHistory', d.hasPayment ? '\u20B1' + d.amountPaid : '');
+        setText('rdDueHistory', d.hasPayment ? '\u20B1' + d.balanceDue : '');
+        var paidRow = document.getElementById('rowRdPaidHistory');
+        var dueRow = document.getElementById('rowRdDueHistory');
+        if (paidRow) paidRow.style.display = d.hasPayment ? '' : 'none';
+        if (dueRow) dueRow.style.display = d.hasPayment && Number(d.balanceDue) > 0 ? '' : 'none';
         var method = document.getElementById('rdMethod');
         if (method) {
             method.textContent = d.method || '\u2014';
@@ -952,7 +976,7 @@
         if (pay) {
             var st = String(d.payStatus || '').toLowerCase();
             pay.textContent = d.payStatus || '\u2014';
-            pay.className = 'rv-status ' + (st === 'paid' ? 'rv-status--paid' : 'rv-status--unpaid') + (st === 'paid' ? '' : ' rv-status--dot');
+            pay.className = 'rv-status ' + (st === 'paid' ? 'rv-status--paid' : (st === 'partial' ? 'rv-status--pending' : 'rv-status--unpaid')) + (st === 'paid' ? '' : ' rv-status--dot');
             if (st === 'paid') {
                 pay.innerHTML = '<i class="bi bi-check-circle-fill"></i>' + (d.payStatus || 'Paid');
             }
@@ -1073,7 +1097,7 @@
         chip(el('rcptMethod'), d.method, d.method === 'GCash' ? 'rcpt-chip--blue' : 'rcpt-chip--green');
         var st = String(d.payStatus).toLowerCase();
         chip(el('rcptPayStatus'), d.payStatus,
-             st === 'paid' ? 'rcpt-chip--green' : (st === 'pending' ? 'rcpt-chip--amber' : 'rcpt-chip--red'));
+             st === 'paid' ? 'rcpt-chip--green' : ((st === 'pending' || st === 'partial') ? 'rcpt-chip--amber' : 'rcpt-chip--red'));
         var ride = String(d.status || '').toLowerCase();
         var rideTone = ride === 'completed' ? 'rcpt-chip--green'
                      : (ride === 'pending' ? 'rcpt-chip--amber'

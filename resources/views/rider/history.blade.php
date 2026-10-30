@@ -6,14 +6,14 @@
 @if($activeRental && in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true))
     @php
         $penaltyRuleText = null;
-        if ($activeRental->penaltyType === 'per_hour') {
-            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' per hour late';
+        if ($activeRental->penaltyType === 'per_5_minutes' || $activeRental->penaltyType === 'per_hour') {
+            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' every 5 minutes late';
         } elseif ($activeRental->penaltyType === 'per_minute') {
             $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' per minute late';
         } elseif ($activeRental->penaltyType === 'fixed') {
             $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' fixed late fee';
         } else {
-            $penaltyRuleText = '₱' . number_format($lateReturnPenaltyPerHour ?? 20, 2) . ' per hour late';
+            $penaltyRuleText = '₱' . number_format($lateReturnPenaltyPerHour ?? 20, 2) . ' every 5 minutes late';
         }
     @endphp
     <div class="card-pedalya mb-4" style="border-left:4px solid {{ $activeRental->status === 'overdue_return' ? '#C62828' : '#F57C00' }};">
@@ -59,7 +59,7 @@
                     <div role="status" style="background:#FFF8E1;border:1px solid #FFE0B2;border-radius:8px;padding:10px 12px;max-width:340px;text-align:left;">
                         <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split me-1" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>
                         <div class="fw-bold mt-1" style="font-size:0.82rem;color:#E65100;">Return submitted &mdash; awaiting admin confirmation.</div>
-                        <div class="text-muted" style="font-size:0.78rem;">Your bicycle has been marked as returned. Please wait for an administrator to inspect and confirm the return.</div>
+                        <div class="text-muted" style="font-size:0.78rem;">Your return request has been submitted. Please wait for an administrator to inspect the bicycle and confirm the actual arrival time.</div>
                         <button type="button" class="btn btn-warning mt-2" disabled><i class="bi bi-check2-circle me-1"></i>Return Submitted</button>
                     </div>
                 @else
@@ -176,6 +176,8 @@
                             @endif
                             @if($rental->paymentStatus === 'pending_verification')
                                 <br><small class="text-warning"><i class="bi bi-hourglass-split"></i> Pending</small>
+                            @elseif($rental->paymentStatus === 'partial')
+                                <br><small class="text-warning"><i class="bi bi-hourglass-split"></i> Partial@if($rental->payment && (float) $rental->payment->balanceDue > 0) &middot; ₱{{ number_format($rental->payment->balanceDue, 2) }} due@endif</small>
                             @elseif($rental->paymentStatus === 'paid')
                                 <br><small class="text-success"><i class="bi bi-check-circle"></i> Paid</small>
                             @endif

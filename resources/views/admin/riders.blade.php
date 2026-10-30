@@ -34,7 +34,7 @@
     </div>
 
     <div class="table-responsive">
-    <table class="admin-table">
+    <table class="admin-table admin-table--customer-list">
         <thead>
             <tr>
                 <th class="sortable">Name <span class="sort-ind"></span></th>

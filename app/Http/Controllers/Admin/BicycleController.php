@@ -69,9 +69,8 @@ class BicycleController extends Controller
     public function create(): Response
     {
         $nextSerial = $this->generateSerialNumber();
-        $nextQr = $this->generateQrCode();
 
-        return response()->view('admin.bicycles.create', compact('nextSerial', 'nextQr'));
+        return response()->view('admin.bicycles.create', compact('nextSerial'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -86,7 +85,6 @@ class BicycleController extends Controller
         ]);
 
         $serialNumber = $this->generateSerialNumber();
-        $qrCode = $this->generateQrCode();
 
         $bicycle = Bicycle::create([
             'name' => $validated['name'],
@@ -97,12 +95,12 @@ class BicycleController extends Controller
             // A newly added unit is parked, not deployed: it has no smart lock
             // fitted, so it starts out of service and cannot be rented until it
             // is explicitly provisioned. `available` here would advertise it to
-            // riders with no way to unlock it.
+            // riders with no way to unlock it. Identification uses the unique
+            // serial number plus the IoT device credential, not a QR code.
             'status' => Bicycle::STATUS_OUT_OF_SERVICE,
             'batteryLevel' => 100,
             'lockStatus' => Bicycle::LOCK_LOCKED,
             'condition' => 'good',
-            'qrCode' => $qrCode,
             'currentLat' => $validated['currentLat'] ?? null,
             'currentLng' => $validated['currentLng'] ?? null,
             'addedBy' => auth()->id(),
@@ -118,7 +116,21 @@ class BicycleController extends Controller
             $this->reconcilePosition($bicycle);
         }
 
-        return redirect()->route('admin.bicycles.index')->with('success', 'Bicycle "'.$bicycle->name.'" ('.$serialNumber.') added successfully.');
+        // The inventory already surfaces this confirmation as a compact
+        // top-right toast (see layouts/admin): attaching the structured toast
+        // payload suppresses the competing full-width success banner so the
+        // add action notifies exactly once. Plain success flashes without
+        // toast data keep the banner on other flows.
+        $addedMessage = 'Bicycle "'.$bicycle->name.'" ('.$serialNumber.') added successfully.';
+
+        return redirect()->route('admin.bicycles.index')->with([
+            'success' => $addedMessage,
+            'toast' => [
+                'title' => 'Bicycle added successfully',
+                'message' => $addedMessage,
+                'type' => 'success',
+            ],
+        ]);
     }
 
     private function generateSerialNumber(): string
@@ -141,16 +153,6 @@ class BicycleController extends Controller
         } while (Bicycle::where('serialNumber', $serial)->exists());
 
         return $serial;
-    }
-
-    private function generateQrCode(): string
-    {
-        do {
-            $hex = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
-            $qr = "QR-PDY-{$hex}";
-        } while (Bicycle::where('qrCode', $qr)->exists());
-
-        return $qr;
     }
 
     public function update(Request $request, int $id): RedirectResponse
@@ -286,13 +288,23 @@ class BicycleController extends Controller
             return back()->withErrors(['bicycle' => 'Cannot remove bicycle with active or pending rentals.']);
         }
 
+        // Snapshot first: the audit entry must stay traceable even though the
+        // bicycle leaves the rentable fleet here.
+        $removedSnapshot = $bicycle->only([
+            'name', 'serialNumber', 'model', 'status', 'condition', 'hourlyRate',
+        ]);
+
         $bicycle->update([
             'status' => Bicycle::STATUS_REMOVED,
             'removedAt' => now(),
             'removedBy' => auth()->id(),
         ]);
 
-        AuditLog::record('bicycle_removed', auth()->id(), ['bicycleId' => $bicycle->id]);
+        AuditLog::record('bicycle_removed', auth()->id(), [
+            'bicycleId' => $bicycle->id,
+            'outcome' => 'success',
+            'snapshot' => $removedSnapshot,
+        ]);
 
         return back()->with('success', 'Bicycle removed successfully.');
     }

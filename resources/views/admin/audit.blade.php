@@ -255,8 +255,10 @@
                                 break;
                             }
                         }
+                        // Display the stored outcome verbatim: the modal reports
+                        // the actual database record, never a reformatted copy.
                         $outcome = (is_scalar($outcomeRaw) && (string) $outcomeRaw !== '')
-                            ? ucfirst(str_replace('_', ' ', (string) $outcomeRaw))
+                            ? (string) $outcomeRaw
                             : 'Not available';
                         // Never mislabel the actor: a real user wins; otherwise the
                         // attempted address recorded on the event (e.g. failed

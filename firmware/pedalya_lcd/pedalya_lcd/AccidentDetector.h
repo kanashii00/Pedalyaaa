@@ -88,6 +88,18 @@ public:
     /** Most recent sample and its verdict. */
     const AccidentReading& reading() const { return reading_; }
 
+    /** True only when the latest sample was successfully read and physically valid. */
+    bool hasValidSample() const { return present_ && hasSample_ && consecutiveReadFailures_ == 0; }
+
+    /** Number of consecutive read failures (corrupted/zero/I2C NACK). */
+    uint8_t consecutiveReadFailures() const { return consecutiveReadFailures_; }
+
+    /** Total successful sensor reads since boot. */
+    uint32_t totalSamples() const { return totalSamples_; }
+
+    /** Total failed or invalid sensor reads since boot. */
+    uint32_t totalReadFailures() const { return totalReadFailures_; }
+
     /** Highest magnitude seen since the detector armed, in g. */
     float peakMagnitudeG() const { return peakMagnitudeG_; }
 
@@ -123,7 +135,7 @@ public:
     void acknowledge();
 
 private:
-    bool probe();
+    bool probe(bool logDetail = false);
     bool configure(uint8_t address);
     bool writeRegister(uint8_t address, uint8_t reg, uint8_t value);
     bool readBlock(uint8_t address, uint8_t reg, uint8_t* dest, size_t length);
@@ -144,8 +156,28 @@ private:
     uint32_t calmSinceMs_ = 0;
 
     bool triggered_ = false;
-    bool armed_ = true;
+    bool armed_ = false;
+    bool settling_ = true;
     bool hasSample_ = false;
+    uint32_t settlingStartMs_ = 0;
+    uint16_t settlingSampleCount_ = 0;
+    float settlingSumX_ = 0.0f;
+    float settlingSumY_ = 0.0f;
+    float settlingSumZ_ = 0.0f;
+
+    bool uprightSet_ = false;
+    float uprightX_ = 0.0f;
+    float uprightY_ = 0.0f;
+    float uprightZ_ = 1.0f;
+    float baselineGravityG_ = 1.0f;
+
+    // A few consecutive bus failures means the former sample is no longer
+    // trustworthy.  The detector returns to the explicit missing-sensor
+    // state and uses its existing bounded re-probe path.
+    uint8_t consecutiveReadFailures_ = 0;
+    uint32_t totalSamples_ = 0;
+    uint32_t totalReadFailures_ = 0;
+
     uint8_t hits_ = 0;
     uint8_t misses_ = 0;
     uint8_t tiltHold_ = 0;

@@ -34,11 +34,18 @@
 #define PEDALYA_API_KEY ""
 #endif
 
-// APN of the SIM in the EC20F modem, needed only for the cellular fallback
+// APN of the SIM in the SIM7600 modem, needed only for the cellular fallback
 // path. Ask the carrier for the exact value (e.g. from the plan confirmation
 // or SIM pack); never guess one, a wrong APN simply refuses to attach.
 // The modem is left in its "no data link yet" state while this placeholder is
 // in place, and the monitor logs a reminder instead of dialling the wrong net.
 #ifndef SIM_APN
 #define SIM_APN "YOUR_APN_HERE"
+#endif
+
+// Filename of the approved root CA already uploaded to the EC20F UFS by the
+// modem provisioning procedure.  Leave empty until that has been done: HTTPS
+// over cellular will fail closed rather than disabling certificate validation.
+#ifndef SIM_TLS_CA_FILE
+#define SIM_TLS_CA_FILE ""
 #endif

@@ -29,8 +29,21 @@ class AdminMaintenanceMonitoringGeofenceTest extends TestCase
         $this->makeMaintenanceRecord(['bicycleId' => $bike->id, 'status' => MaintenanceRecord::STATUS_SCHEDULED]);
         $this->makeMaintenanceRecord(['bicycleId' => $bike->id, 'status' => MaintenanceRecord::STATUS_COMPLETED]);
 
-        $this->actingAs($admin)->get(route('admin.maintenance.index'))->assertOk();
-        $this->actingAs($admin)->get(route('admin.maintenance.index', ['status' => 'completed']))->assertOk();
+        $activePage = $this->actingAs($admin)->get(route('admin.maintenance.index'));
+        $activePage->assertOk()
+            ->assertSee('Active Maintenance')
+            ->assertSee('Maintenance History')
+            ->assertDontSee('Completed, cancelled records will appear here.');
+
+        $this->actingAs($admin)
+            ->get(route('admin.maintenance.index', ['status' => 'completed']))
+            ->assertRedirect(route('admin.maintenance.history', ['status' => 'completed']));
+
+        $this->actingAs($admin)
+            ->get(route('admin.maintenance.history'))
+            ->assertOk()
+            ->assertSee('Maintenance History')
+            ->assertSee('Active Maintenance');
         $this->actingAs($admin)->get(route('admin.maintenance.index', ['status' => 'in_progress', 'bicycleId' => $bike->id, 'date_from' => '2026-01-01', 'date_to' => '2026-12-31']))->assertOk();
     }
 
@@ -88,6 +101,25 @@ class AdminMaintenanceMonitoringGeofenceTest extends TestCase
 
         $this->assertSame(MaintenanceRecord::STATUS_COMPLETED, $record->fresh()->status);
         $this->assertNotNull($record->fresh()->completedDate);
+    }
+
+    public function test_schedule_status_updates_keep_the_success_toast_but_suppress_its_duplicate_banner(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_MAINTENANCE]);
+        $record = $this->makeMaintenanceRecord([
+            'bicycleId' => $bike->id,
+            'status' => MaintenanceRecord::STATUS_SCHEDULED,
+        ]);
+
+        $this->from(route('admin.maintenance.index'))
+            ->actingAs($admin)
+            ->post(route('admin.maintenance.updateStatus', $record->id), ['status' => 'in_progress'])
+            ->assertRedirect(route('admin.maintenance.index'))
+            ->assertSessionHas('success', 'Maintenance status updated.')
+            ->assertSessionHas('suppressSuccessBanner', true);
+
+        $this->assertSame(MaintenanceRecord::STATUS_IN_PROGRESS, $record->fresh()->status);
     }
 
     public function test_maintenance_update_status_blocked_after_completion(): void

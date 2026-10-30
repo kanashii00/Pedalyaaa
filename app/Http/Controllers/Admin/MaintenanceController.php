@@ -12,44 +12,79 @@ use Illuminate\Http\Response;
 
 class MaintenanceController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request): Response|RedirectResponse
     {
         $statusFilter = $request->input('status');
         $activeStatuses = [MaintenanceRecord::STATUS_SCHEDULED, MaintenanceRecord::STATUS_IN_PROGRESS];
         $historyStatuses = [MaintenanceRecord::STATUS_COMPLETED, MaintenanceRecord::STATUS_CANCELLED];
 
-        $baseQuery = MaintenanceRecord::with('bicycle');
+        // Preserve old bookmarked history filters, but keep the active table
+        // strictly limited to scheduled and in-progress work.
+        if ($statusFilter && in_array($statusFilter, $historyStatuses, true)) {
+            return redirect()->route('admin.maintenance.history', $request->query());
+        }
+
+        $activeQuery = $this->filteredMaintenanceQuery($request)->whereIn('status', $activeStatuses);
+        if ($statusFilter && in_array($statusFilter, $activeStatuses, true)) {
+            $activeQuery->where('status', $statusFilter);
+        }
+
+        $activeMaintenance = $activeQuery->latest()->paginate(20);
+        $maintenance = $activeMaintenance;
+        $maintenanceHistory = collect();
+        $showHistory = false;
+
+        return $this->maintenanceView($maintenance, $activeMaintenance, $maintenanceHistory, $showHistory);
+    }
+
+    /** Completed and cancelled records live in their own archive view. */
+    public function history(Request $request): Response
+    {
+        $historyStatuses = [MaintenanceRecord::STATUS_COMPLETED, MaintenanceRecord::STATUS_CANCELLED];
+        $historyQuery = $this->filteredMaintenanceQuery($request)->whereIn('status', $historyStatuses);
+
+        if ($request->filled('status') && in_array($request->input('status'), $historyStatuses, true)) {
+            $historyQuery->where('status', $request->input('status'));
+        }
+
+        $maintenanceHistory = $historyQuery->latest()->paginate(20);
+        $maintenance = $maintenanceHistory;
+        $activeMaintenance = collect();
+        $showHistory = true;
+
+        return $this->maintenanceView($maintenance, $activeMaintenance, $maintenanceHistory, $showHistory);
+    }
+
+    private function filteredMaintenanceQuery(Request $request)
+    {
+        $query = MaintenanceRecord::with('bicycle');
 
         if ($request->filled('bicycleId')) {
-            $baseQuery->where('bicycleId', $request->input('bicycleId'));
+            $query->where('bicycleId', $request->input('bicycleId'));
         }
-
         if ($request->filled('date_from')) {
-            $baseQuery->where('created_at', '>=', $request->input('date_from'));
+            $query->where('created_at', '>=', $request->input('date_from'));
         }
-
         if ($request->filled('date_to')) {
-            $baseQuery->where('created_at', '<=', $request->input('date_to'));
+            $query->where('created_at', '<=', $request->input('date_to'));
         }
 
-        if ($statusFilter && in_array($statusFilter, $historyStatuses)) {
-            $maintenance = (clone $baseQuery)->whereIn('status', $historyStatuses)->latest()->paginate(20);
-            $maintenanceHistory = $maintenance;
-            $activeMaintenance = collect();
-            $showHistory = true;
-        } else {
-            $activeQuery = (clone $baseQuery)->whereIn('status', $activeStatuses);
-            if ($statusFilter && in_array($statusFilter, $activeStatuses)) {
-                $activeQuery->where('status', $statusFilter);
-            }
-            $activeMaintenance = $activeQuery->latest()->paginate(20);
+        return $query;
+    }
 
-            $maintenanceHistory = (clone $baseQuery)->whereIn('status', $historyStatuses)->latest()->paginate(10);
-            $maintenance = $activeMaintenance;
-            $showHistory = false;
-        }
-
+    private function maintenanceView($maintenance, $activeMaintenance, $maintenanceHistory, bool $showHistory): Response
+    {
         $bicycles = Bicycle::where('status', '!=', Bicycle::STATUS_REMOVED)->orderBy('name')->get();
+        $maintenanceTabCounts = [
+            'active' => MaintenanceRecord::whereIn('status', [
+                MaintenanceRecord::STATUS_SCHEDULED,
+                MaintenanceRecord::STATUS_IN_PROGRESS,
+            ])->count(),
+            'history' => MaintenanceRecord::whereIn('status', [
+                MaintenanceRecord::STATUS_COMPLETED,
+                MaintenanceRecord::STATUS_CANCELLED,
+            ])->count(),
+        ];
 
         return response()->view('admin.maintenance', compact(
             'maintenance',
@@ -57,6 +92,7 @@ class MaintenanceController extends Controller
             'maintenanceHistory',
             'bicycles',
             'showHistory',
+            'maintenanceTabCounts',
         ));
     }
 
@@ -125,7 +161,11 @@ class MaintenanceController extends Controller
 
     public function updateStatus(Request $request, int $id): RedirectResponse
     {
-        return $this->updateMaintenanceStatus($request, $id, 'maintenance_status_updated', 'Maintenance status updated.');
+        return $this->updateMaintenanceStatus($request, $id, 'maintenance_status_updated', 'Maintenance status updated.')
+            // The shared admin layout still turns the success flash below into
+            // its normal top-right toast. This flag suppresses only the
+            // redundant in-page banner for Maintenance Schedule status edits.
+            ->with('suppressSuccessBanner', true);
     }
 
     private function updateMaintenanceStatus(Request $request, int $id, string $auditAction, string $successMessage): RedirectResponse

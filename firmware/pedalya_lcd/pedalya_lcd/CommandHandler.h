@@ -20,10 +20,10 @@ public:
                    PedalyaApi& api);
 
     /** Fetches the queue and runs each command in order. */
-    void pollAndExecute(const RentalState& rental);
+    void pollAndExecute(RentalState& rental);
 
 private:
-    void execute(const DeviceCommand& command, const RentalState& rental);
+    void execute(const DeviceCommand& command, RentalState& rental);
     void acknowledge(const DeviceCommand& command, bool executed, const String& result);
 
     static const size_t MAX_PENDING_COMMANDS = 5;

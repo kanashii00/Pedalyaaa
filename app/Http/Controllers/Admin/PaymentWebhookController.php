@@ -98,6 +98,8 @@ public function handle(Request $request): JsonResponse
             'status' => 'paid',
             'paymentDetails' => $data,
             'paidAt' => now(),
+            'amountPaid' => $payment->totalAmount,
+            'balanceDue' => 0,
         ]);
 
         if (!$payment->rentalId) {
@@ -122,6 +124,7 @@ public function handle(Request $request): JsonResponse
             'status' => 'failed',
             'paymentDetails' => $data,
             'failureReason' => $failureReason,
+            'balanceDue' => 0,
         ]);
 
         // Ensure bike remains locked
@@ -187,6 +190,8 @@ public function handle(Request $request): JsonResponse
             'status' => 'paid',
             'paymentDetails' => $data,
             'paidAt' => now(),
+            'amountPaid' => $payment->totalAmount,
+            'balanceDue' => 0,
         ]);
 
         if (!$payment->rentalId) {
@@ -208,6 +213,7 @@ public function handle(Request $request): JsonResponse
                     'status' => 'expired',
                     'paymentDetails' => $data,
                     'expiredAt' => now(),
+                    'balanceDue' => 0,
                 ]);
             }
         }
@@ -229,7 +235,11 @@ public function handle(Request $request): JsonResponse
             // Update payment status to refunded
             $payment = $refund->payment;
             if ($payment) {
-                $payment->update(['status' => 'refunded']);
+                $payment->update([
+                    'status' => 'refunded',
+                    'amountPaid' => 0,
+                    'balanceDue' => 0,
+                ]);
             }
         }
 

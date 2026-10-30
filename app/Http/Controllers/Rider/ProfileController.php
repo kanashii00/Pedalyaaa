@@ -88,6 +88,16 @@ class ProfileController extends Controller
             return back()->withErrors(['account' => 'You cannot delete an account with an active rental.']);
         }
 
+        // Snapshot before logout + hard delete: the user row will be gone, so
+        // the audit entry carries the traceable record (never any password).
+        \App\Models\AuditLog::record(\App\Services\AuditLogger::RIDER_DELETED, $user->id, [
+            'riderId' => $user->id,
+            'outcome' => 'success',
+            'snapshot' => $user->only([
+                'name', 'email', 'studentId', 'phoneNumber', 'role', 'status',
+            ]),
+        ]);
+
         \Illuminate\Support\Facades\Auth::logout();
 
         $user->delete();

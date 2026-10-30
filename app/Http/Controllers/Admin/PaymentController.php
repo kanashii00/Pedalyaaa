@@ -59,9 +59,10 @@ class PaymentController extends Controller
             'paid' => Payment::where('status', 'paid')->count(),
             'pending' => Payment::whereIn('status', ['pending', 'processing'])->count(),
             'failed' => Payment::whereIn('status', ['failed', 'expired', 'cancelled'])->count(),
-            'totalRevenue' => Payment::where('status', 'paid')->sum('totalAmount'),
-            'todayRevenue' => Payment::where('status', 'paid')
-                ->whereDate('paidAt', now())->sum('totalAmount'),
+            // Revenue is money actually collected, not the full final fee of a
+            // rental that still has a late-return balance due.
+            'totalRevenue' => Payment::sum('amountPaid'),
+            'todayRevenue' => Payment::whereDate('paidAt', now())->sum('amountPaid'),
         ];
 
         return response()->view('admin.payments.index', compact('payments', 'stats'));
@@ -100,6 +101,9 @@ class PaymentController extends Controller
                 'amount' => $validated['amount'],
                 'convenienceFee' => $validated['convenienceFee'] ?? 0,
                 'totalAmount' => $totalAmount,
+                'latePenalty' => 0,
+                'amountPaid' => 0,
+                'balanceDue' => $totalAmount,
                 'currency' => 'PHP',
                 'status' => 'pending',
                 'billingInfo' => [
@@ -220,6 +224,11 @@ class PaymentController extends Controller
                     'status' => $newStatus,
                     'paymentDetails' => $paymongoData['attributes'],
                     'paidAt' => $newStatus === 'paid' ? now() : $payment->paidAt,
+                    'amountPaid' => $newStatus === 'paid' ? $payment->totalAmount : 0,
+                    'balanceDue' => match ($newStatus) {
+                        'paid', 'failed', 'expired', 'cancelled' => 0,
+                        default => $payment->totalAmount,
+                    },
                 ]);
 
                 // If paid, create rental and unlock bike

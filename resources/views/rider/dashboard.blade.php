@@ -75,14 +75,14 @@
         || in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true);
     $penaltyRuleText = null;
     if (in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true)) {
-        if ($activeRental->penaltyType === 'per_hour') {
-            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' per hour late';
+        if ($activeRental->penaltyType === 'per_5_minutes' || $activeRental->penaltyType === 'per_hour') {
+            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' every 5 minutes late';
         } elseif ($activeRental->penaltyType === 'per_minute') {
             $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' per minute late';
         } elseif ($activeRental->penaltyType === 'fixed') {
             $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' fixed late fee';
         } else {
-            $penaltyRuleText = '₱' . number_format($lateReturnPenaltyPerHour ?? 20, 2) . ' per hour late';
+            $penaltyRuleText = '₱' . number_format($lateReturnPenaltyPerHour ?? 20, 2) . ' every 5 minutes late';
         }
     }
 @endphp
@@ -90,7 +90,10 @@
                         <div class="rental-live-grid">
                             <div class="rental-live-main">
                                 <h6 class="mb-1">Bicycle <strong>{{ $activeRental->bicycle->serialNumber ?? 'N/A' }}</strong> - {{ $activeRental->bicycle->name ?? '' }}</h6>
-                                <p class="mb-2 text-muted" style="font-size:0.85rem;">Started: {{ $activeRental->startTime->format('M d, g:i A') }}</p>
+                                <p class="mb-2 text-muted" style="font-size:0.85rem;" id="rentalStartedLine">Started: {{ $activeRental->startTime->format('M d, g:i A') }}</p>
+                                @if($activeRental->returnRequestedAt !== null)
+                                    <p class="mb-2 text-muted" style="font-size:0.85rem;" id="returnSubmittedAtLine">Return Submitted At: <strong id="returnSubmittedAtValue">{{ $activeRental->returnRequestedAt->format('M d, g:i A') }}</strong></p>
+                                @endif
                                 <div class="d-flex gap-3 flex-wrap">
                                     <span><i class="bi bi-clock text-primary"></i> <strong id="rentalTimer">0:00:00</strong></span>
                                     <span><i class="bi bi-battery-three-quarters text-success"></i> {{ $activeRental->bicycle->batteryLevel ?? 0 }}%</span>
@@ -165,7 +168,7 @@
                                 <div class="mt-2 p-2 rounded border" id="pendingReturnBox" role="status" style="background:#FFF8E1;border-color:#FFE0B2 !important;text-align:left;@if(!$returnSubmitted)display:none;@endif"@if(!$returnSubmitted) hidden@endif>
                                     <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split me-1" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>
                                     <p class="mb-1 mt-1 fw-bold" style="font-size:0.8rem;color:#E65100;">Return submitted &mdash; awaiting admin confirmation.</p>
-                                    <p class="mb-0 text-muted" style="font-size:0.78rem;">Your bicycle has been marked as returned. Please wait for an administrator to inspect and confirm the return.</p>
+                                    <p class="mb-0 text-muted" style="font-size:0.78rem;">Your return request has been submitted. Please wait for an administrator to inspect the bicycle and confirm the actual arrival time.</p>
                                 </div>
                                 <form action="{{ route('rider.rentals.return', $activeRental->id) }}" method="POST" class="mt-2" id="returnActionForm" data-return-form@if(!($isReturnFlow && !$returnSubmitted)) hidden style="display:none;"@endif>
                                     @csrf
@@ -691,6 +694,33 @@
             }
         }
 
+        // "Return Submitted At" sits directly below the Started line. A return
+        // submitted from another tab/device updates this card in place, so the
+        // line is created (or refreshed) from the authoritative payload rather
+        // than relying on the next full page load.
+        function setReturnSubmittedAt(iso) {
+            var d = new Date(iso);
+            if (isNaN(d.getTime())) return;
+            var line = byId('returnSubmittedAtLine');
+            if (!line) {
+                var started = byId('rentalStartedLine');
+                if (!started || !started.parentNode) return;
+                line = document.createElement('p');
+                line.id = 'returnSubmittedAtLine';
+                line.className = 'mb-2 text-muted';
+                line.style.fontSize = '0.85rem';
+                line.innerHTML = 'Return Submitted At: <strong id="returnSubmittedAtValue"></strong>';
+                started.parentNode.insertBefore(line, started.nextSibling);
+            }
+            var value = byId('returnSubmittedAtValue');
+            if (value) {
+                value.textContent = d.toLocaleString('en-PH', {
+                    timeZone: 'Asia/Manila', month: 'short', day: 'numeric',
+                    hour: 'numeric', minute: '2-digit',
+                });
+            }
+        }
+
         function applyStatus(payload) {
             syncing = false;
             if (destroyed) return;
@@ -714,6 +744,7 @@
             }
             initialStatus = rental.status;
             initialReturnSubmitted = !!rental.returnSubmitted;
+            if (rental.returnRequestedAt) setReturnSubmittedAt(rental.returnRequestedAt);
             var remaining = remainingSeconds();
             if (remaining !== null && remaining > 0) {
                 // Extended in another tab, or the clock correction moved the

@@ -214,7 +214,7 @@
 <div class="row align-items-center mb-3">
     <div class="col"><h5 class="mb-0">Live Position Feed</h5></div>
     <div class="col-auto">
-        <small class="text-muted">Center: {{ number_format($geofence['centerLat'], 5) }}, {{ number_format($geofence['centerLng'], 5) }} � Radius {{ number_format($geofence['radius'], 0) }}m</small>
+        <small class="text-muted">Center: {{ number_format($geofence['centerLat'], 5) }}, {{ number_format($geofence['centerLng'], 5) }} · Radius {{ number_format($geofence['radius'], 0) }}m</small>
     </div>
 </div>
 <div class="admin-table-wrap">

@@ -1118,6 +1118,46 @@ body.sidebar-drawer-open {
 .admin-table-toolbar .grow input { width: 100%; padding-left: 34px; }
 .admin-table-toolbar .grow > i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-3); font-size: 13px; pointer-events: none; }
 
+/* Bicycle Inventory toolbar: the search field and the filter controls form a
+   two-track grid that spans the card. The search track absorbs the available
+   width while the filter controls stay content-sized at the right edge, so the
+   field never stops short of the table or leaves a blank band beside it. The
+   grid collapses to one column on phones. Every control keeps the same 34px
+   height so the row stays on one baseline at any viewport size or zoom. */
+.admin-table-toolbar.inventory-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+}
+.admin-table-toolbar .inventory-toolbar__search {
+  width: 100%;
+  min-width: 0;
+}
+.inventory-toolbar__filters {
+  display: grid;
+  grid-template-columns: minmax(150px, 180px) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+.inventory-toolbar__select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.inventory-toolbar .inventory-toolbar__submit {
+  width: auto;
+  height: 34px;
+  justify-content: center;
+}
+@media (max-width: 575.98px) {
+  .admin-table-toolbar.inventory-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .inventory-toolbar__filters { grid-template-columns: minmax(0, 1fr) auto; }
+}
+
 /* Bicycle Status toolbar: single horizontal row (search + 3 dropdowns +
    Filter/Reset). Token styling inherited; this only enforces one aligned
    row that wraps cleanly at 1366x768 with no page-level overflow. */
@@ -1239,36 +1279,95 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
    page wide or squeezing the columns until the badges wrap and misalign. */
 .admin-table-scroll { width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
 
-/* Inventory is an 11-column table that has to fit the content area on a
-   standard laptop, so it uses a fixed layout with percentage widths: the row
-   always fills the card exactly, at any viewport, with no horizontal scroll.
-   Density is tuned here instead of globally - tighter padding, one step smaller
-   type and badges - so a full row lands around 40px tall while every value stays
-   legible. Long values (names, serials, rental facts, timestamps) truncate with
-   an ellipsis inside their own column and keep a title attribute. */
+/* Inventory is an 11-column table. In table mode each row is a CSS Grid: the
+   data columns share the leftover width with fractional tracks, while the
+   Actions track is a fixed, content-sized column (140px compact, 176px wide).
+   That makes the table fill its card exactly and leaves no dead band after the
+   action buttons. The 940px floor is the smallest table width where every
+   badge, the rate value and the full four-button action group still fit
+   without clipping. The table only renders when the page can give it that
+   width; otherwise the labelled-card layout below takes over, so it never
+   needs an inner horizontal scrollbar. Density is tuned here instead of
+   globally - tighter padding, one step smaller type and badges - while long
+   values truncate on their own element and keep a title attribute. */
 .admin-table--inventory {
-  table-layout: fixed;
-  min-width: 0;
+  --inventory-actions-width: 140px;
+  min-width: 940px;
   width: 100%;
   font-size: 12px;
 }
-.admin-table--inventory .col-name { width: 11%; }
-.admin-table--inventory .col-serial { width: 7.5%; }
-.admin-table--inventory .col-status { width: 11.5%; }
-.admin-table--inventory .col-renter { width: 10%; }
-.admin-table--inventory .col-rental { width: 10.5%; }
-.admin-table--inventory .col-battery { width: 6.5%; }
-.admin-table--inventory .col-lock { width: 7.5%; }
-.admin-table--inventory .col-condition { width: 6.5%; }
-.admin-table--inventory .col-rate { width: 7.5%; }
-.admin-table--inventory .col-updated { width: 8%; }
-.admin-table--inventory .col-actions { width: 13.5%; }
-.admin-table--inventory thead th { padding: 7px 6px; font-size: 10px; }
+.admin-table--inventory thead th {
+  padding: 7px 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  /* Several labels are wider than their track. Letting them wrap - and break
+     a long single word only when necessary - keeps each header inside its own
+     cell instead of painting over the next column. Empty sort markers are
+     hidden until admin.js fills them in. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: bottom;
+}
+.admin-table--inventory thead th .sort-ind:empty { display: none; }
 /* No overflow:hidden here - a cell that clips its own content also clips the
    three-dots menu that Popper positions inside it. Truncation is handled by the
    wrapped value itself (below), so nothing needs to be clipped at cell level. */
 .admin-table--inventory tbody td { padding: 8px 6px; }
+/* The card has one consistent inner gutter on both sides: the first column
+   starts one toolbar-padding in, and the last column (its action buttons or
+   empty cell) stops one gutter before the card edge. Interior columns keep the
+   denser six-pixel rhythm so all eleven tracks still fit at the floor. */
+.admin-table--inventory thead th:first-child,
+.admin-table--inventory tbody td:first-child { padding-left: 16px; }
+.admin-table--inventory thead th:last-child,
+.admin-table--inventory tbody td:last-child:not([colspan]) { padding-right: 16px; }
+
+/* Table presentation only. Each row is its own grid with the same track list,
+   so headers and data stay aligned without relying on table-layout support for
+   calc()/mixed track widths. The card layout bands below override this back to
+   block flow. */
+@media (min-width: 1016px) and (max-width: 1199.98px),
+       (min-width: 1280px) {
+  .admin-table--inventory {
+    display: block;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .admin-table--inventory thead,
+  .admin-table--inventory tbody { display: block; width: 100%; }
+  .admin-table--inventory thead tr,
+  .admin-table--inventory tbody tr {
+    display: grid;
+    grid-template-columns:
+      minmax(0, 1.20fr) minmax(0, 1.16fr) minmax(0, 1.25fr)
+      minmax(0, 0.77fr) minmax(0, 1.13fr) minmax(0, 0.76fr)
+      minmax(0, 1.05fr) minmax(0, 0.85fr) minmax(0, 0.88fr)
+      minmax(0, 0.95fr) var(--inventory-actions-width);
+    align-items: stretch;
+    width: 100%;
+  }
+  .admin-table--inventory thead th {
+    display: flex;
+    align-items: flex-end;
+    width: auto;
+    min-width: 0;
+  }
+  .admin-table--inventory tbody td {
+    display: flex;
+    align-items: center;
+    width: auto;
+    min-width: 0;
+  }
+  /* The flex cell must hand its full track to the action group so the group
+     can distribute its buttons across the remaining space. */
+  .admin-table--inventory tbody td > .actions-row { width: 100%; }
+  .admin-table--inventory tbody td[colspan] { grid-column: 1 / -1; }
+}
 .admin-table--inventory .badge-admin { font-size: 9.5px; padding: 2px 6px; gap: 4px; line-height: 1.5; }
+/* Defensive cap: even a future status label can only ever paint inside its own
+   cell. At the current floor every existing label still fits in full. */
+.admin-table--inventory .badge-admin { max-width: 100%; overflow: hidden; }
 .admin-table--inventory .cell-sub { font-size: 11px; }
 .admin-table--inventory .cell-stack { gap: 2px; line-height: 1.3; }
 .admin-table--inventory .progress { height: 5px; }
@@ -1276,10 +1375,12 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
 /* Text that can outgrow its column truncates on the value itself instead of
    widening the table, so a cell can keep its overflow visible. */
 .admin-table--inventory td > .cell-title,
+.admin-table--inventory td > .cell-value,
 .admin-table--inventory td > small,
 .admin-table--inventory td > code,
 .admin-table--inventory .cell-stack { min-width: 0; }
 .admin-table--inventory td > .cell-title,
+.admin-table--inventory td > .cell-value,
 .admin-table--inventory td > small,
 .admin-table--inventory td > code,
 .admin-table--inventory .cell-stack > * {
@@ -1355,18 +1456,29 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
   border-color: var(--border-strong);
 }
 
+/* The action group starts on the same left edge as its header and every other
+   column, then spreads across the content-sized track so the three-dots menu
+   finishes flush with the card's right gutter instead of leaving a dead band.
+   The track is sized for the widest row (Edit, Delete, the rental action and
+   the three-dots menu), so the buttons stay on one line in the table and in
+   the labelled tablet cards. Phones keep the shared wrapping rule below. */
+.admin-table--inventory thead th:last-child,
+.admin-table--inventory tbody td:last-child:not([colspan]) { text-align: left; }
+.admin-table--inventory .actions-row { justify-content: space-between; }
+
 /* Actions stay on a single aligned row: the column is sized for the widest row
    (Edit, Delete, the rental action and the three-dots menu) so the buttons never
-   stack and never push the table sideways. Phones keep the wrapping behaviour
-   from the shared rule below. */
+   stack and never push the table sideways. The phone card layout below keeps the
+   shared wrapping behaviour. */
 @media (min-width: 768px) {
   .admin-table--inventory .actions-row { flex-wrap: nowrap; gap: 4px; }
   .admin-table--inventory .actions-row .btn-admin--sm { min-width: 26px; height: 26px; }
 }
 
-/* Wide desktops have room to breathe, so the full-size rhythm comes back. */
-@media (min-width: 1600px) {
-  .admin-table--inventory { font-size: 13px; }
+/* Wide desktops have room to breathe, so the full-size rhythm comes back.
+   The action track grows with its 30px buttons and 8px gaps (176px total). */
+@media (min-width: 1800px) {
+  .admin-table--inventory { --inventory-actions-width: 176px; font-size: 13px; }
   .admin-table--inventory thead th { padding: 11px 16px; font-size: 11px; }
   .admin-table--inventory tbody td { padding: 13px 16px; }
   .admin-table--inventory .badge-admin { font-size: 11.5px; padding: 3px 10px; gap: 6px; }
@@ -1377,10 +1489,54 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
   .admin-table--inventory .actions-row .btn-admin--sm { min-width: 30px; height: 30px; }
 }
 
-/* Phones render every admin table as stacked cards; the column widths above do
-   not apply there, so the fixed-layout floor has to be released. */
-@media (max-width: 767.98px) {
-  .admin-table--inventory { table-layout: auto; }
+/* The table needs 940px of content. That is unavailable below 1016px, and also
+   in the narrow slice just after the sidebar takes its ~264px at 1200px, so
+   both bands use the labelled-card presentation for this eleven-column
+   inventory. At 1280px the sidebar and the 940px table floor fit together
+   again, even with a classic 15px scrollbar (the card loses 2px to its own
+   borders). Phones already stack every admin table; these rules only add the
+   tablet and sidebar-band cases, without an inner horizontal scrollbar. */
+@media (max-width: 1015.98px) {
+  .admin-table--inventory { table-layout: auto; min-width: 0; }
+}
+@media (min-width: 768px) and (max-width: 1015.98px),
+       (min-width: 1200px) and (max-width: 1279.98px) {
+  .admin-table--inventory { table-layout: auto; min-width: 0; }
+  .admin-table--inventory thead { display: none; }
+  .admin-table--inventory,
+  .admin-table--inventory tbody,
+  .admin-table--inventory tr,
+  .admin-table--inventory td { display: block; width: 100%; }
+  .admin-table--inventory tbody tr { border-bottom: 1px solid var(--border-subtle); padding: 8px 0; }
+  .admin-table--inventory tbody td {
+    border: none;
+    padding: 6px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: right;
+  }
+  .admin-table--inventory tbody td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-3);
+  }
+  .admin-table--inventory .cell-title { text-align: right; }
+  .admin-table-wrap--inventory .admin-table-foot { justify-content: center; }
+}
+/* In every card layout (phone, tablet and the sidebar band) the progress bar
+   needs a bounded parent; in table mode the cell itself provides that width. */
+@media (max-width: 1015.98px),
+       (min-width: 1200px) and (max-width: 1279.98px) {
+  .admin-table--inventory tbody td[data-label="Battery"] > .d-flex {
+    flex: 0 1 180px;
+    width: 180px;
+    max-width: 55%;
+  }
 }
 
 /* Actions column: fixed floor so every row lines up, buttons contained.
@@ -1437,6 +1593,19 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
 @media (max-width: 767.98px) {
   .admin-table th.col-actions { width: auto; min-width: 0; }
   .actions-row { flex-wrap: wrap; }
+}
+
+/* Customer List: the customer name opens the verification/details dialog, so
+   each row only carries its two status actions. Size the column to those two
+   icon buttons plus the standard cell padding instead of reserving room for a
+   third button, which keeps the actions flush with the header and leaves no
+   dead space at the end of every row. */
+.admin-table--customer-list th.col-actions { width: 100px; min-width: 100px; }
+.admin-table--customer-list td.col-actions { padding-right: 16px; }
+
+/* Phones stack the table as cards; the fixed column floor does not apply. */
+@media (max-width: 767.98px) {
+  .admin-table--customer-list th.col-actions { width: auto; min-width: 0; }
 }
 
 .admin-table__rowcheck { width: 40px; }
@@ -2090,6 +2259,7 @@ a.admin-pagination__item:hover { background: var(--surface-3); color: var(--text
   .admin-topbar__crumb { display: none; }
   .kpi__value { font-size: 22px; }
   .admin-table-toolbar { padding: 12px; }
+  .admin-table-toolbar.inventory-toolbar { padding: 12px; }
   .admin-table thead { display: none; }
   .admin-table, .admin-table tbody, .admin-table tr, .admin-table td { display: block; width: 100%; }
   .admin-table tbody tr { border-bottom: 1px solid var(--border-subtle); padding: 8px 0; }

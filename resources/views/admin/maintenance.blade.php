@@ -2,9 +2,33 @@
 
 @section('title', 'Maintenance Records')
 
+@section('styles')
+<style>
+    /* Mirrors the Returns module tabs while retaining Maintenance's palette. */
+    .maintenance-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .maintenance-tab {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 16px; border-radius: 10px; font-weight: 700; font-size: 12.5px;
+        background: var(--surface); color: var(--text-2);
+        border: 1px solid var(--border-subtle); text-decoration: none;
+        transition: all 0.15s;
+    }
+    .maintenance-tab:hover { color: var(--brand-strong); border-color: var(--brand); }
+    .maintenance-tab.active {
+        background: var(--brand-soft); color: var(--brand-strong);
+        border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+    }
+    .maintenance-tab .badge-admin { margin-left: 2px; }
+    @media (max-width: 560px) {
+        .maintenance-tabs { overflow-x: auto; padding-bottom: 2px; }
+        .maintenance-tab { white-space: nowrap; }
+    }
+</style>
+@endsection
+
 @section('page-header')
     <h1>Maintenance Records</h1>
-    <p>Track and manage bicycle maintenance</p>
+    <p>Track ongoing, scheduled, and in-progress bicycle maintenance</p>
 @endsection
 
 @section('actions')
@@ -14,6 +38,18 @@
 @endsection
 
 @section('content')
+{{-- Module tabs directly follow the page heading, like the Returns workflow. --}}
+<div class="maintenance-tabs" aria-label="Maintenance record views">
+    <a href="{{ route('admin.maintenance.index') }}" class="maintenance-tab {{ !$showHistory ? 'active' : '' }}">
+        <i class="bi bi-tools"></i> Active Maintenance
+        <span class="badge-admin badge-admin--warning badge-admin--plain">{{ $maintenanceTabCounts['active'] }}</span>
+    </a>
+    <a href="{{ route('admin.maintenance.history') }}" class="maintenance-tab {{ $showHistory ? 'active' : '' }}">
+        <i class="bi bi-clock-history"></i> Maintenance History
+        <span class="badge-admin badge-admin--success badge-admin--plain">{{ $maintenanceTabCounts['history'] }}</span>
+    </a>
+</div>
+
 {{-- Active Maintenance Schedule --}}
 @if(!$showHistory)
 <div class="admin-table-wrap mb-4">
@@ -164,24 +200,17 @@
 @endif
 
 {{-- Maintenance History --}}
-@if($showHistory || $maintenanceHistory->count() > 0)
+@if($showHistory)
 <div class="admin-table-wrap">
     <div class="d-flex align-items-center justify-content-between mb-3">
         <h5 style="font-size: 14px; font-weight: 700; margin: 0; color: var(--text-2);">
             <i class="bi bi-clock-history me-2"></i>Maintenance History
         </h5>
-        @if(!$showHistory)
-            <a href="{{ route('admin.maintenance.index', array_merge(request()->query(), ['status' => 'completed'])) }}"
-               class="btn-admin btn-admin--ghost btn-admin--sm">
-                View All <i class="bi bi-arrow-right ms-1"></i>
-            </a>
-        @endif
     </div>
 
-    @if($showHistory)
     <div class="admin-table-toolbar">
         <div class="grow"><i class="bi bi-search"></i><input type="text" data-table-search placeholder="Search history..."></div>
-        <form method="GET" action="{{ route('admin.maintenance.index') }}" class="d-flex gap-2 align-items-center flex-wrap">
+        <form method="GET" action="{{ route('admin.maintenance.history') }}" class="d-flex gap-2 align-items-center flex-wrap">
             <select class="form-select form-select-sm" name="bicycleId" style="flex:0 0 auto;max-width:190px;">
                 <option value="">All Bicycles</option>
                 @foreach($bicycles ?? [] as $bicycle)
@@ -191,18 +220,18 @@
                 @endforeach
             </select>
             <select class="form-select form-select-sm" name="status" style="flex:0 0 auto;max-width:150px;">
+                <option value="">All History</option>
                 <option value="completed" {{ request('status') == 'completed' ? 'selected' : '' }}>Completed</option>
                 <option value="cancelled" {{ request('status') == 'cancelled' ? 'selected' : '' }}>Cancelled</option>
             </select>
             <button type="submit" class="btn-admin btn-admin--secondary btn-admin--sm">
                 <i class="bi bi-funnel me-1"></i>Filter
             </button>
-            <a href="{{ route('admin.maintenance.index') }}" class="btn-admin btn-admin--ghost btn-admin--sm">
+            <a href="{{ route('admin.maintenance.history') }}" class="btn-admin btn-admin--ghost btn-admin--sm">
                 <i class="bi bi-x-lg me-1"></i>Clear
             </a>
         </form>
     </div>
-    @endif
 
     <table class="admin-table">
         <thead>

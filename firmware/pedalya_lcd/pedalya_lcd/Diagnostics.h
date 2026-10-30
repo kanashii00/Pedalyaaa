@@ -23,4 +23,7 @@ void printBanner();
 /** Servo and buzzer geometry, which differs per bicycle. */
 void printActuatorConfig();
 
-}  // namespace Diagnostics
+/** Reset reason, crash information, and core dump integrity check. */
+void printBootDiagnostics();
+
+}  // namespace Diagnostics

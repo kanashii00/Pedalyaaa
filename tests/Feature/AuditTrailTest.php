@@ -92,7 +92,7 @@ class AuditTrailTest extends TestCase
     {
         $admin = $this->makeAdmin();
 
-        $this->actingAs($admin)->post(route('logout'))->assertRedirect('/');
+        $this->actingAs($admin)->post(route('logout'))->assertRedirect(route('login'));
 
         $log = $this->latestAudit('logout');
         $this->assertSame($admin->id, $log->userId);

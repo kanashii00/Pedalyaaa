@@ -92,7 +92,7 @@
                 <label class="form-label form-label-sm">Method</label>
                 <select name="payment_method" class="form-select form-select-sm">
                     <option value="">All Methods</option>
-                    @foreach(['gcash', 'maya', 'grabpay', 'card', 'online_banking'] as $m)
+                    @foreach(['cash', 'gcash', 'maya', 'grabpay', 'card', 'online_banking'] as $m)
                         <option value="{{ $m }}" {{ request('payment_method') === $m ? 'selected' : '' }}>{{ ucfirst(str_replace('_', ' ', $m)) }}</option>
                     @endforeach
                 </select>
@@ -176,6 +176,13 @@
                         <td class="amount-cell fw-semibold">₱{{ number_format($payment->totalAmount, 2) }}
                             @if($payment->convenienceFee > 0)
                                 <div class="cell-sub">Fee: ₱{{ number_format($payment->convenienceFee, 2) }}</div>
+                            @endif
+                            @if((float) $payment->latePenalty > 0)
+                                <div class="cell-sub text-danger">Late penalty: ₱{{ number_format($payment->latePenalty, 2) }}</div>
+                            @endif
+                            @if((float) $payment->balanceDue > 0)
+                                <div class="cell-sub text-success">Paid: ₱{{ number_format($payment->amountPaid, 2) }}</div>
+                                <div class="cell-sub text-danger">Due: ₱{{ number_format($payment->balanceDue, 2) }}</div>
                             @endif
                         </td>
                         <td>

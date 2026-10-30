@@ -128,7 +128,10 @@ class AuthenticatedSessionController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect('/');
+        // Land on login (not home) so a signed-out visitor is never one
+        // Back-press away from a cached-looking authenticated page, and the
+        // login form is immediately available for the next sign-in.
+        return redirect()->route('login');
     }
 
     private function redirectForRole(User $user): RedirectResponse

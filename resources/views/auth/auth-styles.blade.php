@@ -147,3 +147,12 @@
     border-radius: 0.375rem;
     caret-color: #fff !important;
 }
+/* Hide only the browser-native password reveal/clear decorations (Edge/IE)
+   that would duplicate the intentional eye toggle button. The custom
+   [data-password-toggle] / #togglePassword buttons remain the single visible
+   control. Autocomplete and password-manager fill are unaffected: only the
+   redundant in-field icons are suppressed, not the autofill behavior. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+    display: none;
+}

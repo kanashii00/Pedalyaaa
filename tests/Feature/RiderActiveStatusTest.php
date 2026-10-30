@@ -93,6 +93,7 @@ class RiderActiveStatusTest extends TestCase
             ->assertOk()
             ->assertJsonPath('rental.status', Rental::STATUS_AWAITING_RETURN)
             ->assertJsonPath('rental.returnSubmitted', true)
+            ->assertJsonPath('rental.returnRequestedAt', $rental->fresh()->returnRequestedAt->toIso8601String())
             ->assertJsonPath('rental.canReturn', false)
             ->assertJsonPath('rental.canExtend', false);
     }

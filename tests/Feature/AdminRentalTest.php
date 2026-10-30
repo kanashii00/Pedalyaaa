@@ -52,9 +52,19 @@ class AdminRentalTest extends TestCase
     {
         $rider = $this->makeRider();
         $bike = $this->makeBicycle();
-        $rental = $this->makeRental(['riderId' => $rider->id, 'bicycleId' => $bike->id, 'status' => Rental::STATUS_ACTIVE]);
+        $submittedAt = now()->subMinutes(3);
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_ACTIVE,
+            'returnRequestedAt' => $submittedAt,
+        ]);
 
-        $this->actingAs($this->admin)->get(route('admin.rentals.show', $rental->id))->assertOk();
+        $this->actingAs($this->admin)
+            ->get(route('admin.rentals.show', $rental->id))
+            ->assertOk()
+            ->assertSee('Return Submitted At')
+            ->assertSee($submittedAt->format('M d, Y g:i A'));
     }
 
     public function test_approve_pending_rental(): void
@@ -302,6 +312,63 @@ class AdminRentalTest extends TestCase
             ->assertOk();
     }
 
+    public function test_returns_pending_modal_exposes_the_return_submitted_time(): void
+    {
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle();
+        $submittedAt = now()->subMinutes(30);
+        $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_AWAITING_RETURN,
+            'endTime' => $submittedAt,
+            'returnRequestedAt' => $submittedAt,
+            'returnDeadline' => now()->subMinutes(5),
+            'totalFee' => 15.00,
+        ]);
+
+        $html = $this->actingAs($this->admin)
+            ->get(route('admin.rentals.returns'))
+            ->assertOk()
+            ->getContent();
+
+        // The Process Return modal tells the admin exactly when the rider
+        // submitted the return, directly below Started, while keeping the
+        // actual-arrival picker (and therefore the late fee) separate.
+        $this->assertStringContainsString('Started</dt><dd id="prStarted">', $html);
+        $this->assertStringContainsString('Return Submitted At</dt><dd id="prSubmitted">', $html);
+        $this->assertStringContainsString('data-submitted="' . $submittedAt->format('M d, Y h:i A') . '"', $html);
+        $this->assertStringContainsString('Actual Return Date &amp; Time', $html);
+        $this->assertStringContainsString('id="prReturnTime"', $html);
+    }
+
+    public function test_active_rental_detail_exposes_the_return_submitted_time(): void
+    {
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle();
+        $submittedAt = now()->subMinutes(7);
+
+        $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_ACTIVE,
+            'returnRequestedAt' => $submittedAt,
+        ]);
+
+        $html = $this->actingAs($this->admin)
+            ->get(route('admin.rentals.index'))
+            ->assertOk()
+            ->getContent();
+
+        // Active Rentals shows the same rider submission instant separately
+        // from the actual return, directly below Start Time in the detail modal.
+        $this->assertStringContainsString('Return Submitted At</dt><dd id="rdSubmittedAt">', $html);
+        $this->assertStringContainsString(
+            '&quot;submitted&quot;:&quot;' . $submittedAt->format('M d, Y h:i A') . '&quot;',
+            $html
+        );
+    }
+
     public function test_returns_processed_view(): void
     {
         $rider = $this->makeRider();
@@ -311,6 +378,47 @@ class AdminRentalTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('admin.rentals.returns') . '?view=processed')
             ->assertOk();
+    }
+
+    public function test_returns_page_uses_compact_custom_pagination(): void
+    {
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle();
+
+        for ($i = 0; $i < 21; $i++) {
+            $this->makeRental([
+                'riderId' => $rider->id,
+                'bicycleId' => $bike->id,
+                'status' => Rental::STATUS_RETURNED,
+                'endTime' => now()->subHours(2),
+            ]);
+        }
+
+        $firstPage = $this->actingAs($this->admin)
+            ->get(route('admin.rentals.returns') . '?view=processed')
+            ->assertOk()
+            ->getContent();
+
+        // The returns footer uses the shared compact admin pagination, not
+        // Laravel's unstyled Tailwind view (which renders oversized SVGs and
+        // duplicate mobile/desktop controls when Tailwind is absent).
+        $this->assertStringContainsString('class="admin-pagination"', $firstPage);
+        $this->assertStringContainsString('aria-label="Return records pages"', $firstPage);
+        $this->assertStringContainsString('Showing 1&ndash;20 of 21 processed returns', $firstPage);
+        $this->assertStringContainsString('aria-label="Go to page 2"', $firstPage);
+        $this->assertStringContainsString('rel="next"', $firstPage);
+        $this->assertStringNotContainsString('aria-label="Pagination Navigation"', $firstPage);
+        $this->assertStringNotContainsString('w-5 h-5', $firstPage);
+
+        $secondPage = $this->actingAs($this->admin)
+            ->get(route('admin.rentals.returns') . '?view=processed&page=2')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Showing 21&ndash;21 of 21 processed returns', $secondPage);
+        $this->assertStringContainsString('rel="prev"', $secondPage);
+        $this->assertStringContainsString('aria-current="page">2</span>', $secondPage);
+        $this->assertStringNotContainsString('rel="next"', $secondPage);
     }
 
     public function test_returns_filters(): void

@@ -68,6 +68,44 @@ class RiderReturnSyncTest extends TestCase
             ->assertSee('Awaiting Admin Confirmation', false);
     }
 
+    public function test_dashboard_shows_when_the_return_was_submitted(): void
+    {
+        [$rider, $bike, $rental] = $this->startActiveRental();
+
+        // Before the rider taps Return there is nothing to show; the string is
+        // matched with the id attribute so the watcher script's own references
+        // cannot satisfy the assertion.
+        $before = $this->actingAs($rider)->get(route('rider.dashboard'))->assertOk()->getContent();
+        $this->assertStringNotContainsString('id="returnSubmittedAtLine">Return Submitted At:', $before);
+
+        $this->actingAs($rider)->post(route('rider.rentals.return', $rental->id))
+            ->assertRedirect(route('rider.dashboard'));
+
+        $submittedAt = $rental->fresh()->returnRequestedAt;
+        $this->assertNotNull($submittedAt);
+
+        // The Active Rental card now shows exactly when the return was
+        // requested, directly below the Started line.
+        $html = $this->actingAs($rider)->get(route('rider.dashboard'))->assertOk()->getContent();
+
+        $startedPos = strpos($html, 'id="rentalStartedLine"');
+        $submittedPos = strpos($html, 'id="returnSubmittedAtLine"');
+        $this->assertNotFalse($startedPos);
+        $this->assertNotFalse($submittedPos);
+        $this->assertGreaterThan($startedPos, $submittedPos, 'the timestamp must sit directly below Started');
+        $this->assertStringContainsString(
+            'id="returnSubmittedAtLine">Return Submitted At: <strong id="returnSubmittedAtValue">'
+                . $submittedAt->format('M d, g:i A') . '</strong>',
+            $html
+        );
+
+        // The live status payload carries the same instant, so a return
+        // submitted from another tab renders the line in place too.
+        $this->actingAs($rider)->getJson(route('rider.rentals.active-status'))
+            ->assertOk()
+            ->assertJsonPath('rental.returnRequestedAt', $submittedAt->toIso8601String());
+    }
+
     public function test_state_settles_immediately_after_admin_confirm(): void
     {
         [$rider, $bike, $rental] = $this->startActiveRental();

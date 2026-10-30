@@ -24,6 +24,9 @@ class Payment extends Model
         'amount',
         'convenienceFee',
         'totalAmount',
+        'latePenalty',
+        'amountPaid',
+        'balanceDue',
         'currency',
         'status',
         'paymentDetails',
@@ -34,12 +37,35 @@ class Payment extends Model
         'webhookSignature',
     ];
 
+    protected static function booted(): void
+    {
+        static::creating(function (Payment $payment) {
+            $total = (float) ($payment->totalAmount ?? 0);
+            $status = $payment->status ?? 'pending';
+
+            // Keep the collected/outstanding split coherent for every new
+            // payment, including records created outside rental settlement.
+            if ($payment->amountPaid === null) {
+                $payment->amountPaid = $status === 'paid' ? $total : 0;
+            }
+
+            if ($payment->balanceDue === null) {
+                $payment->balanceDue = in_array($status, ['pending', 'processing'], true)
+                    ? $total
+                    : 0;
+            }
+        });
+    }
+
     protected function casts(): array
     {
         return [
             'amount' => 'decimal:2',
             'convenienceFee' => 'decimal:2',
             'totalAmount' => 'decimal:2',
+            'latePenalty' => 'decimal:2',
+            'amountPaid' => 'decimal:2',
+            'balanceDue' => 'decimal:2',
             'paymentDetails' => 'array',
             'billingInfo' => 'array',
             'paidAt' => 'datetime',
@@ -93,6 +119,18 @@ class Payment extends Model
     public function isRefunded(): bool
     {
         return $this->status === 'refunded';
+    }
+
+    /**
+     * Whether part of the final rental charge is still outstanding.
+     *
+     * A GCash rental can be paid at booking and later incur a late-return
+     * penalty. In that case the payment itself succeeded (status "paid") but
+     * the final total is not fully collected yet.
+     */
+    public function hasBalanceDue(): bool
+    {
+        return round((float) $this->balanceDue, 2) > 0;
     }
 
     public function getStatusColor(): string

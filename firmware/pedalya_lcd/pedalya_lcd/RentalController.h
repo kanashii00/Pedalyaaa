@@ -71,7 +71,7 @@ public:
     const RentalTimer& timer() const { return timer_; }
 
 private:
-    void enterState(ActuatorState next);
+    void enterState(ActuatorState next, const String& bikeStatus = "");
     void logRemaining(int64_t remaining);
 
     LockActuator& lock_;
@@ -79,6 +79,7 @@ private:
     RentalTimer& timer_;
 
     ActuatorState state_ = ActuatorState::Unknown;
+    String lastBicycleStatus_;
     // Once a rental has expired it stays expired for this device until the rental
     // itself ends. Without this a later poll that still reports the rental as
     // active would walk the actuators back to Warning/Active and unlock a locked

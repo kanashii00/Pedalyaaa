@@ -591,9 +591,10 @@
                                         if ($rental->penaltyType) {
                                             if ($rental->penaltyType === \App\Models\Rental::PENALTY_FIXED) {
                                                 $detailPenalty = 'Fixed ₱' . number_format((float) $rental->penaltyValue, 2);
+                                            } elseif ($rental->penaltyType === \App\Models\Rental::PENALTY_PER_MINUTE) {
+                                                $detailPenalty = '₱' . number_format((float) $rental->penaltyValue, 2) . '/minute';
                                             } else {
-                                                $detailPenalty = '₱' . number_format((float) $rental->penaltyValue, 2)
-                                                    . ($rental->penaltyType === \App\Models\Rental::PENALTY_PER_MINUTE ? '/minute' : '/hour');
+                                                $detailPenalty = '₱' . number_format((float) $rental->penaltyValue, 2) . '/5 min';
                                             }
                                         }
                                         $detailData = [
@@ -605,6 +606,7 @@
                                             'serial'    => $rental->bicycle->serialNumber ?? $rental->bicycleSerial ?? '',
                                             'bikeRate'  => number_format((float) ($rental->bicycle->hourlyRate ?? $rental->ratePerHour ?? 0), 2),
                                             'start'     => $rental->startTime?->format('M d, Y h:i A') ?? '',
+                                            'submitted' => $rental->returnRequestedAt?->format('M d, Y h:i A') ?? '',
                                             'deadline'  => $rental->returnDeadline?->format('M d, Y h:i A') ?? '',
                                             'deadlineBy'=> $rental->returnDeadlineSetBy ?? '',
                                             'expected'  => $rental->expectedEndTime?->format('M d, Y h:i A') ?? '',
@@ -761,6 +763,7 @@
                     <dl style="margin:0;">
                         <div class="rv-kv"><dt>Rental ID</dt><dd id="rdId">—</dd></div>
                         <div class="rv-kv"><dt>Start Time</dt><dd id="rdStart">—</dd></div>
+                        <div class="rv-kv" id="rowRdSubmittedAt"><dt>Return Submitted At</dt><dd id="rdSubmittedAt">—</dd></div>
                         <div class="rv-kv" id="rowRdDeadline"><dt>Return Deadline</dt><dd id="rdDeadline">—</dd></div>
                         <div class="rv-kv" id="rowRdDeadlineBy"><dt>Deadline Set By</dt><dd id="rdDeadlineBy">—</dd></div>
                         <div class="rv-kv" id="rowRdExpected"><dt>Expected End</dt><dd id="rdExpected">—</dd></div>
@@ -951,6 +954,7 @@
         setText('rdBikeSub', (d.serial ? 'SN \u00B7 ' + d.serial : '') + (d.bikeRate ? ' \u00B7 \u20B1' + d.bikeRate + '/hour' : ''));
         setText('rdId', d.id);
         setText('rdStart', d.start);
+        setText('rdSubmittedAt', d.submitted);
         setText('rdDeadline', d.deadline);
         setText('rdDeadlineBy', d.deadlineBy);
         setText('rdExpected', d.expected);
@@ -963,6 +967,7 @@
         setText('rdCreated', d.created);
         setText('rdRate', d.rate ? '\u20B1' + d.rate : '');
         setText('rdTotal', d.totalFee ? '\u20B1' + d.totalFee : '');
+        setRowVisible('rowRdSubmittedAt', !!d.submitted);
         setRowVisible('rowRdDeadline', !!d.deadline);
         setRowVisible('rowRdDeadlineBy', !!d.deadlineBy);
         setRowVisible('rowRdExpected', !!d.expected);

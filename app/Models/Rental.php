@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Rental extends Model
 {
@@ -90,10 +91,13 @@ class Rental extends Model
 
     public const PENALTY_PER_MINUTE = 'per_minute';
 
+    public const PENALTY_PER_5_MINUTES = 'per_5_minutes';
+
     public const PENALTY_TYPES = [
         self::PENALTY_FIXED,
         self::PENALTY_PER_HOUR,
         self::PENALTY_PER_MINUTE,
+        self::PENALTY_PER_5_MINUTES,
     ];
 
     public const CONDITION_GOOD = 'good';
@@ -265,6 +269,17 @@ class Rental extends Model
     public function bicycle(): BelongsTo
     {
         return $this->belongsTo(Bicycle::class, 'bicycleId');
+    }
+
+    /**
+     * The single payment record kept in sync for this rental.
+     *
+     * Settlement uses it to preserve the method and amount that were already
+     * collected, and to expose any late-return balance that is still due.
+     */
+    public function payment(): HasOne
+    {
+        return $this->hasOne(Payment::class, 'rentalId');
     }
 
     public function rider(): BelongsTo

@@ -15,6 +15,8 @@ struct RentalState {
     String  penaltyRule;
     String  bicycleLockStatus;
     String  bicycleStatus;
+    String  bicycleSerial;
+    int     bicycleBatteryLevel = -1;
 
     int64_t startTs          = 0;
     int64_t deadlineTs       = 0;
@@ -122,13 +124,14 @@ public:
     int lastStatus() const { return lastStatus_; }
 
     /**
-     * True when the EC20F link, not Wi-Fi, is carrying the next request.
+     * True when the EC20F link is carrying the next request.
      *
-     * In SIM-only mode (SIM_ONLY_MODE 1) this is true whenever the modem's
-     * packet link is up, and Wi-Fi state is never consulted. With SIM-only
-     * mode off, Wi-Fi wins whenever it is associated: the cellular route
-     * exists for a bike out of range of the shop's access point, so it is
-     * only used while there is no Wi-Fi association to use instead.
+     * In SIM-only mode (SIM_ONLY_MODE 1) the cellular route is the ONLY route:
+     * Wi-Fi status is never consulted, so API traffic cannot silently fall
+     * back to Wi-Fi. Otherwise Wi-Fi wins whenever it is associated and the
+     * cellular route is only used while there is no Wi-Fi association.
+     * Wi-Fi health-test mode always returns false here, keeping its one health
+     * probe on Wi-Fi and preventing any cellular fallback.
      */
     bool cellularActive() const;
 
@@ -177,6 +180,30 @@ public:
                         float accelYG,
                         float accelZG,
                         String& error);
+
+    /**
+     * Read-only connectivity probe against the public HEALTH_PATH.
+     *
+     * Sends an unauthenticated GET to /api/health (no X-API-Key header, no
+     * payload) over the selected bearer. Wi-Fi health-test mode forces HTTPS
+     * to WIFI_TEST_SERVER_HOST and verifies the server against the ESP32
+     * certificate bundle. EC20F mode preserves the QHTTP GET/READ path.
+     * Nothing about rental, lock, GPS or accident state is sent or changed.
+     *
+     * The returned `detail` always names the stage that stopped the probe:
+     *   - Wi-Fi/modem link unavailable,
+     *   - cellular network registration failure (no PDP data link),
+     *   - HTTPS/TLS or transport failure (no HTTP status completed),
+     *   - HTTP error status from the server (4xx/5xx with the body noted),
+     *   - successful response (2xx with the status and body reported).
+     *
+     * No API key or secret is ever logged here: the probe carries none, and
+     * only the response body is printed.
+     *
+     * @param detail  On return, a one-line human-readable verdict for Serial.
+     * @return true only when the server answered with a 2xx status.
+     */
+    bool checkHealth(String& detail);
 
 private:
     bool parse(const String& body, RentalState& out, String& error);

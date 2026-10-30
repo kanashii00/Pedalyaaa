@@ -10,6 +10,18 @@
 
     var settings = window.PedalyaSettings || {};
     var CSRF = (window.Pedalya && window.Pedalya.csrfToken) || '';
+
+    /* Active Rentals and Returns render their return-inspection toast through
+       rental-live.js, which coordinates WebSocket and polling events and
+       dedupes them across both pages. Suppress the generic notification toast
+       there so one real return never produces two alerts. Notifications still
+       reach the dropdown/badge and the Notifications page unchanged. */
+    var LIVE_PAGE = window.PedalyaRentalLivePage && window.PedalyaRentalLivePage.page;
+    var LIVE_PAGE_TOAST_TYPES = ['return_requested', 'rental_deadline'];
+    function pageOwnsToast(payload) {
+        return (LIVE_PAGE === 'rentals' || LIVE_PAGE === 'returns')
+            && LIVE_PAGE_TOAST_TYPES.indexOf(payload.type) !== -1;
+    }
     var badgeEls = function () {
         return Array.prototype.slice.call(document.querySelectorAll('[data-notif-badge], #topbarNotifBadge, #sidebarNotifBadge'));
     };
@@ -248,9 +260,12 @@
 
         channel.listen('.notification.created', function (payload) {
             payload = payload || {};
-            toast(payload.message || 'You have a new notification.', 'info', payload.title || 'Notification');
             refreshBadge();
             changed({ type: payload.type || null });
+
+            if (pageOwnsToast(payload)) return;
+
+            toast(payload.message || 'You have a new notification.', 'info', payload.title || 'Notification');
         });
     }
 

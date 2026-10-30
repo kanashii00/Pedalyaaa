@@ -36,14 +36,20 @@ class GeofenceController extends Controller
             ->limit(100)
             ->get();
 
-        $bicycles = Bicycle::with(['currentRiderUser'])
+        // currentRental rides along so the zone table can show a rider name
+        // only while a live rental actually holds the bicycle (a stale
+        // currentRider pointer from a settled rental must never render).
+        $bicycles = Bicycle::with(['currentRiderUser', 'currentRental'])
             ->where('status', '!=', Bicycle::STATUS_REMOVED)
             ->orderBy('id')
             ->get();
 
         $stats = ['inside' => 0, 'near' => 0, 'outside' => 0, 'noGps' => 0, 'total' => $bicycles->count()];
         foreach ($bicycles as $bike) {
-            if ($bike->currentLat === null || $bike->currentLng === null) {
+            // Distance and zone are computed only from valid GPS coordinates
+            // (numeric and in range). Anything else — null, non-numeric, or
+            // out-of-range seed/partial data — is "no GPS", never a zone claim.
+            if (! self::hasValidCoordinates($bike->currentLat, $bike->currentLng)) {
                 $bike->zone = ['level' => 'no-gps', 'distance' => null, 'inside' => null];
                 $stats['noGps']++;
 
@@ -74,6 +80,24 @@ class GeofenceController extends Controller
             ->get();
 
         return response()->view('admin.geofence', compact('config', 'geofence', 'warningThreshold', 'breaches', 'bicycles', 'stats', 'theftIncidents', 'lockHistory'));
+    }
+
+    /**
+     * Valid GPS coordinates only: numeric latitude/longitude inside their
+     * real ranges. Mirrors the guard in MonitoringController::gpsSnapshot so
+     * the zone table can never compute a distance or an inside/outside claim
+     * from missing, partial, or seeded position data.
+     */
+    private static function hasValidCoordinates(mixed $lat, mixed $lng): bool
+    {
+        return $lat !== null
+            && $lng !== null
+            && is_numeric($lat)
+            && is_numeric($lng)
+            && (float) $lat >= -90
+            && (float) $lat <= 90
+            && (float) $lng >= -180
+            && (float) $lng <= 180;
     }
 
     public function update(Request $request): JsonResponse

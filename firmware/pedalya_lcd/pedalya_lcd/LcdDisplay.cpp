@@ -105,31 +105,255 @@ void LcdDisplay::rowf(uint8_t index, const char* format, ...) {
 }
 
 void LcdDisplay::splash() {
-    row(0, "   PEDALYA");
-    row(1, "  starting...");
+    showStartup("INITIALIZING...", "PDY-001");
+}
+
+void LcdDisplay::showStartup(const char* step, const char* bicycleId) {
+    if (messageActive()) return;
+    const char* id = (bicycleId && bicycleId[0] != '\0') ? bicycleId : "PDY-001";
+    char line0[17];
+    snprintf(line0, sizeof(line0), "PEDALYA  %-7s", id);
+    row(0, line0);
+    row(1, step ? step : "STARTING...     ");
+}
+
+void LcdDisplay::showReady(const char* bicycleId, bool wifiUp, bool simReady, bool simActive,
+                           bool serverVerified, bool locked, int batteryLevel, const char* bikeStatus) {
+    if (messageActive()) return;
+
+    // Row 0: Bicycle ID + Connectivity Indicators
+    // Format: "PDY-001 W+ M. S+" (16 chars) or "PDY-001  4G:OK S+"
+    const char* id = (bicycleId && bicycleId[0] != '\0') ? bicycleId : "PDY-001";
+    char line0[17];
+    if (simActive) {
+        snprintf(line0, sizeof(line0), "%-7s  4G:OK %s", id, serverVerified ? "S+" : "S-");
+    } else {
+        const char* wStr = wifiUp ? "W+" : "W-";
+        const char* mStr = simReady ? "M." : "  ";
+        const char* sStr = serverVerified ? "S+" : "S-";
+        snprintf(line0, sizeof(line0), "%-7s %s %s %s", id, wStr, mStr, sStr);
+    }
+    row(0, line0);
+
+    // Row 1: Availability + Lock State + Real Battery
+    // When bicycle is in maintenance:
+    // Alternate every 2 seconds between "MAINTENANCE  LCK" and "NOT AVAILABLE   " (or "NOT AVAIL B:100%")
+    const bool isMaintenance = (bikeStatus && strcmp(bikeStatus, "maintenance") == 0);
+    char line1[17];
+
+    if (isMaintenance) {
+        uint32_t phase = (millis() / 2000UL) % 2;
+        if (phase == 0) {
+            snprintf(line1, sizeof(line1), "MAINTENANCE  LCK");
+        } else {
+            if (batteryLevel >= 0 && batteryLevel <= 100) {
+                if (batteryLevel == 100) {
+                    snprintf(line1, sizeof(line1), "NOT AVAIL B:100%%");
+                } else {
+                    snprintf(line1, sizeof(line1), "NOT AVAIL  B:%2d%%", batteryLevel);
+                }
+            } else {
+                snprintf(line1, sizeof(line1), "NOT AVAILABLE   ");
+            }
+        }
+    } else {
+        const char* avail = "READY";
+        const char* lck = locked ? "LCK" : "UNL";
+
+        if (batteryLevel >= 0 && batteryLevel <= 100) {
+            if (batteryLevel == 100) {
+                snprintf(line1, sizeof(line1), "%-5s %s B:100%%", avail, lck);
+            } else {
+                snprintf(line1, sizeof(line1), "%-5s %s  B:%2d%%", avail, lck, batteryLevel);
+            }
+        } else {
+            snprintf(line1, sizeof(line1), "%-5s   %s", avail, locked ? "  LOCKED" : "UNLOCKED");
+        }
+    }
+    row(1, line1);
+}
+
+void LcdDisplay::showRental(const RentalState& state, bool locked) {
+    if (messageActive()) return;
+
+    int64_t remaining = state.remainingSeconds();
+    int64_t overdue = state.overdueSeconds();
+
+    // Row 0: Rental status + Lock state (e.g. "RENTAL    UNLCKD" or "EXPIRING  UNLCKD")
+    const char* lckStr = locked ? "LOCKED" : "UNLCKD";
+    char r0[17];
+    if (state.status == "active" && remaining > 0 && remaining <= EXPIRY_WARNING_SECONDS) {
+        snprintf(r0, sizeof(r0), "EXPIRING  %-6s", lckStr);
+    } else {
+        snprintf(r0, sizeof(r0), "RENTAL    %-6s", lckStr);
+    }
+    row(0, r0);
+
+    // Row 1: Remaining time in HH:MM:SS or overdue status
+    if (overdue > 0) {
+        float pen = projectPenalty(state, overdue);
+        rowf(1, "LATE    PHP%.2f", pen);
+        return;
+    }
+
+    if (state.deadlineTs <= 0) {
+        row(1, "OPEN ENDED RIDE ");
+        return;
+    }
+
+    if (remaining < 0) remaining = 0;
+    long long h = (long long)(remaining / 3600);
+    long long m = (long long)((remaining % 3600) / 60);
+    long long s = (long long)(remaining % 60);
+    rowf(1, "LEFT    %02lld:%02lld:%02lld", h % 100, m, s);
+}
+
+void LcdDisplay::showExpiredPhase(uint32_t secondsSinceExpiry, float penalty, bool locked) {
+    if (messageActive()) return;
+
+    // Row 0: Expired status + Lock state
+    const char* lckStr = locked ? "LOCKED" : "UNLCKD";
+    char r0[17];
+    snprintf(r0, sizeof(r0), "EXPIRED   %-6s", lckStr);
+    row(0, r0);
+
+    if (secondsSinceExpiry <= RETURN_GRACE_SECONDS) {
+        const uint32_t graceLeft = RETURN_GRACE_SECONDS - secondsSinceExpiry;
+        unsigned long m = (unsigned long)(graceLeft / 60);
+        unsigned long s = (unsigned long)(graceLeft % 60);
+        rowf(1, "GRACE   %02lu:%02lu   ", m, s);
+        return;
+    }
+
+    const uint32_t lateSeconds = secondsSinceExpiry - RETURN_GRACE_SECONDS;
+    if (((lateSeconds / 2) % 2) == 0) {
+        unsigned long h = (unsigned long)(lateSeconds / 3600);
+        unsigned long m = (unsigned long)((lateSeconds % 3600) / 60);
+        unsigned long s = (unsigned long)(lateSeconds % 60);
+        rowf(1, "LATE    %02lu:%02lu:%02lu", h % 100, m, s);
+    } else {
+        rowf(1, "FEE     PHP%.2f", penalty);
+    }
+}
+
+void LcdDisplay::showConnectionError(const char* line1, const char* line2) {
+    if (messageActive()) return;
+    row(0, line1 ? line1 : "CONNECTION ERROR");
+    row(1, line2 ? line2 : "RECONNECTING... ");
+}
+
+void LcdDisplay::showAccidentAlert(bool reported, bool hasGps) {
+    row(0, "! ACCIDENT ALERT");
+    if (reported) {
+        row(1, hasGps ? "ADMIN NOTIF +GPS" : "ADMIN NOTIFIED  ");
+    } else {
+        row(1, "ALERTING ADMIN..");
+    }
+}
+
+void LcdDisplay::showStatus(SystemStatus status, const char* bicycleId) {
+    if (messageActive()) return;
+    const char* id = (bicycleId && bicycleId[0] != '\0') ? bicycleId : "PDY-001";
+    char line0[17];
+    snprintf(line0, sizeof(line0), "PEDALYA  %-7s", id);
+    row(0, line0);
+
+    switch (status) {
+        case SystemStatus::Starting:
+            row(1, "STARTING...     ");
+            break;
+        case SystemStatus::WifiConnecting:
+            row(1, "WIFI CONNECTING ");
+            break;
+        case SystemStatus::WifiConnected:
+            row(1, "WIFI CONNECTED  ");
+            break;
+        case SystemStatus::ServerCheck:
+            row(1, "SERVER CHECK... ");
+            break;
+        case SystemStatus::ServerOnline:
+            row(1, "READY TO RIDE   ");
+            break;
+        case SystemStatus::ServerOffline:
+            row(1, "SERVER OFFLINE  ");
+            break;
+        case SystemStatus::ModemConnecting:
+            row(1, "MODEM CONNECTING");
+            break;
+        case SystemStatus::ModemOnline:
+            row(1, "MODEM ONLINE    ");
+            break;
+        case SystemStatus::ModemOffline:
+            row(1, "MODEM OFFLINE   ");
+            break;
+        case SystemStatus::AuthFailed:
+            row(1, "AUTH FAILED     ");
+            break;
+        case SystemStatus::NoNetwork:
+            row(1, "NO NETWORK LINK ");
+            break;
+        case SystemStatus::ModemInit:
+            row(1, "MODEM INIT      ");
+            break;
+        case SystemStatus::WaitingForService:
+            row(1, "WAITING SERVICE ");
+            break;
+        case SystemStatus::CellularConnecting:
+            row(1, "CELL CONNECTING ");
+            break;
+        case SystemStatus::CellularOnline:
+            row(1, "CELLULAR ONLINE ");
+            break;
+        case SystemStatus::ApiOffline:
+            row(1, "API OFFLINE     ");
+            break;
+        case SystemStatus::Reconnecting:
+            row(1, "RECONNECTING... ");
+            break;
+    }
+}
+
+void LcdDisplay::showServerState(bool serverVerified) {
+    showStatus(serverVerified ? SystemStatus::ServerOnline : SystemStatus::ServerOffline);
 }
 
 void LcdDisplay::showIdle() {
-    row(0, "PEDALYA");
-    row(1, "READY TO RIDE");
+    row(0, "PEDALYA  PDY-001");
+    row(1, "READY TO RIDE   ");
 }
 
 void LcdDisplay::showWifiConnecting() {
-    row(0, "PEDALYA");
-    row(1, "connecting...");
+    row(0, "PEDALYA  PDY-001");
+    row(1, "WIFI CONNECTING ");
+}
+
+void LcdDisplay::showDeviceStatus(const char* line2) {
+    row(0, "PEDALYA  PDY-001");
+    row(1, line2 ? line2 : "                ");
 }
 
 void LcdDisplay::showNoServer(const String& reason) {
-    row(0, "NO SERVER");
+    row(0, "SERVER OFFLINE  ");
     row(1, reason.c_str());
 }
 
 void LcdDisplay::showKeyRejected(const String& reason) {
-    // Deliberately not "NO SERVER": the server answered, it refused this unit.
-    // Saying otherwise sends whoever is holding the bike looking at the WiFi.
-    row(0, "SERVER REJECTED");
+    row(0, "SERVER REJECTED ");
     row(1, "CHECK DEVICE KEY");
     (void)reason;
+}
+
+void LcdDisplay::showExpiryWarning(const RentalState& state) {
+    int64_t remaining = state.remainingSeconds();
+    row(0, "EXPIRING  UNLCKD");
+    if (remaining < 0) remaining = 0;
+    rowf(1, "LEFT    %02lld:%02lld   ", (long long)(remaining / 60) % 100,
+         (long long)(remaining % 60));
+}
+
+void LcdDisplay::showExpired() {
+    row(0, "EXPIRED   LOCKED");
+    row(1, "LOCK ENGAGED    ");
 }
 
 void LcdDisplay::showMessage(const String& line1, const String& line2) {
@@ -143,80 +367,7 @@ void LcdDisplay::showMessageFor(uint32_t durationMs, const String& line1, const 
 }
 
 bool LcdDisplay::messageActive() const {
-    // Unsigned arithmetic on purpose: it stays correct across the millis() wrap.
     return messageUntilMs_ > 0 && (int32_t)(millis() - messageUntilMs_) < 0;
-}
-
-void LcdDisplay::showExpiryWarning(const RentalState& state) {
-    int64_t remaining = state.remainingSeconds();
-    row(0, "RENTAL ENDING");
-    rowf(1, "LEFT %02lld:%02lld", (long long)(remaining / 60) % 100,
-         (long long)(remaining % 60));
-}
-
-void LcdDisplay::showExpired() {
-    row(0, "RENTAL EXPIRED");
-    row(1, "LOCK ENGAGED");
-}
-
-void LcdDisplay::showExpiredPhase(uint32_t secondsSinceExpiry, float penalty) {
-    if (secondsSinceExpiry < 3) {
-        showExpired();
-        return;
-    }
-
-    if (secondsSinceExpiry <= RETURN_GRACE_SECONDS) {
-        // Counts down to zero, so it never alternates: the whole point of this
-        // screen is one number the rider can watch fall. The bound is inclusive
-        // because the timer also treats exactly RETURN_GRACE_SECONDS as still
-        // free, so the display changes to OVERDUE on the exact second the first
-        // peso becomes payable.
-        const uint32_t graceLeft = RETURN_GRACE_SECONDS - secondsSinceExpiry;
-        row(0, "RETURN BICYCLE");
-        rowf(1, "RETURN IN %02lu:%02lu", (unsigned long)(graceLeft / 60),
-             (unsigned long)(graceLeft % 60));
-        return;
-    }
-
-    row(0, "RETURN BICYCLE");
-
-    if (((secondsSinceExpiry / 2) % 2) == 0) {
-        // Counted from the end of the grace, not from expiry, so the screen does
-        // not jump from "RETURN IN 00:00" straight to "OVERDUE 05:01" on the
-        // first penalised second. The rider is one second late, not five minutes.
-        const uint32_t lateSeconds = secondsSinceExpiry - RETURN_GRACE_SECONDS;
-        rowf(1, "OVERDUE %02lu:%02lu", (unsigned long)(lateSeconds / 60),
-             (unsigned long)(lateSeconds % 60));
-        return;
-    }
-
-    rowf(1, "PENALTY P%.0f", penalty);
-}
-
-void LcdDisplay::showRental(const RentalState& state) {
-    int64_t elapsed = state.elapsedSeconds();
-    int64_t remaining = state.remainingSeconds();
-    int64_t overdue = state.overdueSeconds();
-
-    rowf(0, "RIDE %02lld:%02lld:%02lld",
-         (long long)(elapsed / 3600) % 100,
-         (long long)((elapsed / 60) % 60),
-         (long long)(elapsed % 60));
-
-    if (overdue > 0) {
-        rowf(1, "LATE PHP%.2f", projectPenalty(state, overdue));
-        return;
-    }
-
-    if (state.deadlineTs <= 0) {
-        row(1, "NO DEADLINE");
-        return;
-    }
-
-    rowf(1, "LEFT %02lld:%02lld:%02lld",
-         (long long)(remaining / 3600) % 100,
-         (long long)((remaining / 60) % 60),
-         (long long)(remaining % 60));
 }
 
 /**

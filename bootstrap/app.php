@@ -35,6 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'bicycle.auth' => \App\Http\Middleware\BicycleDeviceAuth::class,
             'role' => \App\Http\Middleware\RoleCheck::class,
             'rental.sync' => \App\Http\Middleware\SyncRentalLifecycle::class,
+            'no-cache' => \App\Http\Middleware\PreventBackHistory::class,
         ]);
 
         $middleware->statefulApi();

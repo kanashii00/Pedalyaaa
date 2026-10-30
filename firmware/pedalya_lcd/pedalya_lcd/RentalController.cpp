@@ -27,15 +27,20 @@ bool RentalController::rentalIsExpired(const RentalState& rental) const {
     return expiryLatched_ || rental.expired();
 }
 
-void RentalController::enterState(ActuatorState next) {
+void RentalController::enterState(ActuatorState next, const String& bikeStatus) {
     // UI state only. Rental safety never depends on this transition: the physical
     // servo and buzzer commands live exclusively in enforce(), which runs every
     // normal loop.
-    if (state_ == next) return;
+    if (state_ == next && lastBicycleStatus_ == bikeStatus) return;
     state_ = next;
+    lastBicycleStatus_ = bikeStatus;
     switch (next) {
         case ActuatorState::Idle:
-            Serial.println("[actuator] IDLE - bicycle available, rental inactive");
+            if (bikeStatus == "maintenance") {
+                Serial.println("[actuator] IDLE - bicycle in maintenance (locked), rental inactive");
+            } else {
+                Serial.println("[actuator] IDLE - bicycle available, rental inactive");
+            }
             break;
         case ActuatorState::Active:
             Serial.println("[actuator] ACTIVE - rental running, buzzer off");
@@ -70,7 +75,7 @@ void RentalController::update(const RentalState& rental, bool serverReachable) {
         expiryLatched_ = false;
         remainingLogged_ = false;
         timer_.reset();
-        enterState(ActuatorState::Idle);
+        enterState(ActuatorState::Idle, rental.bicycleStatus);
         return;
     }
 
@@ -123,7 +128,7 @@ void RentalController::enforce(const RentalState& rental, BoundaryStatus boundar
 
     // A completed rental always wins over a previously latched expiry.
     if (!rental.hasRental || rental.status == "returned" || rental.status == "cancelled") {
-        const char* reason = !rental.hasRental ? "idle" :
+        const char* reason = !rental.hasRental ? (rental.bicycleStatus == "maintenance" ? "maintenance" : "idle") :
                              (rental.status == "returned" ? "returned" : "cancelled");
         const bool shouldLock = rental.bicycleLockStatus != "unlocked";
         const bool changed = lock_.writePhysical(

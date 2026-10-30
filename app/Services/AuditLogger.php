@@ -41,6 +41,7 @@ final class AuditLogger
     public const RIDER_VERIFICATION_REJECTED = 'rider_verification_rejected';
     public const RIDER_STATUS_UPDATED = 'rider_status_updated';
     public const RIDER_BLACKLIST_UPDATED = 'rider_blacklist_updated';
+    public const RIDER_DELETED = 'rider_deleted';
 
     // Bicycles and smart locks.
     public const BICYCLE_CREATED = 'bicycle_created';
@@ -266,6 +267,7 @@ final class AuditLogger
                 self::RIDER_VERIFICATION_REJECTED,
                 self::RIDER_STATUS_UPDATED,
                 self::RIDER_BLACKLIST_UPDATED,
+                self::RIDER_DELETED,
                 self::BICYCLE_CREATED,
                 self::BICYCLE_UPDATED,
                 self::BICYCLE_REMOVED,

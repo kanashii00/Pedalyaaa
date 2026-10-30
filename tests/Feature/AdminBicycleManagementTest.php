@@ -251,43 +251,203 @@ class AdminBicycleManagementTest extends TestCase
         return substr($html, $cellStart, $cellEnd - $cellStart);
     }
 
-    public function test_the_inventory_table_is_sized_to_fit_instead_of_scrolling_sideways(): void
+    public function test_the_inventory_table_balances_columns_and_stacks_before_it_scrolls(): void
     {
         $css = (string) file_get_contents(public_path('css/admin.css'));
 
-        // A fixed layout with percentage columns fills the card exactly, so the
-        // table can never demand more width than the viewport provides.
+        // Table mode uses a shared CSS Grid per row: ten fractional data tracks
+        // and one content-sized Actions track. The grid fills the card exactly,
+        // while the action group gets only the width its widest real row needs.
+        // The 940px floor is the narrowest table where the badges, rate and the
+        // full four-button action group still fit without clipping.
         $this->assertMatchesRegularExpression(
-            '/\.admin-table--inventory\s*\{[^}]*table-layout:\s*fixed/',
+            '/\.admin-table--inventory\s*\{[^}]*min-width:\s*940px/',
             $css
         );
-        $this->assertDoesNotMatchRegularExpression(
-            '/\.admin-table--inventory\s*\{[^}]*min-width:\s*\d+px/',
+        $this->assertMatchesRegularExpression(
+            '/--inventory-actions-width:\s*140px/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/@media \(min-width: 1800px\) \{.*?--inventory-actions-width:\s*176px/s',
             $css
         );
         $this->assertStringNotContainsString('min-width: 1570px', $css);
 
-        preg_match_all(
-            '/\.admin-table--inventory \.(col-[a-z]+) \{ width: ([\d.]+)%; \}/',
-            $css,
-            $matches,
-            PREG_SET_ORDER
+        $this->assertMatchesRegularExpression(
+            '/@media \(min-width: 1016px\) and \(max-width: 1199\.98px\),\s*' .
+            '\(min-width: 1280px\) \{/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.admin-table--inventory thead tr,\s*\.admin-table--inventory tbody tr \{\s*' .
+            'display: grid;\s*grid-template-columns:/',
+            $css
         );
 
-        $this->assertCount(11, $matches, 'all 11 inventory columns need a percentage width');
+        $grid = null;
+        if (preg_match(
+            '/\.admin-table--inventory thead tr,\s*\.admin-table--inventory tbody tr \{.*?' .
+            'grid-template-columns:\s*(.*?);/s',
+            $css,
+            $gridMatch
+        )) {
+            $grid = preg_replace('/\s+/', ' ', trim($gridMatch[1]));
+        }
 
-        $total = array_sum(array_map(static fn (array $column) => (float) $column[2], $matches));
-        $this->assertEqualsWithDelta(100.0, $total, 0.001, 'the column widths must add up to the full width');
+        $this->assertNotNull($grid, 'the inventory grid template must be present');
+        $this->assertStringEndsWith('var(--inventory-actions-width)', $grid);
+
+        preg_match_all('/minmax\(0, ([\d.]+)fr\)/', $grid, $trackMatches);
+        $tracks = array_map('floatval', $trackMatches[1]);
+        $this->assertCount(10, $tracks, 'ten data tracks share the remaining table width');
+        $this->assertEqualsWithDelta(
+            10.0,
+            array_sum($tracks),
+            0.001,
+            'the data tracks must fill the remaining table width'
+        );
+
+        $weights = array_combine(
+            ['name', 'serial', 'status', 'renter', 'rental', 'battery', 'lock', 'condition', 'rate', 'updated'],
+            $tracks
+        );
+
+        // The data-bearing columns must not be squeezed back into a narrow
+        // share while sparse columns absorb the extra space. Lock and rate are
+        // checked too: they hold the widest badge and the currency value.
+        $this->assertGreaterThanOrEqual(1.20, $weights['name']);
+        $this->assertGreaterThanOrEqual(1.16, $weights['serial']);
+        $this->assertGreaterThanOrEqual(1.25, $weights['status']);
+        $this->assertGreaterThanOrEqual(0.77, $weights['renter']);
+        $this->assertGreaterThanOrEqual(1.13, $weights['rental']);
+        $this->assertGreaterThanOrEqual(0.76, $weights['battery']);
+        $this->assertGreaterThanOrEqual(1.05, $weights['lock']);
+        $this->assertGreaterThanOrEqual(0.85, $weights['condition']);
+        $this->assertGreaterThanOrEqual(0.88, $weights['rate']);
+        $this->assertGreaterThanOrEqual(0.95, $weights['updated']);
 
         // The widest Actions cell is Edit + Delete + the rental action + the
-        // three-dots menu, and it has to stay on one line on every viewport.
+        // three-dots menu. It stays on one row, starts at the header's left
+        // edge, and spreads through the content-sized track so the menu ends
+        // flush with the card's right gutter instead of leaving a dead band.
         $this->assertMatchesRegularExpression(
             '/\.admin-table--inventory \.actions-row \{ flex-wrap: nowrap/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.admin-table--inventory \.actions-row \{ justify-content: space-between; \}/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.admin-table--inventory tbody td > \.actions-row \{ width: 100%; \}/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.admin-table--inventory thead th:last-child,\s*' .
+            '\.admin-table--inventory tbody td:last-child:not\(\[colspan\]\) \{ text-align: left; \}/',
+            $css
+        );
+
+        // The first and last cells share the toolbar's 16px gutter so names
+        // never touch the card edge and the action row stops before it.
+        $this->assertMatchesRegularExpression(
+            '/\.admin-table--inventory thead th:first-child,\s*' .
+            '\.admin-table--inventory tbody td:first-child \{ padding-left: 16px; \}/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.admin-table--inventory thead th:last-child,\s*' .
+            '\.admin-table--inventory tbody td:last-child:not\(\[colspan\]\) \{ padding-right: 16px; \}/',
+            $css
+        );
+
+        // Headers may wrap inside their own column instead of painting over
+        // the next one; a long single label breaks only when necessary.
+        $this->assertMatchesRegularExpression(
+            '/\.admin-table--inventory thead th \{[^}]*white-space: normal/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.admin-table--inventory thead th \{[^}]*overflow-wrap: anywhere/',
+            $css
+        );
+
+        // Below the table view's floor the inventory reuses the labelled-card
+        // presentation. Both the tablet band and the post-sidebar band (until
+        // the card's 940px content floor is available) must stack; otherwise
+        // those layouts would produce a wide inner scroll area or clip the
+        // rightmost columns.
+        $this->assertMatchesRegularExpression(
+            '/@media \(max-width: 1015\.98px\) \{\s*' .
+            '\.admin-table--inventory \{ table-layout: auto; min-width: 0; \}/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/@media \(min-width: 768px\) and \(max-width: 1015\.98px\),\s*' .
+            '\(min-width: 1200px\) and \(max-width: 1279\.98px\) \{/',
+            $css
+        );
+        $this->assertStringContainsString('.admin-table--inventory thead { display: none; }', $css);
+        $this->assertStringContainsString(
+            '.admin-table--inventory tbody td[data-label="Battery"] > .d-flex',
+            $css
+        );
+        $this->assertStringContainsString(
+            '.admin-table-wrap--inventory .admin-table-foot { justify-content: center; }',
             $css
         );
 
         // Density comes from this table's own padding, not from a wider layout.
         $this->assertMatchesRegularExpression('/\.admin-table--inventory tbody td \{ padding: 8px 6px/', $css);
+    }
+
+    public function test_the_inventory_page_header_and_toolbar_share_one_aligned_layout(): void
+    {
+        $admin = $this->makeAdmin();
+
+        $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->assertOk()->getContent();
+
+        // The layout already wraps the page-header section in .admin-pagehead;
+        // the view must not nest a second one, which doubled the bottom gap and
+        // misaligned the title against the table card.
+        $this->assertSame(1, substr_count($html, 'class="admin-pagehead"'));
+        $this->assertSame(1, substr_count($html, 'class="admin-pagehead__title"'));
+
+        // The inventory card has its own hook for the tablet card layout and
+        // the footer alignment, without changing the shared card styling.
+        $this->assertStringContainsString('class="admin-table-wrap admin-table-wrap--inventory"', $html);
+
+        // Search and filters share one responsive toolbar, with stable hooks
+        // for the alignment rules.
+        $this->assertStringContainsString('class="admin-table-toolbar inventory-toolbar"', $html);
+        $this->assertStringContainsString('class="grow inventory-toolbar__search"', $html);
+        $this->assertStringContainsString('class="inventory-toolbar__filters"', $html);
+        $this->assertStringContainsString('class="btn-admin btn-admin--secondary btn-admin--sm inventory-toolbar__submit"', $html);
+        $this->assertStringContainsString('aria-label="Search bicycles"', $html);
+
+        $css = (string) file_get_contents(public_path('css/admin.css'));
+        $this->assertStringContainsString('.admin-table-toolbar.inventory-toolbar {', $css);
+        $this->assertMatchesRegularExpression(
+            '/\.admin-table-toolbar\.inventory-toolbar \{.*?' .
+            'display: grid;.*?grid-template-columns: minmax\(0, 1fr\) auto;/s',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.inventory-toolbar__filters \{.*?display: grid;.*?' .
+            'grid-template-columns: minmax\(150px, 180px\) auto;/s',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.inventory-toolbar \.inventory-toolbar__submit \{.*?height: 34px;/s',
+            $css
+        );
+        $this->assertStringContainsString('@media (max-width: 575.98px)', $css);
+        $this->assertMatchesRegularExpression(
+            '/@media \(max-width: 575\.98px\) \{\s*' .
+            '\.admin-table-toolbar\.inventory-toolbar \{ grid-template-columns: minmax\(0, 1fr\); \}/',
+            $css
+        );
     }
 
     public function test_the_inventory_markup_keeps_every_column(): void
@@ -304,6 +464,13 @@ class AdminBicycleManagementTest extends TestCase
         // Values that can truncate keep their full text in a title attribute.
         $this->assertStringContainsString('title="' . $bike->name . '"', $html);
         $this->assertStringContainsString('title="' . $bike->serialNumber . '"', $html);
+
+        // Plain-text values get a wrapper so they can ellipsize inside their
+        // own column instead of painting over the neighbouring cell when the
+        // table is at its floor width.
+        $this->assertStringContainsString('class="cell-value"', $html);
+        $this->assertStringContainsString('title="' . ucfirst($bike->condition ?? 'good') . '"', $html);
+        $this->assertStringContainsString('title="₱' . number_format($bike->hourlyRate, 2) . '/hr"', $html);
     }
 
     public function test_the_actions_dropdown_is_placed_against_the_viewport(): void

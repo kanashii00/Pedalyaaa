@@ -117,7 +117,7 @@ class RiderAppTest extends TestCase
     public function test_logout(): void
     {
         $this->riderAuth();
-        $this->post(route('logout'))->assertRedirect('/');
+        $this->post(route('logout'))->assertRedirect(route('login'));
         $this->assertGuest();
     }
 

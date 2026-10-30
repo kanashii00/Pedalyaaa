@@ -34,6 +34,19 @@ class AccidentController extends Controller
             'type' => $incident->type,
         ]);
 
-        return redirect()->back()->with('success', 'Accident report acknowledged.');
+        // Keep the right-side toast while dropping the duplicate in-page
+        // success banner: the layout skips the banner whenever a structured
+        // toast payload is present and shows only the toast (same pattern as
+        // the bicycle-added and return-confirmed flows). The toast itself is
+        // unchanged — same "Success" title, message, close button and
+        // auto-dismiss — and the table's Acknowledged badge shows the result.
+        return redirect()->back()->with([
+            'success' => 'Accident report acknowledged.',
+            'toast' => [
+                'title' => 'Success',
+                'message' => 'Accident report acknowledged.',
+                'type' => 'success',
+            ],
+        ]);
     }
 }

@@ -122,15 +122,30 @@ class ReportRentalDetailModalTest extends TestCase
         $this->assertStringContainsString('Unverified', $html);
     }
 
-    public function test_accident_modal_is_untouched(): void
+    public function test_accident_modal_uses_the_scoped_dark_responsive_shell(): void
     {
         $html = $this->reportsPage();
 
         $this->assertStringContainsString('id="accidentDetailModal"', $html);
         $this->assertStringContainsString('function viewAccidentDetail(index)', $html);
 
-        // Only the accident modal keeps the legacy green header now.
-        $this->assertSame(1, substr_count($html, 'background: var(--brand); color: #fff;'));
+        foreach ([
+            'aria-labelledby="accidentDetailTitle"',
+            'modal-dialog-scrollable',
+            'modal-content accident-detail',
+            'accident-detail__close',
+            'aria-label="Close accident details"',
+            'accident-detail__grid',
+            'accident-detail__location',
+            'accident-detail__map',
+        ] as $expected) {
+            $this->assertStringContainsString($expected, $html);
+        }
+
+        // The old inline green/white shell is gone; the modal now consumes
+        // dashboard surface and text tokens through accident-specific rules.
+        $this->assertStringNotContainsString('btn-close-white', $html);
+        $this->assertStringContainsString('.modal-content.accident-detail', $html);
     }
 
     public function test_rental_table_filters_and_pagination_are_intact(): void

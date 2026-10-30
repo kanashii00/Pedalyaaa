@@ -13,6 +13,11 @@ use Illuminate\Support\Facades\DB;
 
 class RentalService
 {
+    /** Pedalya rental price: ₱30 per 20 minutes, billed proportionally. */
+    public const RENTAL_RATE_PER_MINUTE = 1.50;
+    public const RENTAL_RATE_PER_HOUR = 90.00;
+    /** Late returns cost this amount for each fully completed five-minute block. */
+    public const LATE_PENALTY_PER_COMPLETED_FIVE_MINUTES = 20.00;
 protected NotificationService $notificationService;
 protected IoTService $iotService;
 protected MaintenanceService $maintenanceService;
@@ -34,6 +39,12 @@ public function startRental(
         string $paymentMethod = 'cash',
         ?string $paymentReference = null
     ): Rental {
+        if ($paymentMethod !== 'cash') {
+            throw new RentalException('Cash is the only available payment method for rentals.');
+        }
+        if ($durationMinutes < 1 || $durationMinutes > 720) {
+            throw new RentalException('The rental duration must be between 1 and 720 minutes.');
+        }
         if (!$user->verified) {
             throw new RentalException(
                 'User must be verified to start a rental.'
@@ -78,13 +89,12 @@ public function startRental(
             );
         }
 
-        // Shared with the Rent page's estimate, so the figure the rider was
-        // shown and the figure charged here can never disagree.
-        $ratePerHour = $bicycle->rentableHourlyRate();
-
-        $durationHours = $durationMinutes / 60;
-        $chargedHours = max((int) ceil($durationHours), 1);
-        $totalFee = round($ratePerHour * $chargedHours, 2);
+        // This is deliberately independent of bicycle.hourlyRate: Pedalya
+        // charges ₱1.50 for every minute (₱30 / 20 min) with no hourly
+        // rounding. Store its hourly equivalent for legacy reporting fields.
+        $ratePerHour = self::RENTAL_RATE_PER_HOUR;
+        $chargedHours = max((int) ceil($durationMinutes / 60), 1);
+        $totalFee = round($durationMinutes * self::RENTAL_RATE_PER_MINUTE, 2);
 
         $durationFormatted = $this->formatDuration($durationMinutes);
 
@@ -95,7 +105,7 @@ public function startRental(
             'durationFormatted' => $durationFormatted,
         ];
 
-        $isGcash = $paymentMethod === 'gcash';
+        $isGcash = false;
         $rental = DB::transaction(function () use (
             $user,
             $bicycleId,
@@ -243,6 +253,9 @@ public function startRental(
                 'amount' => $totalFee,
                 'convenienceFee' => 0,
                 'totalAmount' => $totalFee,
+                'latePenalty' => 0,
+                'amountPaid' => 0,
+                'balanceDue' => $totalFee,
                 'currency' => 'PHP',
                 'status' => 'pending',
 
@@ -285,13 +298,19 @@ public function startRental(
     }
 
     /**
-     * Phase 1 of the return lifecycle: mark a ride as ended.
+     * Phase 1 of the return lifecycle: record the rider's return request.
      *
-     * The rider has finished and brought the bicycle back, so we record the
-     * actual end time and move the rental into the "awaiting_return" state.
-     * The bicycle is held (kept Rented + the smart lock is secured) until an
-     * administrator confirms the return via processReturn(). This lets the
-     * Returns module surface pending returns for inspection.
+     * This is deliberately NOT the actual return. The rider may tap Return
+     * before the bicycle is physically back, so only the server-side request
+     * instant is persisted. The rental moves into "awaiting_return" and the
+     * bicycle is held (kept Rented + the smart lock secured) until an
+     * administrator inspects it and records the verified arrival time via
+     * processReturn(). endTime is therefore left untouched here: it is the
+     * verified physical arrival and is written only during settlement.
+     *
+     * The $returnTime argument is retained for backwards compatibility with
+     * callers that used to supply a timestamp, but it is intentionally ignored.
+     * A client-supplied request time must never become the basis for lateness.
      */
     public function markRideEnded(
         Rental $rental,
@@ -305,21 +324,19 @@ public function startRental(
             throw new RentalException('Only active, overdue, or expired rentals can be returned.');
         }
 
-        $endTime = $returnTime ?? Carbon::now();
-
-        return DB::transaction(function () use ($rental, $user, $endTime, $returnLat, $returnLng, $notes) {
+        return DB::transaction(function () use ($rental, $user, $returnLat, $returnLng, $notes) {
             $rental->update([
-                'endTime' => $endTime,
                 'endLocation' => ['lat' => $returnLat, 'lng' => $returnLng],
                 'notes' => $notes,
                 'status' => Rental::STATUS_AWAITING_RETURN,
                 'returnRequestedAt' => Carbon::now(),
             ]);
 
-            // Bicycle is physically back: secure the smart lock but keep it
-            // held (Rented) until an administrator processes the return. A
-            // bicycle that is not in service has no lock to secure, and its
-            // recorded lockStatus is left exactly as it is.
+            // The rider has asked to return the bicycle. Secure the smart lock
+            // as a precaution, but keep the bicycle held (Rented) until an
+            // administrator verifies its physical arrival and processes the
+            // return. A bicycle that is not in service has no lock to secure,
+            // and its recorded lockStatus is left exactly as it is.
             $bicycle = Bicycle::find($rental->bicycleId);
             if ($bicycle && $bicycle->isInService()) {
                 $bicycle->update(['lockStatus' => Bicycle::LOCK_LOCKED]);
@@ -333,10 +350,17 @@ public function startRental(
 
             $this->notificationService->create(
                 $user->id,
-                'Bicycle Returned',
-                "Your rental {$rental->rentalId} has been returned and is awaiting confirmation.",
+                'Return Requested',
+                "Your return request for rental {$rental->rentalId} has been submitted and is awaiting inspection.",
                 'rental_returned'
             );
+
+            // The rider has requested a return, so administrators need to
+            // inspect the bicycle and verify its physical arrival before
+            // confirming the return. This is the same real notification type
+            // used by requestReturn() below, which keeps the toast, badge and
+            // Notifications page in sync for both return entry points.
+            $this->notifyAdminsOfReturnInspection($rental, $user);
 
             // Broadcast immediately, exactly like the rider notification above:
             // the event is only a refetch nudge, so it can never corrupt state
@@ -398,26 +422,46 @@ public function startRental(
             return ['rental' => $rental->fresh(), 'requested' => false];
         }
 
+        // The server clock is the only source for the request instant. The
+        // historical $returnTime argument is intentionally not trusted here:
+        // Return Submitted At is an audit fact, not the physical arrival time.
         $rental->update([
-            'returnRequestedAt' => $returnTime ?? Carbon::now(),
+            'returnRequestedAt' => Carbon::now(),
         ]);
 
-        $adminIds = User::where('role', User::ROLE_ADMIN)->pluck('id')->all();
-
-        if (!empty($adminIds)) {
-            $this->notificationService->createForUsers(
-                $adminIds,
-                'Return Requested',
-                "{$user->name} requested a return for rental {$rental->rentalId} "
-                    . "(bicycle {$rental->bicycleName} #{$rental->bicycleSerial}). Confirm the return to settle it.",
-                'return_requested',
-                ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
-            );
-        }
+        $this->notifyAdminsOfReturnInspection($rental, $user);
 
         RentalFeed::touch();
 
         return ['rental' => $rental->fresh(), 'requested' => true];
+    }
+
+    /**
+     * Tell every administrator that a real bicycle return is waiting for
+     * inspection. Both return entry points (ending an active ride and
+     * re-requesting an already parked ride) funnel through here so the copy,
+     * notification type and rental/bicycle references can never drift.
+     */
+    private function notifyAdminsOfReturnInspection(Rental $rental, User $rider): void
+    {
+        $adminIds = User::where('role', User::ROLE_ADMIN)->pluck('id')->all();
+
+        if (empty($adminIds)) {
+            return;
+        }
+
+        $bikeName = $rental->bicycleName ?: ($rental->bicycle?->name ?? 'bicycle');
+        $serial = $rental->bicycleSerial ?: ($rental->bicycle?->serialNumber ?? '');
+        $bikeRef = $serial !== '' ? "{$bikeName} (#{$serial})" : $bikeName;
+
+        $this->notificationService->createForUsers(
+            $adminIds,
+            'Return Inspection Required',
+            "{$rider->name} submitted a return for rental {$rental->rentalId} "
+                . "(bicycle {$bikeRef}). Inspect the bicycle and confirm the return to settle it.",
+            'return_requested',
+            ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
+        );
     }
 
     /**
@@ -508,7 +552,7 @@ public function startRental(
      * minutes, by default). No administrator is involved: the deadline is
      * computed from the authoritative server clock and the penalty rule is
      * deliberately left unset so resolvedPenaltyRule() falls back to the global
-     * late-return rate once the window lapses.
+     * every-5-minutes late-return rate once the window lapses.
      *
      * Idempotent by state: a rental that already carries a deadline keeps it,
      * so a repeated heartbeat can neither shorten nor restart a window, and the
@@ -549,15 +593,12 @@ public function startRental(
             'returnDeadlineSetBy' => 'IoT park detection',
         ];
 
-        // The lock re-engaging while the ride is still open *is* the return, so
-        // close the ride here exactly as markRideEnded() would have. Rentals
-        // that already expired leave endTime alone: the administrator's expiry
-        // path has never set one and settlement derives the fee from the
-        // return time regardless.
-        if (in_array($rental->status, [Rental::STATUS_ACTIVE, Rental::STATUS_OVERDUE], true)) {
-            $attributes['endTime'] = $rental->endTime ?? $asOf;
-            $attributes['returnRequestedAt'] = $rental->returnRequestedAt ?? $asOf;
-        }
+        // The lock re-engaging is a strong indication that the bicycle is
+        // parked, but it is still not an administrator-verified arrival. It
+        // opens the grace window and records the request/detection instant;
+        // endTime remains reserved for the verified physical arrival recorded
+        // during Process Return.
+        $attributes['returnRequestedAt'] = $rental->returnRequestedAt ?? $asOf;
 
         $rental->update($attributes);
 
@@ -611,7 +652,7 @@ public function startRental(
     /**
      * Human-readable description of the saved late-return penalty rule, used
      * in renter notifications and admin summaries. Returns '' when no rule is
-     * configured (legacy global per-hour setting is then the source of truth).
+     * configured (global every-5-minutes setting is then the source of truth).
      */
     private function penaltyRuleDescription(?string $type, ?float $value): string
     {
@@ -624,13 +665,14 @@ public function startRental(
         return match ($type) {
             Rental::PENALTY_FIXED => "A fixed late-return penalty of PHP {$amount} will apply after the deadline",
             Rental::PENALTY_PER_MINUTE => "A PHP {$amount} per minute late-return penalty will apply after the deadline",
+            Rental::PENALTY_PER_5_MINUTES => "A PHP {$amount} every 5 minutes late-return penalty will apply after the deadline",
             default => "A PHP {$amount} per hour late-return penalty will apply after the deadline",
         };
     }
 
     /**
      * Resolve the penalty rule that actually applies to a rental, substituting
-     * the legacy global per-hour setting whenever the rental itself has no
+     * the global every-5-minutes setting whenever the rental itself has no
      * saved rule. This is the single place the fallback is decided, so the
      * amount shown on a bicycle display can never drift from the amount
      * charged at return.
@@ -644,7 +686,7 @@ public function startRental(
             : (float) SystemSetting::getValue('lateReturnPenaltyPerHour', 20);
 
         return [
-            'type' => $rental?->penaltyType ?? Rental::PENALTY_PER_HOUR,
+            'type' => $rental?->penaltyType ?? Rental::PENALTY_PER_5_MINUTES,
             'value' => round(max($value, 0), 2),
             'isDefaultRate' => $rental === null || $rental->penaltyValue === null,
         ];
@@ -653,26 +695,39 @@ public function startRental(
     /**
      * Penalty accrued for a rental as of the given server time, computed from
      * the administrator-set deadline and the saved penalty rule. Rentals with a
-     * deadline but no saved rule fall back to the global per-hour setting.
+     * deadline but no saved rule fall back to the global every-5-minutes
+     * setting, so a lapsed automatic grace window charges the same rate.
      *
      * Nothing is ever charged while the deadline is still in the future.
      */
     public function calculatePenaltyForRental(Rental $rental, Carbon $asOf): float
     {
-        $deadline = $rental->returnDeadline;
+        $deadline = $this->originalRentalDeadline($rental);
 
         if ($deadline === null || $asOf->lte($deadline)) {
             return 0.0;
         }
 
-        $minutes = abs((int) $asOf->diffInMinutes($deadline));
-        $rule = $this->resolvedPenaltyRule($rental);
+        $diffSeconds = max(0, $asOf->getTimestamp() - $deadline->getTimestamp());
 
-        return match ($rule['type']) {
-            Rental::PENALTY_FIXED => round($rule['value'], 2),
-            Rental::PENALTY_PER_MINUTE => round($minutes * $rule['value'], 2),
-            default => round(max(ceil($minutes / 60), 1) * $rule['value'], 2),
-        };
+        // This is deliberately timestamp based (rather than calendar-minute
+        // arithmetic), so it is correct across midnight. Partial blocks never
+        // round up: 4:59 late costs 0; 5:00 costs exactly PHP 20.
+        return round(
+            intdiv($diffSeconds, 300) * self::LATE_PENALTY_PER_COMPLETED_FIVE_MINUTES,
+            2
+        );
+    }
+
+    /**
+     * The rental's original deadline is immutable for penalty purposes.
+     * returnDeadline is an operational grace/inspection deadline and must not
+     * move the charge boundary. Old rows without expectedEndTime retain their
+     * stored returnDeadline as the only available historical fallback.
+     */
+    private function originalRentalDeadline(Rental $rental): ?Carbon
+    {
+        return $rental->expectedEndTime ?? $rental->returnDeadline;
     }
 
     /**
@@ -713,20 +768,21 @@ public function startRental(
 
         if ($rental->returnDeadline !== null) {
             $penaltyBasis = 'return_deadline';
-            $projectedPenalty = $this->calculatePenaltyForRental($rental, $asOf);
         } elseif ($rental->expectedEndTime !== null) {
             $penaltyBasis = 'expected_end_time';
-            $projectedPenalty = $this->calculateOverdueFee(
-                $rental->expectedEndTime,
-                $asOf,
-                $rental->ratePerHour
-            );
         } else {
             $penaltyBasis = 'none';
-            $projectedPenalty = 0.0;
         }
 
+        $projectedPenalty = $this->latePenaltyForRental($rental, $asOf);
+
         $window = $deadlineTimestamp === null ? 0 : $deadlineTimestamp - $startTimestamp;
+
+        // Mirror settleRental(): the Base Fee is the rental's positive stored
+        // Estimated Cost, so the figure on the bicycle display is the base fee
+        // that will land on the final charge. Only legacy rows with no positive
+        // estimate fall back to elapsed time.
+        $projectedBase = $this->baseFeeForRental($rental, $fees);
 
         return [
             'startTime' => $rental->startTime,
@@ -742,10 +798,10 @@ public function startRental(
                 ? (int) min(100, max(0, (int) floor($elapsedSeconds / $window * 100)))
                 : null,
             'ratePerHour' => (float) $rental->ratePerHour,
-            'projectedBaseFee' => $fees['totalFee'],
+            'projectedBaseFee' => $projectedBase,
             'penaltyBasis' => $penaltyBasis,
             'projectedPenalty' => round($projectedPenalty, 2),
-            'projectedTotal' => round($fees['totalFee'] + $projectedPenalty, 2),
+            'projectedTotal' => round($projectedBase + $projectedPenalty, 2),
             'rule' => $this->resolvedPenaltyRule($rental),
         ];
     }
@@ -838,8 +894,18 @@ public function startRental(
         array $input = [],
         ?User $lockActor = null
     ): array {
-        $returnTime = isset($input['returnTime']) && $input['returnTime']
-            ? Carbon::parse($input['returnTime'])
+        // Server is the source of truth: the return timestamp is parsed in the
+        // app timezone (Asia/Manila, same zone the stored deadline was written
+        // in and the datetime-local picker edits in), and an omitted value
+        // means "now". Both the form's snake_case field and the service's
+        // camelCase key are accepted. No fee total is ever accepted from the
+        // caller.
+        $submittedReturnTime = ($input['returnTime'] ?? null)
+            ?: ($input['return_time'] ?? null)
+            ?: ($input['actualReturnTime'] ?? null)
+            ?: ($input['actual_return_time'] ?? null);
+        $returnTime = $submittedReturnTime !== null && $submittedReturnTime !== ''
+            ? Carbon::parse($submittedReturnTime)->setTimezone(config('app.timezone'))
             : Carbon::now();
 
         $condition = in_array($input['condition'] ?? null, [
@@ -849,110 +915,161 @@ public function startRental(
             Rental::CONDITION_NEEDS_MAINTENANCE,
         ], true) ? $input['condition'] : Rental::CONDITION_GOOD;
 
-        // A late-return penalty only makes sense against an administrator-set
-        // deadline. Rentals that reached awaiting_return without a deadline
-        // (e.g. the rider ended the ride before expiry) keep the legacy
-        // expected-end-time surcharge instead. Penalties are always computed
-        // from server timestamps, so the final amount is fixed at confirm time
-        // and stops accumulating from that moment.
-        $latePenalty = $rental->returnDeadline !== null
-            ? $this->calculatePenaltyForRental($rental, $returnTime)
-            : $this->calculateOverdueFee(
-                $rental->expectedEndTime,
-                $returnTime,
-                $rental->ratePerHour
-            );
-
-        $fees = $this->calculateFees(
-            $rental->startTime,
-            $returnTime->toDateTimeString(),
-            $rental->ratePerHour
-        );
-
-        // Elapsed-time pricing is the rule, but a rider who bought extra time
-        // keeps the purchased-fee floor: returning shortly after an extension
-        // must still settle the extension fee they signed up for, exactly as
-        // an unextended rental settles its booked hours. Rentals without
-        // extensions keep the pure elapsed-time figure they always had.
-        if ($rental->hasRideExtensions()) {
-            $fees['totalFee'] = max($fees['totalFee'], (float) $rental->totalFee);
-        }
-
-        $finalFee = round($fees['totalFee'] + $latePenalty, 2);
-
+        // The Base Fee is ALWAYS the rental's positive stored Estimated Cost
+        // (totalFee written at booking time, already including any extension
+        // fees). It is never recomputed from elapsed time, so a one-minute
+        // rental keeps its ₱15.00 base even when the actual return lands hours
+        // later. A legacy zero/null estimate keeps the elapsed fallback.
+        //
+        // A late-return penalty is calculated separately against the STORED
+        // return deadline. The default rule charges PHP 20 for every COMPLETED
+        // 5-minute interval past it (1-4:59 min = 0; 5-9:59 = one interval;
+        // Final = Base + Late). Rentals that reached awaiting_return without a
+        // deadline keep the legacy expected-end-time surcharge for backward
+        // compatibility, but their Base Fee still stays the saved estimate.
+        //
+        // Everything is derived here from the submitted return timestamp, never
+        // from the frontend preview. The stored deadline is never mutated, and
+        // the frozen overdueFee/finalFee stop further accrual. Confirming twice
+        // is rejected by the status guards plus the in-transaction re-check, so
+        // no duplicate charge is possible.
         return DB::transaction(function () use (
             $rental,
             $admin,
             $returnTime,
             $condition,
             $input,
-            $fees,
-            $latePenalty,
-            $finalFee,
             $lockActor
         ) {
-            $rental->update([
+            // Re-check under a row lock: two admins confirming the same
+            // pending return concurrently must not double-charge it. The
+            // first commit flips status to returned; the second then sees a
+            // settled row and is rejected instead of settling again.
+            /** @var Rental|null $locked */
+            $locked = Rental::query()->lockForUpdate()->find($rental->id);
+
+            if ($locked === null) {
+                throw new RentalException('Rental no longer exists.');
+            }
+
+            if ($locked->status === Rental::STATUS_RETURNED) {
+                throw new RentalException('This rental has already been returned.');
+            }
+
+            if (! in_array($locked->status, [
+                Rental::STATUS_AWAITING_RETURN,
+                Rental::STATUS_OVERDUE_RETURN,
+                Rental::STATUS_ACTIVE,
+                Rental::STATUS_OVERDUE,
+                Rental::STATUS_EXPIRED,
+            ], true)) {
+                throw new RentalException('This rental can no longer be settled in its current status.');
+            }
+
+            // The admin-verified arrival is the source of truth. It must never
+            // be replaced by the rider's submission timestamp or by the moment
+            // the return was processed, but it also cannot precede the rental
+            // start or be in the future.
+            if ($locked->startTime !== null && $returnTime->lt($locked->startTime)) {
+                throw new RentalException('The actual return time cannot be before the rental start time.');
+            }
+
+            if ($returnTime->gt(Carbon::now()->copy()->addMinute())) {
+                throw new RentalException('The actual return time cannot be in the future.');
+            }
+
+            // Re-derive every amount from the FRESH locked row so a concurrent
+            // extension or deadline change landing between the outer read and
+            // this lock cannot be silently ignored. This is the single
+            // canonical settlement calculation; the modal only previews it.
+            $settlement = $this->settlementFeesFor($locked, $returnTime);
+            $fees = $settlement['fees'];
+            $freshBase = $settlement['baseFee'];
+            $freshPenalty = $settlement['latePenalty'];
+            $freshFinal = $settlement['finalFee'];
+
+            // Sync the existing payment before freezing the rental row. The
+            // payment keeps the method and the amount already collected; only
+            // the final total and any outstanding balance are updated.
+            $payment = $this->syncPayment($locked, $freshBase, $freshPenalty, $freshFinal);
+
+            $locked->update([
                 'endTime' => $returnTime,
                 'status' => Rental::STATUS_RETURNED,
                 // Never overwrite the moment the rider actually asked to
                 // return; only stamp it when nobody got there first.
-                'returnRequestedAt' => $rental->returnRequestedAt ?? $returnTime,
-                'totalFee' => $finalFee,
-                'finalFee' => $finalFee,
-                'overdueFee' => $latePenalty,
-                'penaltyAccrued' => $latePenalty,
+                'returnRequestedAt' => $locked->returnRequestedAt ?? $returnTime,
+                // totalFee is the original saved Estimated Cost (including any
+                // bought extension), never the final charge. Keeping it intact
+                // makes Base Fee immutable across settlement and reporting.
+                'finalFee' => $freshFinal,
+                'overdueFee' => $freshPenalty,
+                'penaltyAccrued' => $freshPenalty,
                 'durationMinutes' => $fees['durationMinutes'],
                 'durationFormatted' => $fees['durationFormatted'],
                 'chargedHours' => $fees['chargedHours'],
-                'paymentStatus' => 'paid',
-                'paidAt' => Carbon::now(),
+                // "paid" means the whole final charge is collected. A GCash
+                // base payment with a late fee still due is "partial" so the
+                // balance cannot be mistaken for money already received.
+                'paymentStatus' => $payment['rentalPaymentStatus'],
+                'paidAt' => $payment['rentalPaidAt'],
                 'returnCondition' => $condition,
                 'returnInspectedBy' => (string) ($admin->name ?? $admin->id),
                 'returnProcessedAt' => Carbon::now(),
                 'returnNote' => $input['note'] ?? null,
             ]);
 
-            $this->settleBicycleAfterReturn($rental, $condition, $admin);
+            $this->settleBicycleAfterReturn($locked, $condition, $admin);
 
-            $this->syncPayment($rental, $finalFee);
-
-            $user = User::find($rental->riderId);
-            if ($user) {
-                $user->increment('totalSpent', $finalFee);
+            $user = User::find($locked->riderId);
+            if ($user && $payment['amountPaid'] > 0) {
+                // Count only money actually collected. A late GCash balance
+                // that is still due must not inflate the rider's total spend.
+                $user->increment('totalSpent', $payment['amountPaid']);
             }
 
-            if ($lockActor !== null && $rental->bicycleId) {
-                $bicycle = Bicycle::find($rental->bicycleId);
+            if ($lockActor !== null && $locked->bicycleId) {
+                $bicycle = Bicycle::find($locked->bicycleId);
                 if ($bicycle && $bicycle->isInService()) {
-                    Rental::resolveConnection()->afterCommit(function () use ($bicycle, $rental, $lockActor) {
+                    Rental::resolveConnection()->afterCommit(function () use ($bicycle, $locked, $lockActor) {
                         $this->iotService->sendCommand($bicycle->id, 'lock', [
                             'reason' => 'rental_settled',
-                            'rentalId' => $rental->id,
+                            'rentalId' => $locked->id,
                         ], $lockActor);
                     });
                 }
             }
 
-            $penaltyNotice = $latePenalty > 0
-                ? " A late-return penalty of PHP {$latePenalty} applies."
+            $penaltyNotice = $freshPenalty > 0
+                ? " A late-return penalty of PHP {$freshPenalty} applies."
+                : '';
+            $balanceNotice = $payment['balanceDue'] > 0
+                ? " Balance due: PHP {$payment['balanceDue']}."
                 : '';
 
             $this->notificationService->create(
-                $rental->riderId,
+                $locked->riderId,
                 'Return Confirmed',
-                "Your rental {$rental->rentalId} has been confirmed. Final fee: PHP {$finalFee}.{$penaltyNotice}",
+                "Your rental {$locked->rentalId} has been confirmed. Final fee: PHP {$freshFinal}.{$penaltyNotice}{$balanceNotice}",
                 'rental_completed'
             );
 
             RentalFeed::touch();
 
             return [
-                'rental' => $rental->fresh(),
+                'rental' => $locked->fresh(),
+                'payment' => [
+                    'id' => $payment['payment']?->id,
+                    'method' => $payment['method'],
+                    'amountPaid' => $payment['amountPaid'],
+                    'balanceDue' => $payment['balanceDue'],
+                    'status' => $payment['payment']?->status,
+                ],
                 'fees' => [
-                    'baseFee' => $fees['totalFee'],
-                    'overdueFee' => $latePenalty,
-                    'latePenalty' => $latePenalty,
-                    'finalFee' => $finalFee,
+                    'baseFee' => $freshBase,
+                    'overdueFee' => $freshPenalty,
+                    'latePenalty' => $freshPenalty,
+                    'finalFee' => $freshFinal,
                     'durationMinutes' => $fees['durationMinutes'],
                     'durationFormatted' => $fees['durationFormatted'],
                     'chargedHours' => $fees['chargedHours'],
@@ -964,9 +1081,74 @@ public function startRental(
     }
 
     /**
-     * Late-return penalty against an administrator-set return deadline: any
-     * full hour (or partial, rounded up) beyond the deadline, charged at the
-     * configurable late-return penalty rate from System Settings.
+     * The single canonical fee calculation used when a rental is settled.
+     *
+     * Base Fee is the saved Estimated Cost. Late Penalty is derived from the
+     * stored deadline (or the legacy expected-end surcharge when no deadline
+     * exists). Final Fee is always Base + Late.
+     *
+     * @return array{
+     *     fees: array<string, mixed>,
+     *     baseFee: float,
+     *     latePenalty: float,
+     *     finalFee: float
+     * }
+     */
+    private function settlementFeesFor(Rental $rental, Carbon $returnTime): array
+    {
+        $fees = $this->calculateFees(
+            ($rental->startTime ?? $returnTime)->toDateTimeString(),
+            $returnTime->toDateTimeString(),
+            (float) $rental->ratePerHour
+        );
+
+        $baseFee = $this->baseFeeForRental($rental, $fees);
+        $latePenalty = $this->latePenaltyForRental($rental, $returnTime);
+
+        return [
+            'fees' => $fees,
+            'baseFee' => $baseFee,
+            'latePenalty' => $latePenalty,
+            'finalFee' => round($baseFee + $latePenalty, 2),
+        ];
+    }
+
+    /**
+     * Base Fee = the Estimated Cost saved on the rental.
+     *
+     * Settlement must never reprice the base from elapsed time; only a legacy
+     * row with no positive stored estimate falls back to the elapsed-time
+     * figure so old records remain settleable.
+     */
+    private function baseFeeForRental(Rental $rental, array $fees): float
+    {
+        if ($rental->totalFee !== null && (float) $rental->totalFee > 0) {
+            return round((float) $rental->totalFee, 2);
+        }
+
+        $base = (float) ($fees['totalFee'] ?? 0);
+
+        // An extension always writes the larger amount back to totalFee, but
+        // keep the floor for malformed legacy rows that only persisted one
+        // side of that pair.
+        if ($rental->hasRideExtensions()) {
+            $base = max($base, (float) ($rental->totalFee ?? 0));
+        }
+
+        return round($base, 2);
+    }
+
+    /**
+     * Late Penalty for settlement is always based on the original rental
+     * deadline and the verified physical arrival time.
+     */
+    private function latePenaltyForRental(Rental $rental, Carbon $returnTime): float
+    {
+        return $this->calculatePenaltyForRental($rental, $returnTime);
+    }
+
+    /**
+     * Convenience form of the same fixed completed-five-minute rule.
      */
     public function calculateLateReturnPenalty(?Carbon $returnDeadline, Carbon $returnTime): float
     {
@@ -974,16 +1156,13 @@ public function startRental(
             return 0.0;
         }
 
-        $rate = (float) SystemSetting::getValue('lateReturnPenaltyPerHour', 20);
-
         if ($returnTime->lte($returnDeadline)) {
             return 0.0;
         }
 
-        $lateMinutes = abs((int) $returnTime->diffInMinutes($returnDeadline));
-        $lateHours = max(ceil($lateMinutes / 60), 1);
+        $lateSeconds = max(0, $returnTime->getTimestamp() - $returnDeadline->getTimestamp());
 
-        return round($lateHours * max($rate, 0), 2);
+        return round(intdiv($lateSeconds, 300) * self::LATE_PENALTY_PER_COMPLETED_FIVE_MINUTES, 2);
     }
 
     /**
@@ -1073,37 +1252,148 @@ public function startRental(
     }
 
     /**
-     * Keep the Payments module in sync by creating or updating a settled
-     * payment record for the rental with the final amount.
+     * Keep the Payments module in sync with a settled rental.
+     *
+     * The final fee is the rental's Base Fee plus any late penalty. That is
+     * not necessarily the amount already collected:
+     *
+     *  - GCash is collected when the booking is verified, so a later late fee
+     *    is still due. Its method and original paid amount are preserved.
+     *  - Cash is handled at the counter. The existing workflow marks the
+     *    rental paid, so the final fee (including any late fee handed over at
+     *    return) is recorded as collected.
+     *  - An unknown method is never silently turned into Cash and never
+     *    creates a second transaction.
+     *
+     * Exactly one Payment row is updated/created per rental.
+     *
+     * @return array{
+     *     payment: Payment|null,
+     *     method: string|null,
+     *     amountPaid: float,
+     *     balanceDue: float,
+     *     rentalPaymentStatus: string,
+     *     rentalPaidAt: Carbon|null
+     * }
      */
-    private function syncPayment(Rental $rental, float $finalFee): void
-    {
-        $payment = Payment::where('rentalId', $rental->id)->first();
+    private function syncPayment(
+        Rental $rental,
+        float $baseFee,
+        float $latePenalty,
+        float $finalFee
+    ): array {
+        $payment = Payment::where('rentalId', $rental->id)
+            ->lockForUpdate()
+            ->first();
 
-        if ($payment) {
-            $payment->update([
-                'status' => 'paid',
-                'totalAmount' => $finalFee,
-                'amount' => $finalFee,
-                'paidAt' => Carbon::now(),
-            ]);
+        // Preserve the method already recorded on the payment; only fall back
+        // to the rental's own method when no payment record exists yet.
+        $method = $payment?->paymentMethod ?: $rental->paymentMethod;
 
-            return;
+        $alreadyPaid = 0.0;
+
+        if ($payment !== null) {
+            $alreadyPaid = (float) ($payment->amountPaid ?? 0);
+
+            // Legacy paid rows did not have amountPaid. Their totalAmount is
+            // the amount that was collected before this settlement.
+            if ($alreadyPaid <= 0 && $payment->status === 'paid') {
+                $alreadyPaid = (float) ($payment->totalAmount ?? $payment->amount ?? 0);
+            }
+        } elseif ($rental->paymentStatus === 'paid' && $method !== null && $method !== 'cash') {
+            // The rental was marked paid earlier but its payment row is
+            // missing. Preserve that collected base instead of charging the
+            // rider again for it.
+            $alreadyPaid = (float) ($rental->totalFee ?? $baseFee);
         }
 
-        Payment::create([
-            'rentalId' => $rental->id,
-            'userId' => $rental->riderId,
-            'bicycleId' => $rental->bicycleId,
-            'paymentReference' => $rental->paymentReference ?? $rental->rentalId,
-            'paymentMethod' => $rental->paymentMethod ?: 'cash',
-            'amount' => $finalFee,
-            'convenienceFee' => 0,
+        if ($method === 'cash') {
+            // Existing workflow treats cash as settled when the return is
+            // confirmed; any late fee is handed over at the counter.
+            $amountPaid = $finalFee;
+        } else {
+            $amountPaid = min(max($alreadyPaid, 0), $finalFee);
+        }
+
+        $amountPaid = round($amountPaid, 2);
+        $balanceDue = round(max($finalFee - $amountPaid, 0), 2);
+
+        $status = $payment?->status;
+        if ($balanceDue <= 0) {
+            $status = 'paid';
+        } elseif ($status === null) {
+            // A missing payment row can still have a paid base recorded on the
+            // rental. Preserve that fact instead of presenting the whole
+            // record as unpaid.
+            $status = $alreadyPaid > 0 ? 'paid' : 'pending';
+        }
+
+        $rentalPaymentStatus = $balanceDue <= 0
+            ? 'paid'
+            : ($alreadyPaid > 0 ? 'partial' : 'pending');
+
+        $paidAt = $payment?->paidAt;
+        if ($paidAt === null && $amountPaid > 0) {
+            $paidAt = Carbon::now();
+        }
+
+        $details = is_array($payment?->paymentDetails) ? $payment->paymentDetails : [];
+        $details['rental_settlement'] = [
+            'base_fee' => $baseFee,
+            'late_penalty' => $latePenalty,
+            'final_fee' => $finalFee,
+            'amount_paid' => $amountPaid,
+            'balance_due' => $balanceDue,
+            'payment_method' => $method,
+            'settled_at' => Carbon::now()->toIso8601String(),
+        ];
+
+        if ($method === null) {
+            // No recorded payment method: do not invent Cash and do not create
+            // a payment transaction that claims money was collected.
+            return [
+                'payment' => null,
+                'method' => null,
+                'amountPaid' => 0.0,
+                'balanceDue' => $finalFee,
+                'rentalPaymentStatus' => 'pending',
+                'rentalPaidAt' => null,
+            ];
+        }
+
+        $attributes = [
+            'paymentMethod' => $method,
+            'amount' => $baseFee,
+            'convenienceFee' => $payment?->convenienceFee ?? 0,
             'totalAmount' => $finalFee,
-            'currency' => 'PHP',
-            'status' => 'paid',
-            'paidAt' => Carbon::now(),
-        ]);
+            'latePenalty' => $latePenalty,
+            'amountPaid' => $amountPaid,
+            'balanceDue' => $balanceDue,
+            'currency' => $payment?->currency ?? 'PHP',
+            'status' => $status,
+            'paymentDetails' => $details,
+            'paidAt' => $paidAt,
+        ];
+
+        if ($payment !== null) {
+            $payment->update($attributes);
+        } else {
+            $payment = Payment::create(array_merge($attributes, [
+                'rentalId' => $rental->id,
+                'userId' => $rental->riderId,
+                'bicycleId' => $rental->bicycleId,
+                'paymentReference' => $rental->paymentReference ?? $rental->rentalId,
+            ]));
+        }
+
+        return [
+            'payment' => $payment,
+            'method' => $method,
+            'amountPaid' => $amountPaid,
+            'balanceDue' => $balanceDue,
+            'rentalPaymentStatus' => $rentalPaymentStatus,
+            'rentalPaidAt' => $rentalPaymentStatus === 'pending' ? null : $paidAt,
+        ];
     }
 
     /**
@@ -1305,8 +1595,8 @@ public function startRental(
     /**
      * Extend an ongoing (or just-expired) ride by buying extra time.
      *
-     * The extension is priced with the same rule the base fee uses - whole
-     * hours, rounded up, at the rental's hourly rate - and lands on the
+     * The extension is priced with the same proportional ₱1.50-per-minute
+     * rule as the base fee and lands on the
      * rental's running total, so the fee the rider is shown is the fee that
      * settles at return. The expected end time (and any return deadline that
      * is already in force) is pushed forward by the same minutes, the rental
@@ -1318,15 +1608,8 @@ public function startRental(
     {
         $extraMinutes = max(1, $extraMinutes);
 
-        $ratePerHour = (float) $rental->ratePerHour;
-
-        if ($ratePerHour <= 0) {
-            $ratePerHour = (float) ($rental->bicycle?->rentableHourlyRate()
-                ?? config('services.rental.rate_per_hour', 15.0));
-        }
-
         $chargedHours = max((int) ceil($extraMinutes / 60), 1);
-        $fee = round($ratePerHour * $chargedHours, 2);
+        $fee = round($extraMinutes * self::RENTAL_RATE_PER_MINUTE, 2);
 
         $maxHours = max(1, (int) SystemSetting::getValue('rentalMaxDurationHours', 12));
         $maxMinutes = $maxHours * 60;
@@ -1583,9 +1866,14 @@ public function startRental(
         }
 
         if ($rental->penaltyValue !== null) {
-            $per = $rental->penaltyType === Rental::PENALTY_PER_MINUTE ? 'minute' : 'hour';
+            $per = match ($rental->penaltyType) {
+                Rental::PENALTY_PER_MINUTE => 'minute',
+                Rental::PENALTY_PER_5_MINUTES => '5 minutes',
+                default => 'hour',
+            };
+            $prep = $rental->penaltyType === Rental::PENALTY_PER_5_MINUTES ? 'every ' : 'per ';
 
-            return 'PHP ' . number_format((float) $rental->penaltyValue, 2) . ' per ' . $per;
+            return 'PHP ' . number_format((float) $rental->penaltyValue, 2) . ' ' . $prep . $per;
         }
 
         return '';
@@ -1606,9 +1894,8 @@ public function startRental(
         $end = $endTime ? Carbon::parse($endTime) : Carbon::now();
 
         $durationMinutes = (int) $start->diffInMinutes($end);
-        $durationHours = $durationMinutes / 60;
-        $chargedHours = max(ceil($durationHours), 1);
-        $totalFee = $chargedHours * $ratePerHour;
+        $chargedHours = max((int) ceil($durationMinutes / 60), 1);
+        $totalFee = $durationMinutes * self::RENTAL_RATE_PER_MINUTE;
 
         $durationFormatted = $this->formatDuration($durationMinutes);
 
@@ -1617,7 +1904,7 @@ public function startRental(
             'durationMinutes' => $durationMinutes,
             'durationFormatted' => $durationFormatted,
             'chargedHours' => $chargedHours,
-            'ratePerHour' => $ratePerHour,
+            'ratePerHour' => self::RENTAL_RATE_PER_HOUR,
         ];
     }
 
@@ -1647,7 +1934,11 @@ public function startRental(
             'paymentMethod' => 'gcash',
         ]);
 
-        $payment->update(['rentalId' => $rental->id]);
+        $payment->update([
+            'rentalId' => $rental->id,
+            'amountPaid' => $payment->totalAmount,
+            'balanceDue' => 0,
+        ]);
 
         $bicycle = Bicycle::find($payment->bicycleId);
         if ($bicycle) {

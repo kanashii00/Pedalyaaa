@@ -17,10 +17,19 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class RentalController extends Controller
 {
+    /**
+     * A manual arrival-time correction of one full penalty interval (five
+     * minutes) or more needs verified evidence. Smaller differences are treated
+     * as the normal gap between opening the dialog and submitting it, or as
+     * minute-picker rounding.
+     */
     public function __construct(
         private NotificationService $notificationService,
         private IoTService $iotService,
@@ -31,7 +40,7 @@ class RentalController extends Controller
     {
         // The queue is the shared "active rentals" scope so this listing, its
         // record count and the sidebar badge can never disagree.
-        $query = Rental::with(['bicycle', 'rider'])->activeList();
+        $query = Rental::with(['bicycle', 'rider', 'payment'])->activeList();
 
         if ($request->filled('status')) {
             $query->where('status', $request->input('status'));
@@ -69,7 +78,7 @@ class RentalController extends Controller
     {
         // A settled rental (status `returned`) must appear in history rather
         // than in Active Rentals, so the two views partition cleanly on status.
-        $query = Rental::with(['bicycle', 'rider'])
+        $query = Rental::with(['bicycle', 'rider', 'payment'])
             ->whereIn('status', [
                 Rental::STATUS_COMPLETED,
                 Rental::STATUS_CANCELLED,
@@ -111,7 +120,7 @@ class RentalController extends Controller
         $view = $request->query('view', 'pending');
         $view = in_array($view, ['pending', 'processed'], true) ? $view : 'pending';
 
-        $query = Rental::with(['bicycle', 'rider']);
+        $query = Rental::with(['bicycle', 'rider', 'payment']);
 
         if ($view === 'pending') {
             $query->whereIn('status', [
@@ -181,7 +190,7 @@ class RentalController extends Controller
 
     public function show(int $id): Response
     {
-        $rental = Rental::with(['bicycle', 'rider'])->findOrFail($id);
+        $rental = Rental::with(['bicycle', 'rider', 'payment'])->findOrFail($id);
 
         return response()->view('admin.rentals.show', compact('rental'));
     }
@@ -210,9 +219,40 @@ class RentalController extends Controller
         $processed = Rental::whereIn('status', [Rental::STATUS_RETURNED, Rental::STATUS_COMPLETED])->count();
         $bikesAvailable = Bicycle::where('status', Bicycle::STATUS_AVAILABLE)->count();
 
+        // Real pending-return events for the page-level toast watcher. The
+        // notification broadcast is the fast path; this snapshot is the
+        // polling-safe fallback and carries enough detail for the same concise
+        // "inspect and confirm" message without inventing client-side events.
+        $pendingReturnRequests = Rental::with(['rider:id,name', 'bicycle:id,name,serialNumber'])
+            ->whereIn('status', [
+                Rental::STATUS_AWAITING_RETURN,
+                Rental::STATUS_OVERDUE_RETURN,
+            ])
+            ->orderByDesc('returnRequestedAt')
+            ->orderByDesc('id')
+            ->limit(25)
+            ->get()
+            ->map(function (Rental $rental): array {
+                $code = $rental->rentalId ?? (string) $rental->id;
+                $requestedAt = $rental->returnRequestedAt ?? $rental->endTime ?? $rental->updated_at;
+
+                return [
+                    'key' => 'rental:'.$code,
+                    'rentalId' => $code,
+                    'rentalDbId' => $rental->id,
+                    'status' => $rental->status,
+                    'rider' => $rental->rider?->name ?? $rental->riderName,
+                    'bicycle' => $rental->bicycle?->name ?? $rental->bicycleName,
+                    'serial' => $rental->bicycle?->serialNumber ?? $rental->bicycleSerial,
+                    'requestedAt' => $requestedAt?->toIso8601String(),
+                ];
+            })
+            ->values();
+
         $payload = [
             'active' => $active,
             'pendingReturns' => $pendingReturns,
+            'pendingReturnRequests' => $pendingReturnRequests,
             'overdueReturns' => Rental::where('status', Rental::STATUS_OVERDUE_RETURN)->count(),
             'processed' => $processed,
             'feeCollected' => (float) Rental::where('status', Rental::STATUS_RETURNED)->sum('finalFee'),
@@ -328,6 +368,8 @@ class RentalController extends Controller
             ->update([
                 'status' => 'paid',
                 'paidAt' => now(),
+                'amountPaid' => DB::raw('totalAmount'),
+                'balanceDue' => 0,
             ]);
 
         AuditLog::record('gcash_payment_verified', auth()->id(), [
@@ -371,6 +413,8 @@ class RentalController extends Controller
             ->update([
                 'status' => 'paid',
                 'paidAt' => now(),
+                'amountPaid' => DB::raw('totalAmount'),
+                'balanceDue' => 0,
             ]);
 
         AuditLog::record('rental_marked_paid', auth()->id(), [
@@ -412,20 +456,24 @@ class RentalController extends Controller
     {
         $rental = Rental::with(['bicycle', 'rider'])->findOrFail($id);
 
-        $validated = $request->validate([
-            'condition' => ['nullable', Rule::in([
-                Rental::CONDITION_GOOD,
-                Rental::CONDITION_FAIR,
-                Rental::CONDITION_DAMAGED,
-                Rental::CONDITION_NEEDS_MAINTENANCE,
-            ])],
-            'note' => ['nullable', 'string', 'max:1000'],
-        ]);
+        try {
+            $validated = $request->validate([
+                'condition' => ['nullable', Rule::in([
+                    Rental::CONDITION_GOOD,
+                    Rental::CONDITION_FAIR,
+                    Rental::CONDITION_DAMAGED,
+                    Rental::CONDITION_NEEDS_MAINTENANCE,
+                ])],
+                'note' => ['nullable', 'string', 'max:1000'],
+            ]);
+        } catch (ValidationException $e) {
+            return $this->rentalToastFailure('Ride not ended', $e->errors());
+        }
 
         $endRideError = $this->endRideError($rental);
 
         if ($endRideError !== null) {
-            return back()->withErrors(['rental' => $endRideError]);
+            return $this->rentalToastFailure('Ride not ended', ['rental' => $endRideError]);
         }
 
         try {
@@ -439,7 +487,7 @@ class RentalController extends Controller
                 'note' => $validated['note'] ?? null,
             ]);
         } catch (\Throwable $e) {
-            return back()->withErrors(['rental' => $e->getMessage()]);
+            return $this->rentalToastFailure('Ride not ended', ['rental' => $e->getMessage()]);
         }
 
         $fees = $result['fees'] ?? [];
@@ -465,41 +513,199 @@ class RentalController extends Controller
             ? ' Bicycle "' . $bicycle->name . '" is now ' . $bicycle->status . '.'
             : '';
 
-        return back()->with(
-            'success',
-            'Ride ended for rental ' . ($rental->rentalId ?? $rental->id)
+        $endedMessage = 'Ride ended for rental ' . ($rental->rentalId ?? $rental->id)
             . ' · Final fee ₱' . number_format((float) ($fees['finalFee'] ?? 0), 2) . $penaltyNote
-            . ' · Moved to Rental History.' . $bicycleNote
-        );
+            . ' · Moved to Rental History.' . $bicycleNote;
+
+        return back()->with([
+            'success' => $endedMessage,
+            'toast' => [
+                'title' => 'Ride ended successfully',
+                'message' => $endedMessage,
+                'type' => 'success',
+            ],
+        ]);
+    }
+
+    /**
+     * Start a signed Process Return session.
+     *
+     * The modal calls this the moment the administrator opens it. The server
+     * time returned here is the default actual-arrival time, and the encrypted
+     * token binds that default to this rental and this administrator. The
+     * submission can therefore tell the difference between "I accepted the
+     * server default" and "I manually corrected the time", without trusting a
+     * client-supplied timestamp or hidden field.
+     */
+    public function returnVerification(Request $request, int $id): JsonResponse
+    {
+        $rental = Rental::findOrFail($id);
+
+        if (!in_array($rental->status, [
+            Rental::STATUS_AWAITING_RETURN,
+            Rental::STATUS_OVERDUE_RETURN,
+        ], true)) {
+            return response()->json([
+                'message' => 'Only rentals awaiting return can be processed.',
+            ], 422);
+        }
+
+        $startedAt = Carbon::now();
+        $token = Crypt::encryptString(json_encode([
+            'rentalId' => $rental->id,
+            'adminId' => $request->user()->id,
+            'startedAt' => $startedAt->toIso8601String(),
+        ]));
+
+        return response()->json([
+            'processingStartedAt' => $startedAt->toIso8601String(),
+            'serverNow' => $startedAt->toIso8601String(),
+            'token' => $token,
+        ]);
     }
 
     public function processReturn(Request $request, int $id): RedirectResponse
     {
         $rental = Rental::with(['bicycle', 'rider'])->findOrFail($id);
 
-        $validated = $request->validate([
-            'return_time' => 'nullable|date',
-            'condition'   => ['nullable', Rule::in(Rental::CONDITIONS)],
-            'note'        => 'nullable|string|max:1000',
-        ]);
+        // Existing business rules: return_time is optional (omitted = now) and
+        // must be a parseable date when present; anything unparseable is
+        // rejected here. No fee/penalty/total fields are accepted — the server
+        // recalculates Late Penalty + Final Fee from the STORED deadline and
+        // this timestamp in RentalService::settleRental(), so the modal preview
+        // is display-only and can never be trusted as the charge.
+        try {
+            $validated = $request->validate([
+                'return_time'          => 'nullable|date',
+                'returnTime'           => 'nullable|date',
+                'actual_return_time'   => 'nullable|date',
+                'actualReturnTime'     => 'nullable|date',
+                'processing_token'     => 'nullable|string|max:4096',
+                'return_time_evidence' => 'nullable|string|max:1000',
+                'returnTimeEvidence'   => 'nullable|string|max:1000',
+                'evidence'             => 'nullable|string|max:1000',
+                'correction_reason'    => 'nullable|string|max:1000',
+                'return_time_reason'   => 'nullable|string|max:1000',
+                'condition'            => ['nullable', Rule::in(Rental::CONDITIONS)],
+                'note'                 => 'nullable|string|max:1000',
+            ]);
+        } catch (ValidationException $e) {
+            return $this->rentalToastFailure('Return not processed', $e->errors());
+        }
+
+        $serverNow = Carbon::now();
+        $processingStartedAt = $this->processingStartedAtFromToken(
+            $validated['processing_token'] ?? null,
+            $rental,
+            $request->user(),
+            $serverNow
+        );
+        $defaultReturnTime = $processingStartedAt ?? $serverNow->copy();
+
+        $submittedReturnTime = ($validated['return_time'] ?? null)
+            ?: ($validated['returnTime'] ?? null)
+            ?: ($validated['actual_return_time'] ?? null)
+            ?: ($validated['actualReturnTime'] ?? null);
+
+        // An omitted value means the administrator accepted the server default
+        // captured when the dialog opened. It never falls back to the rider's
+        // Return Submitted At or to any pre-existing endTime.
+        // datetime-local has minute precision. Treat the value that we put in
+        // the picker as accepting the signed server default, rather than as a
+        // client-side edit which happens to discard its seconds.
+        $acceptedServerDefault = $submittedReturnTime !== null
+            && $submittedReturnTime !== ''
+            && $submittedReturnTime === $defaultReturnTime->format('Y-m-d\\TH:i');
+        $actualReturnTime = $submittedReturnTime === null || $submittedReturnTime === '' || $acceptedServerDefault
+            ? $defaultReturnTime->copy()
+            : Carbon::parse($submittedReturnTime)->setTimezone(config('app.timezone'));
+
+        if ($actualReturnTime->gt($serverNow->copy()->addMinute())) {
+            return $this->rentalToastFailure('Return not processed', [
+                'return_time' => ['The actual return time cannot be in the future.'],
+            ]);
+        }
+
+        if ($rental->startTime !== null && $actualReturnTime->lt($rental->startTime)) {
+            return $this->rentalToastFailure('Return not processed', [
+                'return_time' => ['The actual return time cannot be before the rental start time.'],
+            ]);
+        }
+
+        $evidence = trim((string) ($validated['return_time_evidence'] ?? ''));
+        if ($evidence === '') {
+            $evidence = trim((string) ($validated['returnTimeEvidence'] ?? ''));
+        }
+        if ($evidence === '') {
+            $evidence = trim((string) ($validated['evidence'] ?? ''));
+        }
+        if ($evidence === '') {
+            $evidence = trim((string) ($validated['correction_reason'] ?? ''));
+        }
+        if ($evidence === '') {
+            $evidence = trim((string) ($validated['return_time_reason'] ?? ''));
+        }
+
+        $correctionSeconds = abs($actualReturnTime->getTimestamp() - $defaultReturnTime->getTimestamp());
+        // Any intentional picker edit is a correction of the verified
+        // arrival fact. It must be supported by recorded evidence; only the
+        // displayed server default may be accepted without it.
+        $returnTimeCorrected = $correctionSeconds > 0;
+
+        if ($returnTimeCorrected && $evidence === '') {
+            return $this->rentalToastFailure('Return not processed', [
+                'return_time_evidence' => [
+                    'Correcting the verified arrival time requires evidence. '
+                    . 'Describe the verified evidence or accept the server default.',
+                ],
+            ]);
+        }
 
         try {
-            $this->rentalService->processReturn($rental, $request->user(), [
-                'returnTime' => $validated['return_time'] ?? null,
+            $result = $this->rentalService->processReturn($rental, $request->user(), [
+                // Only the verified arrival instant reaches settlement. The
+                // modal preview, rider submission time and any client-supplied
+                // fee fields are never used as the charge.
+                'returnTime' => $actualReturnTime->toDateTimeString(),
                 'condition'  => $validated['condition'] ?? null,
                 'note'       => $validated['note'] ?? null,
             ]);
         } catch (\Throwable $e) {
-            return back()->withErrors(['rental' => $e->getMessage()]);
+            return $this->rentalToastFailure('Return not processed', ['rental' => $e->getMessage()]);
         }
 
-        $settled = $rental->fresh();
+        $settled = $result['rental'] ?? $rental->fresh();
+
+        $deadlineUnchanged = ($rental->returnDeadline === null && $settled->returnDeadline === null)
+            || (
+                $rental->returnDeadline !== null
+                && $settled->returnDeadline !== null
+                && $rental->returnDeadline->equalTo($settled->returnDeadline)
+            );
 
         AuditLog::record('rental_return_processed', auth()->id(), [
             'rentalId' => $rental->rentalId,
-            'condition' => $validated['condition'] ?? null,
+            'condition' => $settled->returnCondition ?? $validated['condition'] ?? null,
+            'returnSubmittedAt' => $rental->returnRequestedAt?->toDateTimeString(),
+            'returnTime' => $settled->endTime?->toDateTimeString(),
+            'defaultReturnTime' => $defaultReturnTime->toDateTimeString(),
+            'returnTimeCorrected' => $returnTimeCorrected,
+            'returnTimeAdjustmentSeconds' => $correctionSeconds,
+            'returnTimeEvidence' => $evidence !== '' ? $evidence : null,
+            'returnDeadline' => $rental->returnDeadline?->toDateTimeString(),
+            'returnDeadlineUnchanged' => $deadlineUnchanged,
+            'changes' => $returnTimeCorrected
+                ? [
+                    'returnTime' => [
+                        'from' => $defaultReturnTime->toDateTimeString(),
+                        'to' => $actualReturnTime->toDateTimeString(),
+                    ],
+                ]
+                : [],
             'finalFee' => $settled->finalFee,
             'overdueFee' => $settled->overdueFee ?? 0,
+            'amountPaid' => $result['payment']['amountPaid'] ?? null,
+            'balanceDue' => $result['payment']['balanceDue'] ?? null,
             'outcome' => 'success',
         ]);
 
@@ -515,8 +721,13 @@ class RentalController extends Controller
             ? strtolower(str_replace('_', ' ', (string) $bicycle->status))
             : 'available';
 
+        $balanceDue = (float) ($result['payment']['balanceDue'] ?? 0);
+        $balanceNote = $balanceDue > 0
+            ? ' Balance due: ₱'.number_format($balanceDue, 2).'.'
+            : '';
+
         $toastTitle = 'Return confirmed successfully';
-        $toastMessage = "Rental {$rentalCode} has been completed. Final fee: {$finalFee}. Bicycle is now {$bicycleStatus}.";
+        $toastMessage = "Rental {$rentalCode} has been completed. Final fee: {$finalFee}. Bicycle is now {$bicycleStatus}.{$balanceNote}";
 
         return back()->with([
             'success' => $toastMessage,
@@ -526,6 +737,89 @@ class RentalController extends Controller
                 'type' => 'success',
             ],
         ]);
+    }
+
+    /**
+     * Return/end-ride failures keep the underlying validation errors for the
+     * form and post the first one through the shared top-right toast. The
+     * admin layout skips the duplicate in-page alert when this structured
+     * toast is present, so one failure produces exactly one notification.
+     *
+     * @param  array<string, array<int, string>|string>  $errors
+     */
+    private function rentalToastFailure(string $title, array $errors): RedirectResponse
+    {
+        $messages = collect($errors)->flatten()->filter()->values();
+        $message = (string) ($messages->first() ?? 'Please try again.');
+
+        return back()
+            ->withInput()
+            ->withErrors($errors)
+            ->with('toast', [
+                'title' => $title,
+                'message' => $message,
+                'type' => 'error',
+            ]);
+    }
+
+    /**
+     * Decode and validate the signed Process Return session token.
+     *
+     * A missing, forged, expired, or cross-rental/cross-admin token is treated
+     * as "no server default": the request still works, but any submitted time
+     * that differs materially from the current server clock needs evidence.
+     */
+    private function processingStartedAtFromToken(
+        ?string $token,
+        Rental $rental,
+        ?User $admin,
+        Carbon $serverNow
+    ): ?Carbon {
+        if ($token === null || $token === '') {
+            return null;
+        }
+
+        try {
+            $payload = json_decode(Crypt::decryptString($token), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (! is_array($payload)) {
+            return null;
+        }
+
+        if ((int) ($payload['rentalId'] ?? 0) !== (int) $rental->id) {
+            return null;
+        }
+
+        if ((int) ($payload['adminId'] ?? 0) !== (int) ($admin?->id ?? 0)) {
+            return null;
+        }
+
+        $startedAt = $payload['startedAt'] ?? null;
+        if (! is_string($startedAt) || $startedAt === '') {
+            return null;
+        }
+
+        try {
+            $startedAt = Carbon::parse($startedAt)->setTimezone(config('app.timezone'));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        // A session older than four hours is stale; a token from the future is
+        // not trustworthy. Either way, fall back to "now" and require evidence
+        // for a materially earlier arrival.
+        if ($startedAt->gt($serverNow->copy()->addMinute())) {
+            return null;
+        }
+
+        if ($startedAt->lt($serverNow->copy()->subHours(4))) {
+            return null;
+        }
+
+        return $startedAt;
     }
 
     public function setDeadline(Request $request, int $id): RedirectResponse
@@ -603,6 +897,7 @@ class RentalController extends Controller
         $rateLabel = match ($penaltyType) {
             Rental::PENALTY_PER_MINUTE => 'per minute',
             Rental::PENALTY_PER_HOUR => 'per hour',
+            Rental::PENALTY_PER_5_MINUTES => 'every 5 minutes',
             Rental::PENALTY_FIXED => 'fixed',
             default => 'per minute',
         };

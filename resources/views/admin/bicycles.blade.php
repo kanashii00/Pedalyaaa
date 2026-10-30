@@ -3,12 +3,8 @@
 @section('title', 'Bicycle Management')
 
 @section('page-header')
-    <div class="admin-pagehead">
-        <div class="admin-pagehead__title">
-            <h1>Bicycles</h1>
-            <p>Manage your bicycle fleet</p>
-        </div>
-    </div>
+    <h1>Bicycles</h1>
+    <p>Manage your bicycle fleet</p>
 @endsection
 
 @section('content')
@@ -21,44 +17,32 @@
 @endphp
 
 {{-- Bicycles Table --}}
-<div class="admin-table-wrap">
-    <div class="admin-table-toolbar">
-        <div class="grow">
-            <i class="bi bi-search"></i>
-            <input type="text" data-table-search placeholder="Search...">
+<div class="admin-table-wrap admin-table-wrap--inventory">
+    <div class="admin-table-toolbar inventory-toolbar">
+        <div class="grow inventory-toolbar__search">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <input type="text" data-table-search placeholder="Search..." aria-label="Search bicycles">
         </div>
-        <form method="GET" action="{{ route('admin.bicycles.index') }}" class="d-flex gap-2 align-items-center">
-            <select name="status" class="form-select form-select-sm">
+        <form method="GET" action="{{ route('admin.bicycles.index') }}" class="inventory-toolbar__filters">
+            <select name="status" class="form-select form-select-sm inventory-toolbar__select" aria-label="Filter by status">
                 <option value="">All Statuses</option>
                 <option value="available" {{ request('status') === 'available' ? 'selected' : '' }}>Available</option>
                 <option value="rented" {{ request('status') === 'rented' ? 'selected' : '' }}>Rented</option>
                 <option value="maintenance" {{ request('status') === 'maintenance' ? 'selected' : '' }}>Maintenance</option>
                 <option value="{{ \App\Models\Bicycle::STATUS_OUT_OF_SERVICE }}" {{ request('status') === \App\Models\Bicycle::STATUS_OUT_OF_SERVICE ? 'selected' : '' }}>Out of Service</option>
             </select>
-            <button type="submit" class="btn-admin btn-admin--secondary btn-admin--sm">
+            <button type="submit" class="btn-admin btn-admin--secondary btn-admin--sm inventory-toolbar__submit">
                 <i class="bi bi-funnel me-1"></i>Filter
             </button>
         </form>
     </div>
 
     <div class="admin-table-scroll">
+    {{-- In table mode admin.css lays the rows out as a shared grid: ten
+         fractional data tracks plus a content-sized Actions track. When the
+         sidebar, viewport or zoom leaves less than the readable floor, the
+         labelled-card layout takes over instead. --}}
     <table class="admin-table admin-table--inventory">
-        <colgroup>
-            {{-- Percentage widths in a fixed-layout table: every column keeps
-                 its share of the card at any viewport, so the whole inventory is
-                 visible without horizontal scrolling. --}}
-            <col class="col-name">
-            <col class="col-serial">
-            <col class="col-status">
-            <col class="col-renter">
-            <col class="col-rental">
-            <col class="col-battery">
-            <col class="col-lock">
-            <col class="col-condition">
-            <col class="col-rate">
-            <col class="col-updated">
-            <col class="col-actions">
-        </colgroup>
         <thead>
             <tr>
                 <th class="sortable">Name <span class="sort-ind"></span></th>
@@ -178,8 +162,12 @@
                             <x-admin.badge type="success" label="Unlocked" />
                         @endunless
                     </td>
-                    <td data-label="Condition">{{ ucfirst($bike->condition ?? 'good') }}</td>
-                    <td data-label="Hourly Rate">₱{{ number_format($bike->hourlyRate, 2) }}/hr</td>
+                    <td data-label="Condition">
+                        <span class="cell-value" title="{{ ucfirst($bike->condition ?? 'good') }}">{{ ucfirst($bike->condition ?? 'good') }}</span>
+                    </td>
+                    <td data-label="Hourly Rate">
+                        <span class="cell-value" title="₱{{ number_format($bike->hourlyRate, 2) }}/hr">₱{{ number_format($bike->hourlyRate, 2) }}/hr</span>
+                    </td>
                     <td data-label="Last Updated">
                         <small class="text-muted" title="{{ $bike->updated_at->format('M j, Y g:i A') }}">
                             {{ $bike->updated_at->diffForHumans() }}

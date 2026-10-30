@@ -42,6 +42,9 @@
     var SAFETY_MS = 60000;
     var EVENT_DEBOUNCE_MS = 1500;
     var RETRY_MS = 5000;
+    var RETURN_PAGE = PAGE === 'rentals' || PAGE === 'returns';
+    var RETURN_TOAST_TYPES = ['return_requested', 'rental_deadline'];
+    var RETURN_SEEN_STORAGE_KEY = 'pedalya.returnInspectionToasts.v1';
 
     var RENTAL_TYPES = [
         'rental_started', 'rental_approved', 'rental_returned',
@@ -79,6 +82,7 @@
     var lastCheck = 0;
     var lastVersion = null;
     var lastSnapshot = '';
+    var lastPendingReturnEvents = null;
 
     function snapshotOf(data) {
         return JSON.stringify(data);
@@ -86,6 +90,131 @@
 
     function sameSnapshot(data) {
         return lastSnapshot !== '' && snapshotOf(data) === lastSnapshot;
+    }
+
+    /* ---------- Return-inspection toasts ----------
+       Active Rentals and Returns share one toast owner. The notification
+       channel provides the fast path; the feed snapshot is the polling-safe
+       fallback. Both use the same rental key and sessionStorage marker so the
+       same return cannot announce twice when the two transports overlap or
+       when the administrator moves between the two pages. */
+    var announcedReturnEvents = null;
+
+    function loadAnnouncedReturnEvents() {
+        if (announcedReturnEvents !== null) return announcedReturnEvents;
+
+        announcedReturnEvents = {};
+        try {
+            var raw = window.sessionStorage.getItem(RETURN_SEEN_STORAGE_KEY);
+            var keys = raw ? JSON.parse(raw) : [];
+            if (Array.isArray(keys)) {
+                keys.forEach(function (key) {
+                    if (key) announcedReturnEvents[String(key)] = true;
+                });
+            }
+        } catch (e) {
+            /* storage is an optimisation; in-memory dedupe still applies */
+        }
+
+        return announcedReturnEvents;
+    }
+
+    function persistAnnouncedReturnEvents() {
+        try {
+            var keys = Object.keys(loadAnnouncedReturnEvents());
+            if (keys.length > 100) {
+                keys.slice(0, keys.length - 100).forEach(function (key) {
+                    delete announcedReturnEvents[key];
+                });
+                keys = Object.keys(announcedReturnEvents);
+            }
+            window.sessionStorage.setItem(RETURN_SEEN_STORAGE_KEY, JSON.stringify(keys));
+        } catch (e) {
+            /* private mode / quota: keep the in-memory set */
+        }
+    }
+
+    function returnEventKey(event) {
+        if (!event) return '';
+        if (event.key) return String(event.key);
+        var code = event.rentalId || event.rentalDbId || event.id;
+        return code ? 'rental:' + code : '';
+    }
+
+    function returnEventAlreadySeen(key) {
+        return !key || !!loadAnnouncedReturnEvents()[key];
+    }
+
+    function markReturnEventSeen(key) {
+        if (!key) return false;
+        var seen = loadAnnouncedReturnEvents();
+        if (seen[key]) return false;
+        seen[key] = true;
+        persistAnnouncedReturnEvents();
+        return true;
+    }
+
+    function returnInspectionMessage(event) {
+        var rider = event && event.rider ? event.rider : 'A rider';
+        var bike = event && event.bicycle ? event.bicycle : 'a bicycle';
+        var code = event && event.rentalId ? ' for rental ' + event.rentalId : '';
+        return rider + ' submitted a return' + code + ' (' + bike + '). Inspect and confirm it.';
+    }
+
+    function showReturnInspectionToast(message, title) {
+        if (!message) return;
+        try {
+            if (window.PedalyaToast && window.PedalyaToast.warning) {
+                window.PedalyaToast.warning(message, title || 'Return inspection required');
+                return;
+            }
+            if (window.PedalyaNotifications && window.PedalyaNotifications.toast) {
+                window.PedalyaNotifications.toast(message, 'warning', title || 'Return inspection required');
+            }
+        } catch (e) {
+            /* toasts are best-effort and must never stop live sync */
+        }
+    }
+
+    function announceReturnEvents(events) {
+        if (!RETURN_PAGE || document.hidden) return;
+
+        events = Array.isArray(events) ? events : [];
+
+        var fresh = events.filter(function (event) {
+            return !returnEventAlreadySeen(returnEventKey(event));
+        });
+
+        if (!fresh.length) return;
+
+        if (fresh.length === 1) {
+            showReturnInspectionToast(
+                returnInspectionMessage(fresh[0]),
+                'Return inspection required'
+            );
+        } else {
+            showReturnInspectionToast(
+                fresh.length + ' bicycles are waiting for return inspection and confirmation.',
+                'Returns awaiting inspection'
+            );
+        }
+
+        fresh.forEach(function (event) {
+            markReturnEventSeen(returnEventKey(event));
+        });
+    }
+
+    function announceReturnNotification(payload) {
+        if (!RETURN_PAGE || !payload || document.hidden) return;
+        if (RETURN_TOAST_TYPES.indexOf(payload.type) === -1) return;
+
+        var key = returnEventKey(payload);
+        if (!key || !markReturnEventSeen(key)) return;
+
+        showReturnInspectionToast(
+            payload.message || 'A bicycle return needs inspection and confirmation.',
+            'Return inspection required'
+        );
     }
 
     /* ---------- Sidebar badge (lives in the layout, outside regions) ---------- */
@@ -234,6 +363,10 @@
     /* ---------- Version check ---------- */
     function applyVersion(data) {
         paintBadges(data);
+        lastPendingReturnEvents = Array.isArray(data.pendingReturnRequests)
+            ? data.pendingReturnRequests
+            : [];
+        announceReturnEvents(lastPendingReturnEvents);
         if (lastVersion === null || !sameSnapshot(data)) {
             lastVersion = data.version;
             lastSnapshot = snapshotOf(data);
@@ -299,7 +432,10 @@
             window.Echo.private(window.PedalyaChannels.notifications)
                 .listen('.notification.created', function (payload) {
                     payload = payload || {};
-                    if (RENTAL_TYPES.indexOf(payload.type) !== -1) scheduleCheck();
+                    if (RENTAL_TYPES.indexOf(payload.type) !== -1) {
+                        announceReturnNotification(payload);
+                        scheduleCheck();
+                    }
                 });
         } catch (e) { /* polling covers it */ }
     }
@@ -319,6 +455,9 @@
 
     function onVisibility() {
         if (destroyed || document.hidden) return;
+        // A hidden tab never raises a toast (it would auto-dismiss unseen).
+        // Replay the latest authoritative snapshot now that it is visible.
+        if (lastPendingReturnEvents) announceReturnEvents(lastPendingReturnEvents);
         // Returning to the tab re-syncs (at most one catch-up fetch): the
         // version gate keeps it a no-op when nothing changed.
         if (Date.now() - lastCheck > 10000) checkVersion();

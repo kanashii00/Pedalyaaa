@@ -127,19 +127,20 @@
         box-shadow: var(--shadow-card);
         overflow: hidden;
     }
-    .rv-table-scroll { overflow-x: auto; }
+    .rv-table-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+    .rv-table-scroll:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
     .rv-table {
-        width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1060px;
+        width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1040px;
     }
     .rv-table thead th {
         position: sticky; top: 0; z-index: 2;
-        padding: 11px 16px; text-align: left; white-space: nowrap;
+        padding: 10px; text-align: left; white-space: nowrap;
         font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em;
         text-transform: uppercase; color: var(--text-3); background: var(--surface-2);
         border-bottom: 1px solid var(--border-subtle); user-select: none;
     }
     .rv-table tbody td {
-        padding: 12px 16px; border-bottom: 1px solid var(--border-subtle);
+        padding: 10px; border-bottom: 1px solid var(--border-subtle);
         color: var(--text-2); vertical-align: middle;
     }
     .rv-table tbody tr.rv-row { transition: background 0.12s; }
@@ -156,14 +157,17 @@
     }
     .rv-id small { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--text-3); }
 
-    .rv-rider { display: flex; align-items: center; gap: 10px; min-width: 160px; }
+    .rv-rider { display: flex; align-items: center; gap: 10px; min-width: 150px; }
     .rv-rider__name { font-weight: 600; color: var(--text-1); font-size: 13px; line-height: 1.25; }
     .rv-rider__email { font-size: 11.5px; color: var(--text-3); line-height: 1.3; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .rv-bike__name { font-weight: 600; color: var(--text-1); font-size: 13px; }
     .rv-bike__sub { font-size: 11.5px; color: var(--text-3); }
+    .rv-bike__name, .rv-bike__sub {
+        max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
 
-    .rv-dt { line-height: 1.35; }
+    .rv-dt { line-height: 1.35; white-space: nowrap; }
     .rv-dt__date { font-size: 12.5px; color: var(--text-1); font-weight: 500; }
     .rv-dt__time { font-size: 11px; color: var(--text-3); }
 
@@ -177,8 +181,8 @@
     .rv-chip--rented { color: var(--brand-strong); background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 24%, transparent); }
     .rv-chip--maint { color: var(--warning); background: var(--warning-soft); border-color: color-mix(in srgb, var(--warning) 24%, transparent); }
 
-    .rv-fee { font-weight: 700; color: var(--text-1); font-variant-numeric: tabular-nums; font-size: 13.5px; }
-    .rv-fee__sub { font-size: 10.5px; color: var(--text-3); font-weight: 500; }
+    .rv-fee { font-weight: 700; color: var(--text-1); font-variant-numeric: tabular-nums; font-size: 13.5px; white-space: nowrap; }
+    .rv-fee__sub { font-size: 10.5px; color: var(--text-3); font-weight: 500; white-space: nowrap; }
 
     .rv-status {
         display: inline-flex; align-items: center; gap: 6px;
@@ -231,7 +235,7 @@
     .rv-method--gcash { background: var(--accent-soft); color: var(--accent); }
     .rv-method--cash { background: var(--success-soft); color: var(--success); }
 
-    .rv-actions { display: flex; gap: 6px; align-items: center; }
+    .rv-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
     .rv-btn {
         width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
         border-radius: 8px; border: 1px solid var(--border-subtle); background: transparent;
@@ -245,6 +249,13 @@
     .rv-btn--print:hover { color: var(--brand); border-color: var(--brand); background: var(--brand-soft); }
     .rv-btn--process { color: var(--brand-strong); border-color: color-mix(in srgb, var(--brand) 40%, transparent); width: auto; padding: 0 12px; gap: 6px; font-size: 12px; font-weight: 700; }
     .rv-btn--process:hover { color: #fff; background: var(--brand); border-color: var(--brand); }
+    /* Below the widest desktop layout the labelled action would push the table
+       past its card. Keep the same button as a compact icon with its tooltip
+       and accessible name until there is room for the full label again. */
+    @media (max-width: 1599.98px) {
+        .rv-btn--process { width: 30px; padding: 0; gap: 0; }
+        .rv-btn--process .rv-btn__label { display: none; }
+    }
     .rv-btn[title]::after {
         content: attr(title); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
         background: var(--text-1); color: var(--canvas); padding: 4px 8px; border-radius: 6px;
@@ -252,6 +263,9 @@
         opacity: 0; transition: opacity 0.15s; z-index: 10;
     }
     .rv-btn:hover[title]::after { opacity: 1; }
+    /* Right-align the action tooltips so their hidden boxes cannot widen the
+       table's horizontal scroll area at the last column. */
+    .rv-actions .rv-btn[title]::after { left: auto; right: 0; transform: none; }
 
     /* ---- Expandable detail rows ---- */
     tr.rv-detail { display: none; }
@@ -322,9 +336,20 @@
     .rv-notes strong { color: var(--warning); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; display: block; margin-bottom: 3px; }
 
     .rv-foot {
-        display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
-        padding: 12px 18px; border-top: 1px solid var(--border-subtle); background: var(--surface);
+        display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 12px 16px; border-top: 1px solid var(--border-subtle); background: var(--surface);
         font-size: 12.5px; color: var(--text-3);
+    }
+    .rv-foot .admin-table-foot__info { line-height: 1; white-space: nowrap; }
+    .rv-foot .admin-pagination { margin-left: auto; }
+    @media (max-width: 767.98px) {
+        .rv-foot { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px 14px; }
+        .rv-foot .admin-table-foot__info { text-align: center; white-space: normal; }
+        .rv-foot .admin-pagination {
+            margin-left: 0; justify-content: center; flex-wrap: wrap;
+            overflow: visible; padding-bottom: 0; gap: 6px;
+        }
+        .rv-foot .rv-page-text { display: none; }
     }
 
     .rv-empty { padding: 48px 20px !important; }
@@ -365,6 +390,8 @@
     .pr-modal__close:hover { background: var(--surface-3); color: var(--text-1); }
     .pr-modal__body { padding: 20px; }
     .pr-form-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+    /* The display rule above would otherwise override the hidden attribute. */
+    .pr-form-field[hidden] { display: none; }
     .pr-form-field > label {
         font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em;
         text-transform: uppercase; color: var(--text-3);
@@ -619,8 +646,8 @@
             <div class="rv-summary__icon rv-summary__icon--accent"><i class="bi bi-clock-history"></i></div>
             <div>
                 <div class="rv-summary__label">Late Penalty</div>
-                <div class="rv-summary__value">&#8369;{{ number_format($summary['penaltyRate'] ?? 20, 2) }}/hr</div>
-                <div class="rv-summary__sub">after return deadline</div>
+                <div class="rv-summary__value">&#8369;{{ number_format($summary['penaltyRate'] ?? 20, 2) }}/5 min</div>
+                <div class="rv-summary__sub">every 5 min after deadline</div>
             </div>
         </div>
     </div>
@@ -698,7 +725,7 @@
 
     {{-- ===== Returns table ===== --}}
     <div class="rv-table-card">
-        <div class="rv-table-scroll">
+        <div class="rv-table-scroll" tabindex="0" role="region" aria-label="Return records table">
             <table class="rv-table" id="rvTable">
                 <thead>
                     <tr>
@@ -735,9 +762,9 @@
                                 </div>
                             </td>
                             <td>
-                                <div class="rv-bike__name">{{ $rental->bicycle->name ?? 'Unknown' }}</div>
+                                <div class="rv-bike__name" title="{{ $rental->bicycle->name ?? 'Unknown' }}">{{ $rental->bicycle->name ?? 'Unknown' }}</div>
                                 @if($rental->bicycle?->serialNumber)
-                                    <div class="rv-bike__sub">SN &middot; {{ $rental->bicycle->serialNumber }}</div>
+                                    <div class="rv-bike__sub" title="SN &middot; {{ $rental->bicycle->serialNumber }}">SN &middot; {{ $rental->bicycle->serialNumber }}</div>
                                 @endif
                             </td>
                             <td>
@@ -809,6 +836,12 @@
                                         $isReturnOverdue = $rental->status === 'overdue_return';
                                         $retOd = $overdueStats[$rental->id] ?? null;
                                         $retOverdueFee = (float) ($rental->overdueFee ?? ($retOd['currentPenalty'] ?? 0));
+                                        $linkedPayment = $rental->payment;
+                                        $paidSoFar = (float) ($linkedPayment->amountPaid ?? 0);
+                                        if ($paidSoFar <= 0 && $linkedPayment && $linkedPayment->status === 'paid') {
+                                            $paidSoFar = (float) ($linkedPayment->totalAmount ?? 0);
+                                        }
+                                        $balanceDue = (float) ($linkedPayment->balanceDue ?? 0);
                                         $retDetail = [
                                             'id'        => $rental->rentalId ?? ('REN-' . str_pad($rental->id, 4, '0', STR_PAD_LEFT)),
                                             'status'    => $rental->status,
@@ -817,8 +850,10 @@
                                             'bike'      => $rental->bicycle->name ?? 'Unknown',
                                             'serial'    => $rental->bicycle->serialNumber ?? '',
                                             'bikeSub'   => $rental->bicycle->status ?? '',
-                                            'submitted' => $rental->endTime?->format('M d, Y h:i A') ?? '',
-                                            'awaiting'  => $rental->returnRequestedAt?->format('M d, Y h:i A') ?? '',
+                                            // The rider's click and the actual
+                                            // arrival are separate instants.
+                                            'submitted' => $rental->returnRequestedAt?->format('M d, Y h:i A') ?? '',
+                                            'actualReturn' => $rental->endTime?->format('M d, Y h:i A') ?? '',
                                             'deadline'  => $rental->returnDeadline?->format('M d, Y h:i A') ?? '',
                                             'overdueSince' => $rental->overdueReturnAt?->format('M d, Y h:i A') ?? ($rental->returnDeadline?->format('M d, Y h:i A') ?? ''),
                                             'hasOverdueStats' => (bool) $retOd,
@@ -834,6 +869,9 @@
                                             'extraFee'  => number_format($retOverdueFee, 2),
                                             'method'    => $rental->paymentMethod === 'gcash' ? 'GCash' : 'Cash',
                                             'payStatus' => ucfirst($rental->paymentStatus ?? 'Pending'),
+                                            'hasPayment'=> (bool) $linkedPayment,
+                                            'amountPaid'=> number_format($paidSoFar, 2, '.', ''),
+                                            'balanceDue'=> number_format($balanceDue, 2, '.', ''),
                                             'returnNote'=> $rental->returnNote ?? '',
                                             'isPending' => $isReturnPending,
                                             'isOverdue' => $isReturnOverdue,
@@ -852,16 +890,19 @@
                                                 data-rider="{{ $rental->rider->name ?? $rental->riderName ?? 'Unknown' }}"
                                                 data-bike="{{ $rental->bicycle->name ?? $rental->bicycleName ?? 'Unknown' }}"
                                                 data-rate="{{ (float) ($rental->ratePerHour ?? 0) }}"
+                                                data-base="{{ $rental->totalFee !== null ? (float) $rental->totalFee : '' }}"
                                                 data-start="{{ $rental->startTime?->toIso8601String() }}"
                                                 data-expected-end="{{ $rental->expectedEndTime?->toIso8601String() }}"
-                                                data-end="{{ $rental->endTime?->toIso8601String() }}"
-                                                data-deadline="{{ $rental->returnDeadline?->toIso8601String() }}"
+                                                data-submitted="{{ $rental->returnRequestedAt?->format('M d, Y h:i A') ?? '' }}"
+                                                data-deadline="{{ $rental->expectedEndTime?->toIso8601String() }}"
                                                 data-penalty-rate="{{ (float) ($summary['penaltyRate'] ?? \App\Models\SystemSetting::getValue('lateReturnPenaltyPerHour', 20)) }}"
                                                 data-penalty-type="{{ $rental->penaltyType }}"
                                                 data-penalty-value="{{ $rental->penaltyValue }}"
                                                 data-purchased="{{ $rental->hasRideExtensions() ? (float) ($rental->totalFee ?? 0) : 0 }}"
-                                                title="Process Return">
-                                            <i class="bi bi-clipboard-check"></i> Process Return
+                                                data-payment-method="{{ $rental->paymentMethod ?? '' }}"
+                                                data-amount-paid="{{ number_format($paidSoFar, 2, '.', '') }}"
+                                                title="Process Return" aria-label="Process Return">
+                                            <i class="bi bi-clipboard-check"></i><span class="rv-btn__label">Process Return</span>
                                         </button>
                                     @else
                                         @php
@@ -915,14 +956,37 @@
             </table>
         </div>
 
-        <div class="rv-foot" id="rvFoot">
-            <span>
-                <i class="bi bi-list-ul me-1"></i>Showing {{ $rentals->total() }} {{ $view === 'pending' ? 'pending return' : 'processed return' }}{{ $rentals->total() === 1 ? '' : 's' }}
-            </span>
-            @if(method_exists($rentals, 'links'))
-                {{ $rentals->withQueryString()->links() }}
-            @endif
-        </div>
+        @if(method_exists($rentals, 'links'))
+            @php($returnPages = $rentals->withQueryString())
+            <div class="rv-foot" id="rvFoot">
+                <span class="admin-table-foot__info">
+                    @if($returnPages->total() > 0)
+                        <i class="bi bi-list-ul me-1"></i>Showing {{ $returnPages->firstItem() }}&ndash;{{ $returnPages->lastItem() }} of {{ $returnPages->total() }} {{ $view === 'pending' ? 'pending return' : 'processed return' }}{{ $returnPages->total() === 1 ? '' : 's' }}
+                    @else
+                        <i class="bi bi-list-ul me-1"></i>Showing 0 {{ $view === 'pending' ? 'pending returns' : 'processed returns' }}
+                    @endif
+                </span>
+                <nav class="admin-pagination" aria-label="Return records pages">
+                    @if($returnPages->onFirstPage())
+                        <span class="admin-pagination__item is-disabled" aria-disabled="true" aria-label="Previous page"><i class="bi bi-chevron-left"></i><span class="rv-page-text">Previous</span></span>
+                    @else
+                        <a class="admin-pagination__item" href="{{ $returnPages->previousPageUrl() }}" rel="prev" aria-label="Previous page"><i class="bi bi-chevron-left"></i><span class="rv-page-text">Previous</span></a>
+                    @endif
+                    @for($page = 1; $page <= $returnPages->lastPage(); $page++)
+                        @if($page === $returnPages->currentPage())
+                            <span class="admin-pagination__item is-active" aria-current="page">{{ $page }}</span>
+                        @else
+                            <a class="admin-pagination__item" href="{{ $returnPages->url($page) }}" aria-label="Go to page {{ $page }}">{{ $page }}</a>
+                        @endif
+                    @endfor
+                    @if($returnPages->hasMorePages())
+                        <a class="admin-pagination__item" href="{{ $returnPages->nextPageUrl() }}" rel="next" aria-label="Next page"><span class="rv-page-text">Next</span><i class="bi bi-chevron-right"></i></a>
+                    @else
+                        <span class="admin-pagination__item is-disabled" aria-disabled="true" aria-label="Next page"><span class="rv-page-text">Next</span><i class="bi bi-chevron-right"></i></span>
+                    @endif
+                </nav>
+            </div>
+        @endif
     </div>
 </div>
 
@@ -963,8 +1027,8 @@
                     <div class="rv-panel__label"><i class="bi bi-route"></i>Return Timeline</div>
                     <dl style="margin:0;">
                         <div class="rv-kv"><dt>Rental ID</dt><dd id="rdId">—</dd></div>
-                        <div class="rv-kv"><dt>Submitted At</dt><dd id="rdSubmitted">—</dd></div>
-                        <div class="rv-kv" id="rowRdAwaiting"><dt>Awaiting Since</dt><dd id="rdAwaiting">—</dd></div>
+                        <div class="rv-kv"><dt>Return Submitted At</dt><dd id="rdSubmitted">—</dd></div>
+                        <div class="rv-kv" id="rowRdActualReturn"><dt>Actual Return</dt><dd id="rdActualReturn">—</dd></div>
                         <div class="rv-kv" id="rowRdDeadline"><dt>Return Deadline</dt><dd id="rdDeadline">—</dd></div>
                         <div class="rv-kv" id="rowRdOverdueSince"><dt>Overdue Since</dt><dd id="rdOverdueSince">—</dd></div>
                         <div class="rv-kv" id="rowRdOverdueDur"><dt>Overdue Duration</dt><dd id="rdOverdueDur">—</dd></div>
@@ -991,6 +1055,8 @@
                         </div>
                     </div>
                     <dl style="margin:0;">
+                        <div class="rv-kv" id="rowRdPaid"><dt>Amount Paid</dt><dd id="rdPaid">—</dd></div>
+                        <div class="rv-kv" id="rowRdDue"><dt>Balance Due</dt><dd id="rdDue">—</dd></div>
                         <div class="rv-kv"><dt>Condition</dt><dd id="rdCondition">—</dd></div>
                         <div class="rv-kv"><dt>Inspected By</dt><dd id="rdInspector">—</dd></div>
                     </dl>
@@ -1018,16 +1084,33 @@
         <form method="POST" id="prForm">
             @csrf
             @method('PUT')
+            <input type="hidden" name="processing_token" id="prProcessingToken" value="">
             <div class="pr-modal__body">
                 <div class="pr-summary" id="prSummary">
                     <div class="pr-summary__row"><dt>Rental</dt><dd id="prCode">&mdash;</dd></div>
                     <div class="pr-summary__row"><dt>Rider</dt><dd id="prRider">&mdash;</dd></div>
                     <div class="pr-summary__row"><dt>Bicycle</dt><dd id="prBike">&mdash;</dd></div>
+                    <div class="pr-summary__row"><dt>Started</dt><dd id="prStarted">&mdash;</dd></div>
+                    <div class="pr-summary__row"><dt>Return Submitted At</dt><dd id="prSubmitted">&mdash;</dd></div>
+                    <div class="pr-summary__row"><dt>Payment</dt><dd id="prPayment">&mdash;</dd></div>
                 </div>
 
                 <div class="pr-form-field">
                     <label for="prReturnTime">Actual Return Date &amp; Time</label>
                     <input type="datetime-local" name="return_time" id="prReturnTime">
+                    <small style="display:block;margin-top:6px;color:var(--text-3);line-height:1.45;">
+                        Defaults to the current server time when you open this dialog. Inspect the bicycle
+                        before confirming, and change this only when the physical arrival was different.
+                    </small>
+                </div>
+
+                <div class="pr-form-field" id="prEvidenceField" hidden>
+                    <label for="prEvidence">Evidence for the corrected arrival time</label>
+                    <textarea name="return_time_evidence" id="prEvidence"
+                              placeholder="Describe the verified evidence (e.g. dock camera timestamp, inspection log, witness statement)..."></textarea>
+                    <small style="display:block;margin-top:6px;color:var(--text-3);line-height:1.45;">
+                        Every correction is recorded in the audit log with this evidence.
+                    </small>
                 </div>
 
                 <div class="pr-form-field">
@@ -1065,7 +1148,7 @@
                 </div>
 
                 <div class="pr-note">
-                    <i class="bi bi-info-circle me-1"></i><strong>Confirm return.</strong> This settles the rental as Returned, releases the bicycle (or routes it to Maintenance based on condition), records the return time, and syncs payment &amp; revenue. This cannot be undone.
+                    <i class="bi bi-info-circle me-1"></i><strong>Confirm return.</strong> This settles the rental as Returned using the verified physical arrival time above, releases the bicycle (or routes it to Maintenance based on condition), and syncs payment &amp; revenue. The rider's Return Submitted At is kept separately and never used as the arrival time. This cannot be undone.
                 </div>
             </div>
             <div class="pr-modal__foot">
@@ -1206,14 +1289,14 @@ document.addEventListener('DOMContentLoaded', function () {
         rdSet('rdBikeSub', [(d.serial ? 'SN \u00B7 ' + d.serial : ''), d.bikeSub].filter(Boolean).join(' \u00B7 '));
         rdSet('rdId', d.id);
         rdSet('rdSubmitted', d.submitted);
-        rdSet('rdAwaiting', d.awaiting);
+        rdSet('rdActualReturn', d.actualReturn);
         rdSet('rdDeadline', d.deadline);
         rdSet('rdOverdueSince', d.overdueSince);
         rdSet('rdOverdueDur', d.overdueDur);
         rdSet('rdProcessed', d.processedAt);
         rdSet('rdDuration', d.duration);
         rdSet('rdConfirm', d.isPending ? 'Awaiting admin confirmation' : 'Confirmed' + (d.processedAt ? ' · ' + d.processedAt : ''));
-        rdRow('rowRdAwaiting', d.isPending && !!d.awaiting);
+        rdRow('rowRdActualReturn', !!d.actualReturn);
         rdRow('rowRdDeadline', d.isPending && !!d.deadline);
         rdRow('rowRdOverdueSince', d.isOverdue && !!d.overdueSince);
         rdRow('rowRdOverdueDur', d.isOverdue && !!d.overdueDur);
@@ -1221,6 +1304,10 @@ document.addEventListener('DOMContentLoaded', function () {
         rdSet('rdRate', d.rate ? '\u20B1' + d.rate : '');
         rdSet('rdExtra', d.hasExtra ? '\u20B1' + d.extraFee : '');
         rdSet('rdFinal', d.finalFee ? '\u20B1' + d.finalFee : '');
+        rdSet('rdPaid', d.hasPayment ? '\u20B1' + d.amountPaid : '');
+        rdSet('rdDue', d.hasPayment ? '\u20B1' + d.balanceDue : '');
+        rdRow('rowRdPaid', !!d.hasPayment);
+        rdRow('rowRdDue', !!d.hasPayment && Number(d.balanceDue) > 0);
         rdSet('rdCondition', d.isPending && !d.condition ? 'Pending inspection' : d.condition);
         rdSet('rdInspector', d.inspector);
         const method = document.getElementById('rdMethod');
@@ -1267,61 +1354,121 @@ document.addEventListener('DOMContentLoaded', function () {
     const prModal = document.getElementById('prModal');
     const prForm = document.getElementById('prForm');
     const prReturnTime = document.getElementById('prReturnTime');
+    const prProcessingToken = document.getElementById('prProcessingToken');
+    const prEvidenceField = document.getElementById('prEvidenceField');
+    const prEvidence = document.getElementById('prEvidence');
+    // Server-rendered fallback until the signed session request returns. The
+    // authoritative default is the server time returned when the modal opens.
+    const pageServerNow = @json(now()->toIso8601String());
+    const pageLoadedAt = Date.now();
     const money = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Preserve a legitimate 0 (zero-rate/zero-penalty) instead of treating it
+    // as "missing" and silently substituting the default rate.
+    const numberOr = (value, fallback) => {
+        if (value === undefined || value === null || value === '') return fallback;
+        const parsed = Number(value);
+        return Number.isNaN(parsed) ? fallback : parsed;
+    };
 
+    // Asia/Manila is UTC+8 with no DST, same zone the server writes the stored
+    // deadline in (config app.timezone) and parses return_time in. All wall
+    // times below are Manila wall times so the preview matches settlement no
+    // matter which timezone the admin browser runs in.
+    const MANILA_OFFSET_MS = 8 * 3600 * 1000;
+
+    // Format an ISO instant for the datetime-local picker as Manila wall time.
     function fmtLocal(dateStr) {
         const d = dateStr ? new Date(dateStr) : new Date();
         if (isNaN(d.getTime())) return new Date().toISOString();
+        const m = new Date(d.getTime() + MANILA_OFFSET_MS);
         const p = n => String(n).padStart(2, '0');
-        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+        return `${m.getUTCFullYear()}-${p(m.getUTCMonth()+1)}-${p(m.getUTCDate())}T${p(m.getUTCHours())}:${p(m.getUTCMinutes())}`;
+    }
+
+    // Parse a datetime-local picker value ("YYYY-MM-DDTHH:mm") as Manila wall
+    // time. Server-side Carbon::parse() reads the same string in Asia/Manila,
+    // so both sides resolve to the identical instant. Returns Invalid Date
+    // when the shape does not match.
+    function parsePickerAsManila(value) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value || '');
+        if (!m) return new Date(NaN);
+        return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) - MANILA_OFFSET_MS);
+    }
+
+    function isPickerValue(value) {
+        return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value || '');
     }
 
     // Accepts both the ISO key spellings (startIso/expectedIso/endIso/
     // deadlineIso) and the dataset spellings (start/expected/end/deadline)
     // the callers actually pass, so the preview never computes against an
     // Invalid Date.
+    // Preview-only estimate. The server recalculates everything on confirm
+    // from the stored Estimated Cost + the stored return deadline + the
+    // submitted return timestamp, so a tampered preview total can never
+    // become the charged amount.
+    // Base Fee rule: always the rental's STORED Estimated Cost (e.g. ₱15.00
+    // for a one-minute rental), never recomputed from elapsed time.
+    // Penalty rule: PHP 20 for each COMPLETED 5-minute interval past the
+    // stored deadline (1-4 min = 0, 5-9 = 1x, 10-14 = 2x, 15-19 = 3x).
+    // On time / early => 0. Final = Base + Late. The stored base and the
+    // stored deadline are only ever read here, never written.
     function computeFees(p) {
         const rate = p.rate;
         const startIso = p.startIso || p.start;
         const expectedIso = p.expectedIso || p.expected;
         const endIso = p.endIso || p.end;
         const deadlineIso = p.deadlineIso || p.deadline;
-        const penaltyRate = p.penaltyRate;
-        const penaltyType = p.penaltyType;
-        const penaltyValue = p.penaltyValue;
         const purchased = p.purchased;
-        const ratePhp = Number(rate) || 0;
-        const end = endIso ? new Date(endIso) : new Date(prReturnTime.value);
-        const start = new Date(startIso);
-        const durMin = Math.max(Math.round((end - start) / 60000), 0);
-        const hours = Math.max(Math.ceil(durMin / 60), 1);
-        let base = Math.round(hours * ratePhp * 100) / 100;
+        const rawStoredBase = (p.base !== undefined && p.base !== null && p.base !== ''
+            ? p.base
+            : (p.storedBase !== undefined ? p.storedBase : null));
+        const ratePhp = numberOr(rate, 0);
+        // Empty datetime-local means "now", matching the backend default when
+        // return_time is omitted. An unparseable value falls back to now so
+        // the preview never renders NaN; backend validation still rejects it.
+        // Picker strings are Manila wall times (see parsePickerAsManila);
+        // stored ISO strings carry their offset and parse to exact instants.
+        // The stored deadline is NEVER derived from the start time here.
+        let end = endIso
+            ? (isPickerValue(endIso) ? parsePickerAsManila(endIso) : new Date(endIso))
+            : parsePickerAsManila(prReturnTime.value);
+        if (isNaN(end.getTime())) end = new Date();
+        let start = new Date(startIso);
+        if (isNaN(start.getTime())) start = new Date(end.getTime());
+        // Duration is display metadata only when a stored deadline is in force;
+        // otherwise it still drives the legacy elapsed-time base below, matching
+        // the backend settlement exactly.
+        const durMin = Math.max(Math.floor((end - start) / 60000), 0);
+        const hasStoredBase = rawStoredBase !== null
+            && rawStoredBase !== undefined
+            && rawStoredBase !== ''
+            && !isNaN(Number(rawStoredBase))
+            && Number(rawStoredBase) > 0;
+        // Base Fee = the rental's saved Estimated Cost, always. A late return
+        // must never reprice the base; only legacy rows without a positive
+        // saved estimate fall back to elapsed time (exactly like the backend).
+        let base;
+        if (hasStoredBase) {
+            base = Math.round(Math.max(Number(rawStoredBase), 0) * 100) / 100;
+        } else {
+            const hours = Math.max(Math.ceil(durMin / 60), 1);
+            base = Math.round(hours * ratePhp * 100) / 100;
+        }
         // Same floor the settlement applies to an extended ride: the extra time
         // the rider bought is always charged, even when they return early.
-        const purchasedFloor = Math.round((Number(purchased) || 0) * 100) / 100;
+        // The stored totalFee already includes extensions, so this is a no-op
+        // in the normal case and only guards legacy rows missing data-base.
+        const purchasedFloor = Math.round(numberOr(purchased, 0) * 100) / 100;
         if (purchasedFloor > base) base = purchasedFloor;
         let penalty = 0;
-        if (deadlineIso) {
-            const dl = new Date(deadlineIso);
-            if (!isNaN(dl.getTime()) && end > dl) {
-                const diffMin = Math.max(Math.round((end - dl) / 60000), 1);
-                const type = penaltyType || '';
-                if (type === 'fixed') {
-                    penalty = Math.round((Number(penaltyValue) || 0) * 100) / 100;
-                } else if (type === 'per_minute') {
-                    penalty = Math.round(diffMin * (Number(penaltyValue) || 0) * 100) / 100;
-                } else if (type === 'per_hour') {
-                    penalty = Math.round(Math.max(Math.ceil(diffMin / 60), 1) * (Number(penaltyValue) || 0) * 100) / 100;
-                } else {
-                    const penRatePhp = Number(penaltyRate) || 0;
-                    penalty = Math.round(Math.max(Math.ceil(diffMin / 60), 1) * penRatePhp * 100) / 100;
-                }
-            }
-        } else if (expectedIso) {
-            const exp = new Date(expectedIso);
-            if (end > exp) {
-                const diffMin = Math.max(Math.round((end - exp) / 60000), 1);
-                penalty = Math.round(Math.max(Math.ceil(diffMin / 60), 1) * ratePhp * 100) / 100;
+        const originalDeadlineIso = expectedIso || deadlineIso;
+        if (originalDeadlineIso) {
+            const dl = new Date(originalDeadlineIso);
+            if (!isNaN(dl.getTime()) && end.getTime() > dl.getTime()) {
+                const diffMs = Math.max(end.getTime() - dl.getTime(), 0);
+                const completedIntervals = Math.floor(diffMs / 300000);
+                penalty = Math.round(completedIntervals * 20 * 100) / 100;
             }
         }
         const total = Math.round((base + penalty) * 100) / 100;
@@ -1332,7 +1479,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!dateStr) return '—';
         const d = new Date(dateStr);
         if (isNaN(d.getTime())) return '—';
-        return d.toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+        return d.toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
     }
 
     function updateFeePreview(params) {
@@ -1341,15 +1488,101 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('prOverdue').textContent = money(f.penalty);
         document.getElementById('prTotal').textContent = money(f.total);
         const dlNode = document.getElementById('prDeadline');
-        if (dlNode) dlNode.textContent = fmtShort(params.deadlineIso || params.deadline);
+        if (dlNode) dlNode.textContent = fmtShort(params.expectedIso || params.expected || params.deadlineIso || params.deadline);
         const prRate = document.getElementById('prPenaltyRate');
         if (prRate) {
-            if (!(params.deadlineIso || params.deadline)) { prRate.textContent = ''; }
-            else if (params.penaltyType === 'fixed') { prRate.textContent = '(fixed)'; }
-            else if (params.penaltyType === 'per_minute') { prRate.textContent = '(' + money(params.penaltyValue) + '/min)'; }
-            else if (params.penaltyType === 'per_hour') { prRate.textContent = '(' + money(params.penaltyValue) + '/hr)'; }
-            else if (params.penaltyRate) { prRate.textContent = '(' + money(params.penaltyRate) + '/hr)'; }
-            else { prRate.textContent = ''; }
+            prRate.textContent = (params.expectedIso || params.expected || params.deadlineIso || params.deadline)
+                ? '(' + money(20) + '/completed 5 min)'
+                : '';
+        }
+
+        // Make it explicit which part of the final fee was already collected
+        // and which part is still due. Cash is collected when the admin
+        // confirms the return; online payments keep their earlier amount.
+        const payNode = document.getElementById('prPayment');
+        if (payNode) {
+            const method = String(params.method || '').toLowerCase();
+            const paid = Math.max(numberOr(params.paid, 0), 0);
+            if (!method) {
+                payNode.textContent = '\u2014';
+            } else if (method === 'cash') {
+                // Cash rentals are marked paid at the counter when the ride
+                // starts, so only an additional late fee is collected here.
+                payNode.textContent = f.penalty > 0
+                    ? 'Cash \u00B7 collect ' + money(f.penalty) + ' late fee on return'
+                    : 'Cash \u00B7 fully paid';
+            } else {
+                const label = method === 'gcash' ? 'GCash' : method.replace(/_/g, ' ');
+                const due = Math.max(Math.round((f.total - paid) * 100) / 100, 0);
+                payNode.textContent = label + ' \u00B7 paid ' + money(paid)
+                    + (due > 0 ? ' \u00B7 due ' + money(due) : ' \u00B7 fully paid');
+            }
+        }
+    }
+
+    // Preview parameters are read from the row dataset stored on the picker.
+    // The stored deadline and base fee are never mutated by the dialog.
+    function prPreviewParams() {
+        return {
+            rate: prReturnTime.dataset.rate,
+            // Blank/zero means "no positive saved estimate" so the preview
+            // uses the same elapsed fallback as legacy settlement.
+            base: prReturnTime.dataset.base !== '' ? prReturnTime.dataset.base : null,
+            start: prReturnTime.dataset.start || new Date().toISOString(),
+            expected: prReturnTime.dataset.expected || '',
+            deadline: prReturnTime.dataset.deadline || '',
+            purchased: prReturnTime.dataset.purchased,
+            method: prReturnTime.dataset.method || '',
+            paid: prReturnTime.dataset.paid || '0',
+            end: prReturnTime.value || prReturnTime.dataset.default || new Date().toISOString(),
+        };
+    }
+
+    function refreshPrPreview() {
+        updateFeePreview(prPreviewParams());
+    }
+
+    function updateEvidenceVisibility() {
+        const defaultValue = prReturnTime.dataset.default || '';
+        const changed = prReturnTime.value !== ''
+            && defaultValue !== ''
+            && prReturnTime.value !== defaultValue;
+
+        prEvidenceField.hidden = !changed;
+        prEvidence.required = changed;
+        if (!changed) prEvidence.value = '';
+    }
+
+    function setPrDefault(startedAtIso) {
+        const defaultPicker = fmtLocal(startedAtIso);
+        const previousDefault = prReturnTime.dataset.default || '';
+        const wasUnchanged = prReturnTime.value === '' || prReturnTime.value === previousDefault;
+
+        prReturnTime.dataset.default = defaultPicker;
+        if (wasUnchanged) {
+            prReturnTime.value = defaultPicker;
+            refreshPrPreview();
+        }
+        updateEvidenceVisibility();
+    }
+
+    async function loadReturnVerificationSession(rentalId) {
+        try {
+            const url = "{{ route('admin.rentals.return-verification', '__ID__') }}".replace('__ID__', rentalId);
+            const response = await fetch(url, {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin',
+            });
+            if (!response.ok) return;
+
+            const data = await response.json();
+            if (data && data.processingStartedAt) {
+                prProcessingToken.value = data.token || '';
+                setPrDefault(data.processingStartedAt);
+            }
+        } catch (e) {
+            // Keep the page-render fallback. The backend still validates the
+            // submitted time and requires evidence for a material correction.
         }
     }
 
@@ -1364,49 +1597,62 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('prCode').textContent = this.dataset.rentalCode || ('#' + this.dataset.rentalId);
             document.getElementById('prRider').textContent = this.dataset.rider || 'Unknown';
             document.getElementById('prBike').textContent = this.dataset.bike || 'Unknown';
-            const params = {
-                rate: this.dataset.rate || 0,
-                start: this.dataset.start || new Date().toISOString(),
-                expected: this.dataset.expectedEnd || '',
-                end: this.dataset.end || new Date().toISOString(),
-                deadline: this.dataset.deadline || '',
-                penaltyRate: this.dataset.penaltyRate || 0,
-                penaltyType: this.dataset.penaltyType || '',
-                penaltyValue: this.dataset.penaltyValue || 0,
-                purchased: this.dataset.purchased || 0,
-            };
-            prReturnTime.value = fmtLocal(params.end);
-            prReturnTime.dataset.rate = params.rate;
-            prReturnTime.dataset.start = params.start;
-            prReturnTime.dataset.expected = params.expected;
-            prReturnTime.dataset.deadline = params.deadline;
-            prReturnTime.dataset.penaltyRate = params.penaltyRate;
-            prReturnTime.dataset.penaltyType = params.penaltyType;
-            prReturnTime.dataset.penaltyValue = params.penaltyValue;
-            prReturnTime.dataset.purchased = params.purchased;
+            document.getElementById('prStarted').textContent = fmtShort(this.dataset.start);
+            document.getElementById('prSubmitted').textContent = this.dataset.submitted || '—';
+
+            // Reset verification state for this rental. The default is the
+            // server's current time (estimated from the page-render clock until
+            // the signed session response arrives), never the rider's request
+            // timestamp or a previous endTime.
+            prProcessingToken.value = '';
+            prEvidence.value = '';
+            prEvidenceField.hidden = true;
+            prEvidence.required = false;
+            prReturnTime.dataset.touched = '';
+            prReturnTime.dataset.default = '';
+
+            const estimatedServerNow = new Date(
+                new Date(pageServerNow).getTime() + (Date.now() - pageLoadedAt)
+            ).toISOString();
+            prReturnTime.value = fmtLocal(estimatedServerNow);
+            prReturnTime.dataset.default = prReturnTime.value;
+
+            prReturnTime.dataset.rate = this.dataset.rate || '';
+            prReturnTime.dataset.base = this.dataset.base || '';
+            prReturnTime.dataset.start = this.dataset.start || '';
+            prReturnTime.dataset.expected = this.dataset.expectedEnd || '';
+            prReturnTime.dataset.deadline = this.dataset.deadline || '';
+            prReturnTime.dataset.penaltyRate = this.dataset.penaltyRate;
+            prReturnTime.dataset.penaltyType = this.dataset.penaltyType || '';
+            prReturnTime.dataset.penaltyValue = this.dataset.penaltyValue;
+            prReturnTime.dataset.purchased = this.dataset.purchased;
+            prReturnTime.dataset.method = this.dataset.paymentMethod || '';
+            prReturnTime.dataset.paid = this.dataset.amountPaid || '0';
+
             document.getElementById('prNote').value = '';
             document.querySelector('input[name="condition"][value="good"]').checked = true;
-            updateFeePreview(params);
+            refreshPrPreview();
             prModal.classList.add('open');
+            loadReturnVerificationSession(this.dataset.rentalId);
         });
     });
     }
     bindReturnProcessButtons();
     window.__returnsBindProcess = bindReturnProcessButtons;
 
+    // Recalculate Late Penalty + Final Fee immediately whenever the admin
+    // edits the date OR the time. datetime-local pickers fire `input` per key
+    // / picker step and `change` on close/blur, so both are needed for a live
+    // preview with no refresh and no extra button. The stored deadline comes
+    // from the row dataset and is never mutated here.
     if (prReturnTime) {
-        prReturnTime.addEventListener('change', function () {
-            updateFeePreview({
-                rate: prReturnTime.dataset.rate || 0,
-                start: prReturnTime.dataset.start || new Date().toISOString(),
-                expected: prReturnTime.dataset.expected || '',
-                deadline: prReturnTime.dataset.deadline || '',
-                penaltyRate: prReturnTime.dataset.penaltyRate || 0,
-                penaltyType: prReturnTime.dataset.penaltyType || '',
-                penaltyValue: prReturnTime.dataset.penaltyValue || 0,
-                end: this.value,
-            });
-        });
+        const handleReturnTimeChange = function () {
+            prReturnTime.dataset.touched = '1';
+            refreshPrPreview();
+            updateEvidenceVisibility();
+        };
+        prReturnTime.addEventListener('input', handleReturnTimeChange);
+        prReturnTime.addEventListener('change', handleReturnTimeChange);
     }
 
     /* ---- Automatic return-grace countdown ---- */

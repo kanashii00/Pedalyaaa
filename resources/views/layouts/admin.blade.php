@@ -447,20 +447,24 @@
         {{-- The success banner is skipped when a structured toast is present
              (e.g. a confirmed bicycle return): the compact top-right toast
              already carries the same message, so rendering both would notify
-             twice. Plain success flashes without toast data keep the banner. --}}
-        @if(session('success') && !session('toast'))
+             twice. A page may also explicitly suppress just its redundant
+             banner while retaining the standard success toast. --}}
+        @if(session('success') && !session('toast') && !session('suppressSuccessBanner'))
             <div class="alert alert-pedalya alert-success alert-dismissible fade show" role="alert">
                 <i class="bi bi-check-circle-fill me-2"></i>{{ session('success') }}
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         @endif
-        @if(session('error'))
+        {{-- A structured error toast already carries the first failure. Keep
+             the validation errors in the session for form handling, but do not
+             paint the same failure twice (banner + top-right toast). --}}
+        @if(session('error') && !session('toast'))
             <div class="alert alert-pedalya alert-danger alert-dismissible fade show" role="alert">
                 <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ session('error') }}
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         @endif
-        @if($errors->any())
+        @if($errors->any() && !session('toast'))
             <div class="alert alert-pedalya alert-danger alert-dismissible fade show" role="alert">
                 <i class="bi bi-exclamation-triangle-fill me-2"></i>
                 <div>
@@ -537,9 +541,9 @@
 
 {{-- Flash messages surface as compact top-right toasts (fixed overlay, never
      shifts page content). Structured session('toast') wins so the return
-     flow can set its own title, and it replaces the success banner above so
-     each action notifies exactly once; plain success/error flashes fall back
-     to generic titles. Error and validation banners always remain. --}}
+     flow can set its own title, and it replaces the competing success or
+     error banner above so each action notifies exactly once; plain
+     success/error flashes fall back to generic titles. --}}
 @if(session('toast') || session('success') || session('error') || $errors->any())
 <script>
 (function () {

@@ -244,7 +244,10 @@
     .distance-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
     .distance-table th, .distance-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
     .distance-table th { font-weight: 600; color: var(--muted); font-size: 0.7rem; text-transform: uppercase; }
-    .distance-table tr:hover td { background: var(--gray-50); }
+    /* Subtle muted-blue hover that reads on both themes: dark navy in dark
+       mode, pale blue in light mode. Text and badges keep their own colors;
+       only the row wash changes, so contrast and borders stay consistent. */
+    .distance-table tbody tr:hover td { background: color-mix(in srgb, #2563eb 12%, var(--surface-2) 88%); }
     .incident-item, .lock-item {
         padding: 10px 12px;
         border-bottom: 1px solid var(--border);
@@ -260,7 +263,7 @@
 
 @section('page-header')
     <h1>Geofence Management</h1>
-    <p>Configure the riding boundary � choose a shape, then click the map or drag the marker to reposition</p>
+    <p>Configure the riding boundary — choose a shape, then click the map or drag the marker to reposition</p>
 @endsection
 
 @section('actions')
@@ -344,41 +347,74 @@
                     </thead>
                     <tbody>
                         @foreach($bicycles as $bike)
+                        @php
+                            // Human-readable status without touching the stored
+                            // value: out_of_service -> Out of Service, etc.
+                            $bikeStatusLabel = match ($bike->status) {
+                                'available' => 'Available',
+                                'rented' => 'Rented',
+                                'maintenance' => 'Maintenance',
+                                'out_of_service' => 'Out of Service',
+                                'removed' => 'Removed',
+                                null => '—',
+                                default => ucwords(str_replace('_', ' ', $bike->status)),
+                            };
+                            // Zone badge wording matches the stat cards above:
+                            // safe -> Inside, approaching/warning -> Near
+                            // Boundary, breach -> Outside, otherwise No GPS.
+                            $zoneLevel = $bike->zone['level'] ?? 'no-gps';
+                            $zoneLabel = match ($zoneLevel) {
+                                'safe' => 'Inside',
+                                'approaching', 'warning' => 'Near Boundary',
+                                'breach' => 'Outside',
+                                default => 'No GPS',
+                            };
+                            $zoneClass = in_array($zoneLevel, ['safe', 'approaching', 'warning', 'breach'], true)
+                                ? $zoneLevel
+                                : 'no-gps';
+                            // A rider name renders only while a live rental
+                            // holds the bicycle; a stale currentRider pointer
+                            // from a settled rental renders an em dash.
+                            $liveRental = $bike->currentRental;
+                            $hasLiveRental = $liveRental
+                                && in_array($liveRental->status, \App\Models\Rental::LIVE_STATUSES, true);
+                            // Distance exists exactly when the controller
+                            // validated real GPS coordinates for this row.
+                            $hasValidGps = isset($bike->zone['distance']) && $bike->zone['distance'] !== null;
+                        @endphp
                         <tr>
                             <td>
                                 <strong>{{ $bike->name ?? 'Bicycle #' . $bike->id }}</strong>
                                 @if($bike->status)
-                                <span class="badge-admin badge-admin--{{ $bike->status === 'rented' ? 'primary' : ($bike->status === 'maintenance' ? 'warning' : 'secondary') }} ms-1" style="font-size:0.65rem;">{{ ucfirst($bike->status) }}</span>
+                                <span class="badge-admin badge-admin--{{ $bike->status === 'rented' ? 'primary' : ($bike->status === 'maintenance' ? 'warning' : 'secondary') }} ms-1" style="font-size:0.65rem;">{{ $bikeStatusLabel }}</span>
                                 @endif
                             </td>
                             <td>
-                                @if($bike->currentRiderUser)
+                                @if($hasLiveRental && $bike->currentRiderUser)
                                     {{ $bike->currentRiderUser->name }}
                                 @else
-                                    <span class="text-muted">�</span>
+                                    <span class="text-muted">—</span>
                                 @endif
                             </td>
                             <td>
-                                @if(isset($bike->zone))
-                                    <span class="zone-badge {{ $bike->zone['level'] ?? 'no-gps' }}">
-                                        {{ ucfirst($bike->zone['level'] ?? 'No GPS') }}
-                                    </span>
-                                @else
-                                    <span class="zone-badge no-gps">No GPS</span>
-                                @endif
+                                <span class="zone-badge {{ $zoneClass }}">{{ $zoneLabel }}</span>
                             </td>
                             <td>
-                                @if(isset($bike->zone['distance']) && $bike->zone['distance'] !== null)
+                                @if($hasValidGps)
                                     {{ number_format($bike->zone['distance'], 1) }} m
                                 @else
-                                    <span class="text-muted">�</span>
+                                    <span class="text-muted">No GPS Data</span>
                                 @endif
                             </td>
                             <td>
-                                @if($bike->currentLat && $bike->currentLng)
-                                    <span class="badge-admin badge-admin--success">Active</span>
+                                @if(!$bike->hasRegisteredDevice())
+                                    <span class="badge-admin badge-admin--secondary">No IoT Device</span>
+                                @elseif(!$hasValidGps)
+                                    <span class="badge-admin badge-admin--secondary">No GPS Signal</span>
+                                @elseif(($bike->zone['inside'] ?? null) === false)
+                                    <span class="badge-admin badge-admin--danger">Outside Zone</span>
                                 @else
-                                    <span class="badge-admin badge-admin--secondary">No Signal</span>
+                                    <span class="badge-admin badge-admin--success">Inside Zone</span>
                                 @endif
                             </td>
                         </tr>
@@ -443,11 +479,11 @@
                                    min="10" max="5000" value="{{ number_format($config['height'] ?? $config['radius'], 0) }}">
                         </div>
                         <div class="col-12 d-none" id="rotationWrap">
-                            <label class="form-label">Rotation / Angle (�)</label>
+                            <label class="form-label">Rotation / Angle (°)</label>
                             <input type="range" class="radius-slider" id="rotationSlider" min="0" max="360" step="1"
                                    value="{{ number_format($config['rotation'] ?? 0, 0) }}">
                             <div class="d-flex justify-content-between">
-                                <span id="rotationValue" class="text-muted" style="font-size:0.78rem;">0�</span>
+                                <span id="rotationValue" class="text-muted" style="font-size:0.78rem;">0°</span>
                                 <span class="text-muted" style="font-size:0.78rem;">Clockwise from north</span>
                             </div>
                         </div>
@@ -465,7 +501,7 @@
 
                     <div class="draw-status counting" id="drawStatus">
                         <span class="pulse"></span>
-                        <span id="drawStatusText">Click the map to add boundary points�</span>
+                        <span id="drawStatusText">Click the map to add boundary points…</span>
                     </div>
 
                     <div class="draw-toolbar">
@@ -558,7 +594,7 @@
                         <small class="text-muted d-block mt-1">
                             {{ $incident->distanceFromBoundary ? number_format($incident->distanceFromBoundary, 1) . 'm from boundary' : ($incident->breachDistance ? number_format($incident->breachDistance, 1) . 'm outside' : '') }}
                             @if($incident->location && isset($incident->location['lat']))
-                                � {{ number_format($incident->location['lat'], 5) }}, {{ number_format($incident->location['lng'] ?? $incident->location['lon'] ?? 0, 5) }}
+                                · {{ number_format($incident->location['lat'], 5) }}, {{ number_format($incident->location['lng'] ?? $incident->location['lon'] ?? 0, 5) }}
                             @endif
                         </small>
                         <small class="text-muted d-block">{{ $incident->created_at->format('M d, Y g:i A') }}</small>
@@ -591,10 +627,10 @@
                                 System / Auto
                             @endif
                             @if($cmd->status)
-                                � Status: {{ ucfirst($cmd->status) }}
+                                · Status: {{ ucfirst($cmd->status) }}
                             @endif
                             @if($cmd->executedAt)
-                                � Executed: {{ $cmd->executedAt->format('M d, g:i A') }}
+                                · Executed: {{ $cmd->executedAt->format('M d, g:i A') }}
                             @endif
                         </div>
                     </div>
@@ -873,7 +909,7 @@
         var el = document.createElement('div');
         el.className = 'vertex-marker' + (isSel ? ' selected' : '');
         el.innerHTML = '<span>' + (idx + 1) + '</span>';
-        el.title = 'Vertex ' + (idx + 1) + ' � click to select';
+        el.title = 'Vertex ' + (idx + 1) + ' — click to select';
         el.addEventListener('click', function (e) { e.preventDefault(); });
         return el;
     }
@@ -887,7 +923,7 @@
             var isSel = (idx === selectedVertex);
             var m = new maplibregl.Marker({ element: vertexElement(idx, isSel), draggable: true })
                 .setLngLat([p.lng, p.lat])
-                .setPopup(new maplibregl.Popup({ offset: 20 }).setHTML('<strong>Vertex ' + (idx + 1) + '</strong><br><small>Drag to move � click to select</small>'))
+                .setPopup(new maplibregl.Popup({ offset: 20 }).setHTML('<strong>Vertex ' + (idx + 1) + '</strong><br><small>Drag to move — click to select</small>'))
                 .addTo(map);
             m.getElement().addEventListener('click', function (e) {
                 e.stopPropagation();
@@ -920,7 +956,7 @@
         drawStatus.classList.remove('counting', 'closed');
         if (count === 0) {
             drawStatus.classList.add('counting');
-            drawStatusText.textContent = 'Click the map to add boundary points�';
+            drawStatusText.textContent = 'Click the map to add boundary points…';
         } else if (!polygonClosed) {
             drawStatus.classList.add('counting');
             drawStatusText.textContent = 'Placed ' + count + ' point(s). Click "Finish / Close Boundary" (or add ' + Math.max(0, 3 - count) + ' more) to enclose the area.';
@@ -946,9 +982,9 @@
         document.getElementById('undoPointBtn').classList.toggle('d-none', shapeType !== 'polygon');
 
         var title = 'Dimensions';
-        if (shapeType === 'oval_h') title = 'Horizontal Oval (Width � Height)';
-        else if (shapeType === 'oval_v') title = 'Vertical Oval (Width � Height)';
-        else if (shapeType === 'rectangle') title = 'Rectangle (Width � Height � Rotation)';
+        if (shapeType === 'oval_h') title = 'Horizontal Oval (Width × Height)';
+        else if (shapeType === 'oval_v') title = 'Vertical Oval (Width × Height)';
+        else if (shapeType === 'rectangle') title = 'Rectangle (Width × Height · Rotation)';
         document.getElementById('dimensionTitle').textContent = title;
 
         document.querySelectorAll('.shape-btn').forEach(function (b) {
@@ -1015,7 +1051,7 @@
     });
     rotationSlider.addEventListener('input', function () {
         rotation = parseInt(this.value, 10);
-        rotationValue.textContent = rotation + '�';
+        rotationValue.textContent = rotation + '°';
         renderShape();
     });
 
@@ -1138,7 +1174,7 @@
         } else if (base === 'rectangle') {
             width = 1600; height = 900; rotation = 0;
             widthInput.value = 1600; heightInput.value = 900;
-            rotationSlider.value = 0; rotationValue.textContent = '0�';
+            rotationSlider.value = 0; rotationValue.textContent = '0°';
             renderShape();
         } else { // ovals
             width = 1600; height = 900;
@@ -1152,10 +1188,10 @@
         document.getElementById('centerLngInput').value = center[0].toFixed(6);
         var shapeLabel = document.getElementById('centerReadout');
         var label = 'Center: ' + center[1].toFixed(6) + ', ' + center[0].toFixed(6);
-        if (shapeType === 'circle') label += ' � Radius: ' + numberFormat(radius) + ' m';
-        else if (shapeType === 'rectangle') label += ' � ' + numberFormat(width) + '�' + numberFormat(height) + ' m � ' + rotation + '�';
-        else if (shapeType === 'oval_h' || shapeType === 'oval_v') label += ' � ' + numberFormat(width) + '�' + numberFormat(height) + ' m (ov)';
-        else if (shapeType === 'polygon' && points) label += ' � Polygon: ' + points.length + ' pts';
+        if (shapeType === 'circle') label += ' · Radius: ' + numberFormat(radius) + ' m';
+        else if (shapeType === 'rectangle') label += ' · ' + numberFormat(width) + '×' + numberFormat(height) + ' m · ' + rotation + '°';
+        else if (shapeType === 'oval_h' || shapeType === 'oval_v') label += ' · ' + numberFormat(width) + '×' + numberFormat(height) + ' m (ov)';
+        else if (shapeType === 'polygon' && points) label += ' · Polygon: ' + points.length + ' pts';
         shapeLabel.textContent = label;
     }
 

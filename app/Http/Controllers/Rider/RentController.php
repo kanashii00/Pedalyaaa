@@ -47,6 +47,7 @@ class RentController extends Controller
             'geofenceGeoJson' => app(GeofenceService::class)->shapeGeoJson($geofence),
             'selectableBicycleIds' => $this->selectableBicycleIds(),
             'maxDurationMinutes' => $this->maxDurationMinutes(),
+            'rentalRatePerMinute' => RentalService::RENTAL_RATE_PER_MINUTE,
         ]);
     }
 
@@ -95,9 +96,8 @@ class RentController extends Controller
 
         $request->validate([
             'bicycleId'       => ['required', 'integer', 'exists:bicycles,id'],
-            'paymentMethod'   => ['required', 'string', 'in:cash,gcash'],
+            'paymentMethod'   => ['required', 'string', 'in:cash'],
             'durationMinutes' => ['required', 'integer', 'min:1', "max:{$maxDurationMinutes}"],
-            'paymentReference'=> ['required_if:paymentMethod,gcash', 'nullable', 'string', 'max:100'],
         ], [
             'durationMinutes.required' => 'Please choose how long you want to rent the bicycle.',
             'durationMinutes.integer'  => 'The rental duration must be a whole number of minutes.',
@@ -146,21 +146,15 @@ class RentController extends Controller
 
         $user = $request->user();
 
-        $redirect = $request->paymentMethod === 'gcash'
-            ? redirect()->route('rider.rentals.index')
-                ->with('success', 'Rental submitted! Your payment is pending verification. You will be notified once approved.')
-            : redirect()->route('rider.dashboard')
-                ->with('success', 'Rental started successfully. Pay at the station upon return.');
+        $redirect = redirect()->route('rider.dashboard')
+            ->with('success', 'Rental started successfully. Pay at the station upon return.');
 
         try {
             $this->rentalService->startRental(
                 $user,
                 $request->bicycleId,
                 (int) $request->durationMinutes,
-                $request->paymentMethod,
-                $request->paymentMethod === 'gcash'
-                    ? $request->paymentReference
-                    : null,
+                'cash',
             );
         } catch (RentalException $e) {
             return back()->withErrors(['bicycleId' => $e->getMessage()]);
@@ -265,7 +259,7 @@ class RentController extends Controller
             ->first();
 
         $rentals = $user->rentals()
-            ->with('bicycle')
+            ->with(['bicycle', 'payment'])
             ->latest()
             ->paginate(15);
 
@@ -378,7 +372,7 @@ class RentController extends Controller
             }
 
             return redirect()->route('rider.dashboard')
-                ->with('success', 'Your bicycle has been marked as returned. Please wait for an administrator to inspect and confirm the return.');
+                ->with('success', 'Your return request has been submitted. Please wait for an administrator to inspect the bicycle and confirm the actual arrival time.');
         } catch (RentalException $e) {
             return back()->withErrors(['return' => $e->getMessage()]);
         } catch (\Throwable $e) {

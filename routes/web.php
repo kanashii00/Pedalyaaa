@@ -45,8 +45,9 @@ Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])
     ->middleware('auth')
     ->name('logout');
 
-// Admin routes
-Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->group(function () {
+// Admin routes. no-cache keeps sensitive pages out of browser/proxy caches
+// so Back after logout re-requests and lands on login via auth.
+Route::middleware(['auth', 'role:admin', 'no-cache'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [AdminDashboard::class, 'index'])->middleware('rental.sync')->name('dashboard');
 
     // Bicycle management
@@ -77,6 +78,10 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     // Versioned live snapshot for the admin rental sync (registered before
     // /rentals/{id} so "feed" is never captured as an id).
     Route::get('/rentals/feed', [AdminRental::class, 'feed'])->middleware('rental.sync')->name('rentals.feed');
+    // Signed "Process Return" session: the modal calls this when it opens so
+    // the server can default the verified arrival to its own clock.
+    Route::get('/rentals/{id}/return-verification', [AdminRental::class, 'returnVerification'])
+        ->name('rentals.return-verification');
     Route::get('/rentals/{id}', [AdminRental::class, 'show'])->middleware('rental.sync')->name('rentals.show');
     Route::put('/rentals/{id}/approve', [AdminRental::class, 'approve'])->name('rentals.approve');
     Route::put('/rentals/{id}/verify-gcash', [AdminRental::class, 'verifyGcashPayment'])->name('rentals.verify-gcash');
@@ -106,6 +111,7 @@ Route::post('/theft/{id}/acknowledge', [AdminTheft::class, 'acknowledge'])->name
 
     // Maintenance
     Route::get('/maintenance', [AdminMaintenance::class, 'index'])->name('maintenance.index');
+    Route::get('/maintenance/history', [AdminMaintenance::class, 'history'])->name('maintenance.history');
     Route::post('/maintenance', [AdminMaintenance::class, 'store'])->name('maintenance.store');
     Route::put('/maintenance/{id}', [AdminMaintenance::class, 'update'])->name('maintenance.update');
     Route::post('/maintenance/{id}/status', [AdminMaintenance::class, 'updateStatus'])->name('maintenance.updateStatus');
@@ -154,8 +160,8 @@ Route::post('/theft/{id}/acknowledge', [AdminTheft::class, 'acknowledge'])->name
     Route::post('/payments/webhook', [AdminPaymentWebhook::class, 'handle'])->name('payments.webhook');
 });
 
-// Rider routes
-Route::middleware(['auth', 'role:rider'])->prefix('rider')->name('rider.')->group(function () {
+// Rider routes. no-cache: same back-after-logout protection as admin.
+Route::middleware(['auth', 'role:rider', 'no-cache'])->prefix('rider')->name('rider.')->group(function () {
     Route::get('/dashboard', [RiderDashboard::class, 'index'])->middleware('rental.sync')->name('dashboard');
 
     // Live dashboard state polled while a return awaits admin confirmation

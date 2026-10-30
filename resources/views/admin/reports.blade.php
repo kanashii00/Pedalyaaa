@@ -207,6 +207,18 @@
        green active page. Reuses the shared admin-pagination pattern; only
        the text colour is tuned to the reference (active/disabled states
        come from the shared classes untouched). */
+    /* Accident Details: strictly scoped so Bootstrap's white modal surface
+       cannot leak into the dashboard or affect other dialogs. */
+    #accidentDetailModal .modal-dialog { width: min(760px, calc(100vw - 24px)); margin: 12px auto; }
+    .modal-content.accident-detail { --bs-modal-bg: var(--surface); --bs-modal-border-color: var(--border-subtle); --bs-modal-header-border-color: var(--border-subtle); --bs-modal-footer-border-color: var(--border-subtle); background: var(--surface); color: var(--text-1); border: 1px solid var(--border-subtle); border-radius: 14px; box-shadow: var(--shadow-pop); overflow: hidden; }
+    .accident-detail__head { padding: 14px 18px; gap: 12px; align-items: center; background: var(--surface-2); border-bottom: 1px solid var(--border-subtle); }
+    .accident-detail__icon { display: inline-flex; width: 38px; height: 38px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 10px; background: var(--danger-light); color: var(--danger); font-size: 17px; }
+    .accident-detail__titles { flex: 1; min-width: 0; }.accident-detail__titles .modal-title { color: var(--text-1); font-size: 15px; font-weight: 700; line-height: 1.3; }.accident-detail__subtitle { margin-top: 2px; color: var(--text-3); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .accident-detail__close { display: inline-flex; width: 32px; height: 32px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--text-3); }.accident-detail__close:hover { background: var(--surface-3); border-color: var(--border-subtle); color: var(--text-1); }.accident-detail__close:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+    .accident-detail .modal-body { padding: 18px; color: var(--text-1); background: var(--surface); }.accident-detail__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.accident-detail__field { min-width: 0; padding: 11px 13px; background: var(--surface-2); border: 1px solid var(--border-subtle); border-radius: 10px; }.accident-detail__field--wide { grid-column: 1 / -1; }.accident-detail__field dt { margin: 0 0 5px; color: var(--text-3); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }.accident-detail__field dd { margin: 0; color: var(--text-1); font-size: 13px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+    .accident-detail__location { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.accident-detail__location dd { min-width: 0; }.accident-detail__map { flex: 0 0 auto; }.accident-detail__foot { padding: 12px 18px; background: var(--surface-2); border-top: 1px solid var(--border-subtle); }
+    @media (max-width: 576px) { #accidentDetailModal .modal-dialog { width: calc(100vw - 16px); margin: 8px auto; } .accident-detail__head, .accident-detail .modal-body, .accident-detail__foot { padding-left: 14px; padding-right: 14px; } .accident-detail__grid { grid-template-columns: 1fr; gap: 10px; }.accident-detail__field--wide { grid-column: auto; }.accident-detail__location { align-items: flex-start; flex-direction: column; } }
+
     .report-table-wrap { overflow: hidden; }
     .report-table-wrap > .table-responsive { border-bottom: none; }
     .report-pagination .admin-pagination__item { color: var(--brand-strong); }
@@ -317,6 +329,7 @@
                     <select class="form-select" id="rentalPaymentStatus" name="payment_status">
                         <option value="">All</option>
                         <option value="paid">Paid</option>
+                        <option value="partial">Partial</option>
                         <option value="pending">Pending</option>
                         <option value="unpaid">Unpaid</option>
                         <option value="refunded">Refunded</option>
@@ -677,16 +690,20 @@
 </div>
 
 <!-- Accident Details Modal -->
-<div class="modal fade" id="accidentDetailModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content" style="border-radius: var(--radius); border: none;">
-            <div class="modal-header" style="background: var(--brand); color: #fff; border-radius: var(--radius) var(--radius) 0 0;">
-                <h6 class="modal-title fw-semibold"><i class="bi bi-activity me-2"></i>Accident Details</h6>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+<div class="modal fade" id="accidentDetailModal" tabindex="-1" aria-labelledby="accidentDetailTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content accident-detail">
+            <div class="modal-header accident-detail__head">
+                <span class="accident-detail__icon" aria-hidden="true"><i class="bi bi-activity"></i></span>
+                <div class="accident-detail__titles">
+                    <h6 class="modal-title" id="accidentDetailTitle">Accident Details</h6>
+                    <div class="accident-detail__subtitle" id="accidentDetailSubtitle">—</div>
+                </div>
+                <button type="button" class="accident-detail__close" data-bs-dismiss="modal" aria-label="Close accident details"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
             </div>
             <div class="modal-body" id="accidentDetailBody"></div>
-            <div class="modal-footer" style="border-top: 1px solid var(--border-subtle);">
-                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+            <div class="modal-footer accident-detail__foot">
+                <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -933,7 +950,7 @@ function renderRentalTable(records, page) {
         else if (r.status === 'cancelled') statusClass = 'danger';
         else if (r.status === 'overdue') statusClass = 'warning';
         else if (r.status === 'pending') statusClass = 'info';
-        var payClass = r.paymentStatus === 'paid' ? 'success' : (r.paymentStatus === 'pending' ? 'warning' : (r.paymentStatus === 'refunded' ? 'info' : 'danger'));
+        var payClass = r.paymentStatus === 'paid' ? 'success' : ((r.paymentStatus === 'pending' || r.paymentStatus === 'partial') ? 'warning' : (r.paymentStatus === 'refunded' ? 'info' : 'danger'));
         html += '<tr>'
             + '<td><code>' + esc(r.rentalId || r.id) + '</code></td>'
             + '<td>' + esc((r.rider && r.rider.name) || r.riderName || '-') + '</td>'
@@ -1282,6 +1299,7 @@ function viewRentalDetail(index) {
     var payBadge = function (status) {
         if (!status) return '<span class="badge-admin badge-admin--neutral">—</span>';
         if (status === 'paid') return '<span class="badge-admin badge-admin--success">Paid</span>';
+        if (status === 'partial') return '<span class="badge-admin badge-admin--warning">Partial</span>';
         if (status === 'pending') return '<span class="badge-admin badge-admin--warning">Pending</span>';
         if (status === 'refunded') return '<span class="badge-admin badge-admin--info">Refunded</span>';
         return '<span class="badge-admin badge-admin--danger">Unpaid</span>';
@@ -1298,13 +1316,21 @@ function viewRentalDetail(index) {
     var bikeSerial = (r.bicycle && r.bicycle.serialNumber) || r.bicycleSerial || null;
     // Original booked amount vs. what was actually charged: the late portion
     // is the frozen penalty where present, otherwise any settled uplift.
-    var baseFee = Number(r.totalFee || 0);
+    var storedTotal = Number(r.totalFee || 0);
+    var finalFee = (r.finalFee !== null && r.finalFee !== undefined) ? Number(r.finalFee) : storedTotal;
     var lateFee = Number(r.overdueFee || 0);
-    if (!(lateFee > 0) && r.finalFee !== null && r.finalFee !== undefined && Number(r.finalFee) > baseFee) {
-        lateFee = Number(r.finalFee) - baseFee;
+    if (!(lateFee > 0) && finalFee > storedTotal) {
+        lateFee = finalFee - storedTotal;
     }
     lateFee = Math.round(lateFee * 100) / 100;
-    var finalFee = (r.finalFee !== null && r.finalFee !== undefined) ? Number(r.finalFee) : baseFee;
+    // After settlement totalFee holds the final amount, so the Base Fee must
+    // be derived by removing the saved late penalty. For a live rental
+    // totalFee is still the saved Estimated Cost, even if a projected overdue
+    // amount is present in the row.
+    var settled = r.status === 'returned' || r.status === 'completed';
+    var baseFee = settled
+        ? Math.max(Math.round((finalFee - lateFee) * 100) / 100, 0)
+        : storedTotal;
     var method = r.paymentMethod ? r.paymentMethod.charAt(0).toUpperCase() + r.paymentMethod.slice(1) : null;
     var html = section('bi-receipt', 'Rental Information',
             row('Rental ID', esc(code), true)
@@ -1335,15 +1361,8 @@ function viewRentalDetail(index) {
 function viewAccidentDetail(index) {
     var a = _reportData.accident[index];
     if (!a) return;
-    var sevClass = 'secondary';
-    if (a.severity === 'critical') sevClass = 'danger';
-    else if (a.severity === 'major') sevClass = 'warning';
-    else if (a.severity === 'moderate') sevClass = 'info';
-    else if (a.severity === 'minor') sevClass = 'light text-dark';
-    var statusClass = 'secondary';
-    if (a.status === 'open') statusClass = 'danger';
-    else if (a.status === 'resolved' || a.status === 'closed') statusClass = 'success';
-    else if (a.status === 'in_progress') statusClass = 'warning';
+    var sevClass = a.severity === 'critical' || a.severity === 'major' ? 'danger' : (a.severity === 'moderate' ? 'warning' : (a.severity === 'minor' ? 'info' : 'neutral'));
+    var statusClass = a.status === 'open' ? 'danger' : ((a.status === 'resolved' || a.status === 'closed') ? 'success' : (a.status === 'in_progress' ? 'warning' : 'neutral'));
     var ts = a.createdAt || a.created_at;
     var tsStr = ts ? new Date(ts).toLocaleString() : '-';
     var loc = formatLocation(a);
@@ -1351,37 +1370,28 @@ function viewAccidentDetail(index) {
     var impact = a.impactForce ? Number(a.impactForce).toFixed(2) + ' N' : '-';
 
     var mapBtn = coords
-        ? '<a class="btn btn-sm btn-outline-primary mt-2" href="https://www.google.com/maps?q=' + coords.lat + ',' + coords.lng + '" target="_blank" rel="noopener"><i class="bi bi-geo-alt me-1"></i>View on Map</a>'
+        ? '<a class="btn-admin btn-admin--secondary btn-admin--sm accident-detail__map" href="https://www.google.com/maps?q=' + coords.lat + ',' + coords.lng + '" target="_blank" rel="noopener"><i class="bi bi-geo-alt me-1"></i>View on Map</a>'
         : '';
 
-    var html = '<div class="row g-3">'
-        + '<div class="col-md-6">'
-        + '<div class="d-flex align-items-center mb-3">'
-        + '<div style="width:48px;height:48px;border-radius:var(--radius-sm);background:var(--brand-soft);display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:var(--brand);"><i class="bi bi-activity"></i></div>'
-        + '<div class="ms-3"><div class="fw-bold" style="font-size:1rem;">Accident <code>#' + esc(a.id) + '</code></div>'
-        + '<span class="badge bg-' + sevClass + '">' + esc(a.severity || '-') + '</span> '
-        + '<span class="badge bg-' + statusClass + '">' + esc(a.status || '-') + '</span></div>'
-        + '</div>'
-        + '<table class="table table-borderless mb-0" style="font-size:0.9rem;">'
-        + '<tr><td class="text-muted" style="width:42%;">Rider</td><td class="fw-semibold">' + esc((a.rider && a.rider.name) || a.reportedBy || '-') + '</td></tr>'
-        + '<tr><td class="text-muted">Bicycle</td><td>' + esc((a.bicycle && a.bicycle.name) || a.bicycleId || '-') + '</td></tr>'
-        + '<tr><td class="text-muted">Type</td><td>' + esc(a.type || '-') + '</td></tr>'
-        + '<tr><td class="text-muted">Date / Time</td><td>' + tsStr + '</td></tr>'
-        + '<tr><td class="text-muted">Impact Force</td><td>' + impact + '</td></tr>'
-        + '<tr><td class="text-muted">Location</td><td>' + loc + '</td></tr>'
-        + '</table>'
-        + mapBtn
-        + '</div>'
-        + '<div class="col-md-6"><table class="table table-borderless mb-0" style="font-size:0.9rem;">'
-        + '<tr><td class="text-muted" style="width:38%;">Acknowledged</td><td>' + (a.acknowledged ? '<i class="bi bi-check-circle-fill text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No') + '</td></tr>'
-        + '<tr><td class="text-muted">Status</td><td><span class="badge bg-' + statusClass + '">' + esc(a.status || '-') + '</span></td></tr>'
-        + '<tr><td class="text-muted">Description</td><td>' + esc(a.description || '-') + '</td></tr>'
-        + '<tr><td class="text-muted">Action Taken</td><td class="fw-semibold">' + esc(a.actionTaken || '-') + '</td></tr>'
-        + (a.warningLevel ? '<tr><td class="text-muted">Warning Level</td><td>' + esc(a.warningLevel) + '</td></tr>' : '')
-        + (a.imageUrl ? '<tr><td class="text-muted">Image</td><td><a href="' + esc(a.imageUrl) + '" target="_blank" rel="noopener"><i class="bi bi-image me-1"></i>View</a></td></tr>' : '')
-        + '</table></div></div>';
+    function field(label, value, wide) { return '<dl class="accident-detail__field' + (wide ? ' accident-detail__field--wide' : '') + '"><dt>' + label + '</dt><dd>' + value + '</dd></dl>'; }
+    var html = '<div class="accident-detail__grid">'
+        + field('Rider', esc((a.rider && a.rider.name) || a.reportedBy || '-'))
+        + field('Bicycle', esc((a.bicycle && a.bicycle.name) || a.bicycleId || '-'))
+        + field('Type', esc(a.type || '-'))
+        + field('Date / Time', esc(tsStr))
+        + field('Severity', '<span class="badge-admin badge-admin--' + sevClass + '">' + esc(a.severity || '-') + '</span>')
+        + field('Status', '<span class="badge-admin badge-admin--' + statusClass + '">' + esc(a.status || '-') + '</span>')
+        + field('Impact Force', esc(impact))
+        + field('Acknowledged', a.acknowledged ? '<span class="badge-admin badge-admin--success">Acknowledged</span>' : '<span class="badge-admin badge-admin--warning">Pending</span>')
+        + '<dl class="accident-detail__field accident-detail__location accident-detail__field--wide"><div><dt>Location</dt><dd>' + esc(loc) + '</dd></div>' + mapBtn + '</dl>'
+        + field('Description', esc(a.description || '-'), true)
+        + field('Action Taken', esc(a.actionTaken || '-'), true)
+        + (a.warningLevel ? field('Warning Level', esc(a.warningLevel)) : '')
+        + (a.imageUrl ? field('Image', '<a href="' + esc(a.imageUrl) + '" target="_blank" rel="noopener"><i class="bi bi-image me-1"></i>View image</a>') : '')
+        + '</div>';
 
     document.getElementById('accidentDetailBody').innerHTML = html;
+    document.getElementById('accidentDetailSubtitle').textContent = 'Accident #' + (a.id || '—');
     new bootstrap.Modal(document.getElementById('accidentDetailModal')).show();
 }
 

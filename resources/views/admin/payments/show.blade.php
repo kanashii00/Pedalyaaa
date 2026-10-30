@@ -33,7 +33,7 @@
                 <i class="bi bi-arrow-clockwise me-1"></i>Verify Status
             </a>
         @endif
-        @if($payment->status === 'paid' && !$payment->refund)
+        @if($payment->status === 'paid' && !$payment->refund && \Illuminate\Support\Facades\Route::has('admin.refunds.create'))
             <a href="{{ route('admin.refunds.create', $payment) }}" class="btn-admin btn-admin--warning">
                 <i class="bi bi-arrow-return-left me-1"></i>Refund
             </a>
@@ -91,9 +91,23 @@
                 <span class="detail-label">Convenience Fee</span>
                 <span class="detail-value text-warning">₱{{ number_format($payment->convenienceFee, 2) }}</span>
             </div>
+            @if((float) $payment->latePenalty > 0)
+                <div class="detail-row">
+                    <span class="detail-label">Late Penalty</span>
+                    <span class="detail-value text-danger">₱{{ number_format($payment->latePenalty, 2) }}</span>
+                </div>
+            @endif
             <div class="detail-row">
                 <span class="detail-label">Total Amount</span>
                 <span class="detail-value fw-bold" style="font-size: 1.1rem;">₱{{ number_format($payment->totalAmount, 2) }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Amount Paid</span>
+                <span class="detail-value text-success fw-semibold">₱{{ number_format($payment->amountPaid, 2) }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Balance Due</span>
+                <span class="detail-value {{ (float) $payment->balanceDue > 0 ? 'text-danger fw-bold' : 'text-muted' }}">₱{{ number_format($payment->balanceDue, 2) }}</span>
             </div>
             <div class="detail-row">
                 <span class="detail-label">Currency</span>

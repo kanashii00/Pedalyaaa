@@ -63,8 +63,10 @@ class ReturnGraceDetectionTest extends TestCase
         $this->assertSame('IoT park detection', $rental->returnDeadlineSetBy);
         $this->assertTrue($rental->returnDeadline->equalTo(now()->addSeconds(300)));
 
-        // The lock re-engaging ended the ride, so the clock stops here.
-        $this->assertNotNull($rental->endTime);
+        // The lock re-engaging opens the return flow, but the physical arrival
+        // is still verified and recorded by an administrator during Process
+        // Return. Only the request/detection instant is recorded here.
+        $this->assertNull($rental->endTime);
         $this->assertNotNull($rental->returnRequestedAt);
 
         // No per-rental rule is written: the global late-return rate stays the
@@ -266,16 +268,16 @@ class ReturnGraceDetectionTest extends TestCase
 
         $this->assertSame(Rental::STATUS_AWAITING_RETURN, $rental->fresh()->status);
 
-        $this->travel(6)->minutes();
+        // Grace window (5 minutes) + 6 minutes overdue => one completed
+        // 5-minute interval, charged at the default PHP 20.00 global rate that
+        // resolvedPenaltyRule() falls back to when no per-rental rule was saved.
+        $this->travel(11)->minutes();
 
         Artisan::call('rentals:check-return-deadlines');
 
         $rental = $rental->fresh();
 
         $this->assertSame(Rental::STATUS_OVERDUE_RETURN, $rental->status);
-        // A whole started hour at the default PHP 20/hour global rate, which is
-        // what resolvedPenaltyRule() falls back to when no per-rental rule was
-        // saved.
         $this->assertSame(20.0, (float) $rental->penaltyAccrued);
         $this->assertNotNull($rental->overdueReturnAt);
     }

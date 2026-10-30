@@ -109,11 +109,29 @@ class AdminOpsTest extends TestCase
         $bike = $this->makeBicycle();
         $inc = Accident::create(['bicycleId' => $bike->id, 'type' => 'impact_detected', 'severity' => 'moderate', 'acknowledged' => false]);
 
+        // The structured toast payload keeps the top-right toast (same title,
+        // message and type the layout's flash handler renders) while
+        // suppressing the competing in-page success banner.
         $this->post(route('admin.accidents.acknowledge', $inc->id))
-            ->assertRedirect();
+            ->assertRedirect()
+            ->assertSessionHas('toast', fn ($toast) => $toast['type'] === 'success'
+                && $toast['title'] === 'Success'
+                && $toast['message'] === 'Accident report acknowledged.');
 
         $this->assertDatabaseHas('accidents', ['id' => $inc->id, 'acknowledged' => true]);
         $this->assertDatabaseHas('audit_logs', ['action' => 'accident_acknowledged']);
+
+        // The follow-up page load carries the toast (message + flash script)
+        // but no success banner, and the acknowledged row no longer offers
+        // Acknowledge: the badge carries the state.
+        $html = $this->get(route('admin.accidents.index'))->assertOk()->getContent();
+        $this->assertStringNotContainsString('alert-pedalya alert-success', $html);
+        $this->assertStringContainsString('Accident report acknowledged.', $html);
+        $this->assertStringContainsString('flashToast', $html);
+        $this->assertStringNotContainsString(
+            route('admin.accidents.acknowledge', $inc->id),
+            $html
+        );
     }
 
     // ---- Theft ----

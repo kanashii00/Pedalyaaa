@@ -8,18 +8,31 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <time.h>
+#include <esp_sntp.h>
 
-#if USE_HTTPS
+#if USE_HTTPS || CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
 #include <WiFiClientSecure.h>
+
+class VerifiedWiFiClientSecure : public WiFiClientSecure {
+public:
+    VerifiedWiFiClientSecure() {
+        _use_insecure = false;
+        setCACert(SERVER_ROOT_CA);
+    }
+};
+typedef VerifiedWiFiClientSecure BundleVerifiedWiFiClientSecure;
 #endif
 
 bool PedalyaApi::cellularActive() const {
     // Cached state only: asking the modem here would block the loop on every
     // connected() call. simIsReady() is refreshed by simConnectInternet() and
     // by the bearer check after a failed exchange.
-#if SIM_ONLY_MODE
-    // SIM-only build: Wi-Fi is never consulted, so an association (or a
-    // stray one) can neither carry traffic nor block the cellular route.
+#if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+    return false;
+#elif SIM_ONLY_MODE
+    // SIM-only build: the EC20F link is the ONLY route. Wi-Fi status is not
+    // consulted, so API traffic can never silently fall back to Wi-Fi even if
+    // the radio ever reports an association.
     return SIM_ENABLED && simIsReady();
 #else
     return SIM_ENABLED && simIsReady() && WiFi.status() != WL_CONNECTED;
@@ -27,28 +40,33 @@ bool PedalyaApi::cellularActive() const {
 }
 
 bool PedalyaApi::connected() {
-#if SIM_ONLY_MODE
-    // SIM-only build: the EC20F link is the only link. Wi-Fi state is
-    // irrelevant and never consulted.
-    if (cellularActive()) {
-        if (!cellularAnnounced_) {
-            Serial.println("[SIM] link up: reporting over cellular");
-            cellularAnnounced_ = true;
-        }
-    } else {
-        cellularAnnounced_ = false;
-    }
-    return cellularActive();
+#if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST || !SIM_ONLY_MODE
+    const bool isConnected = WiFi.status() == WL_CONNECTED;
+#elif SIM_ONLY_MODE
+    // SIM-only build: the Wi-Fi radio is never started (begin() is a no-op),
+    // so it can never be a route. Only the EC20F data link counts.
+    const bool isConnected = false;
 #else
     const bool isConnected = WiFi.status() == WL_CONNECTED;
+#endif
     if (isConnected && !wifiConnectionAnnounced_) {
-        Serial.println("WiFi connected!");
-        Serial.print("ESP32 IP address: ");
+        Serial.println("[wifi] connected & IP acquired!");
+        Serial.print("       IP: ");
         Serial.println(WiFi.localIP());
-        Serial.print("Gateway: ");
+        Serial.print("       Gateway: ");
         Serial.println(WiFi.gatewayIP());
-        Serial.print("Subnet: ");
+        Serial.print("       Subnet: ");
         Serial.println(WiFi.subnetMask());
+        Serial.printf("       DNS1: %s  DNS2: %s  RSSI: %d dBm\n",
+                      WiFi.dnsIP(0).toString().c_str(),
+                      WiFi.dnsIP(1).toString().c_str(),
+                      WiFi.RSSI());
+        IPAddress resolvedIp;
+        if (WiFi.hostByName(SERVER_HOST, resolvedIp)) {
+            Serial.printf("[dns] %s -> %s\n", SERVER_HOST, resolvedIp.toString().c_str());
+        } else {
+            Serial.printf("[dns] failed to resolve %s\n", SERVER_HOST);
+        }
         wifiConnectionAnnounced_ = true;
     } else if (!isConnected) {
         wifiConnectionAnnounced_ = false;
@@ -66,26 +84,65 @@ bool PedalyaApi::connected() {
     }
 
     return isConnected || cellularActive();
-#endif
+}
+
+static const char* wifiDisconnectReasonStr(uint8_t reason) {
+    switch (reason) {
+        case 201: return "AP not found (SSID out of range, hidden, or 5GHz-only)";
+        case 202: return "Authentication failed (wrong password)";
+        case 203: return "Association failed";
+        case 204: return "Handshake timeout";
+        case 205: return "Connection failed";
+        case 200: return "Beacon timeout";
+        case 1:   return "Unspecified error";
+        case 2:   return "Auth expired";
+        case 3:   return "Auth leave";
+        case 4:   return "Assoc expired";
+        case 5:   return "Assoc too many";
+        case 6:   return "Not authed";
+        case 7:   return "Not assoced";
+        case 8:   return "Assoc leave";
+        default:  return "See ESP32 WiFi reason code";
+    }
 }
 
 const char* PedalyaApi::offlineError() const {
+#if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+    return "wifi down";
+#else
     // "wifi down" is only accurate while there is no modem to blame instead.
     if (SIM_ENABLED && simPresent()) {
         return "link down";
     }
     return "wifi down";
+#endif
 }
 
 void PedalyaApi::begin() {
-#if SIM_ONLY_MODE
-    // SIM-only build: the radio path is the EC20F on UART2. Touching the
-    // station interface here would only start an association the API never
-    // uses, so Wi-Fi is left off entirely.
-    Serial.println("[SIM] SIM-only mode: Wi-Fi left off, EC20F carries all API traffic");
+#if SIM_ONLY_MODE || CONNECTIVITY_MODE == CONNECTIVITY_MODE_EC20F_SIM
+    // SIM-only build: the Wi-Fi radio is never brought up, so there is no
+    // association to start and no fallback to maintain. The cellular route
+    // attaches separately via simConnectInternet() from the sketch loop.
     wifiAttemptInProgress = false;
     return;
-#else
+#endif
+    if (WIFI_SSID == nullptr || WIFI_SSID[0] == '\0') {
+        wifiAttemptInProgress = false;
+        return;
+    }
+
+    static bool eventHandlerRegistered = false;
+    if (!eventHandlerRegistered) {
+        eventHandlerRegistered = true;
+        WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+            if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+                const uint8_t reason = info.wifi_sta_disconnected.reason;
+                Serial.printf("[wifi] disconnected (reason %d: %s)\n",
+                              reason, wifiDisconnectReasonStr(reason));
+            }
+        });
+    }
+
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
@@ -114,16 +171,35 @@ void PedalyaApi::begin() {
     wifiAttemptInProgress = true;
     wifiAttemptStartedMs = now;
     Serial.printf("[wifi] connecting to \"%s\"\n", WIFI_SSID);
-#endif
+}
+
+static void buildApiUrl(char* buf, size_t maxLen, bool useHttps, const char* host, uint16_t port, const char* path) {
+    const bool defaultPort = (useHttps && port == 443) || (!useHttps && port == 80);
+    const char* p = (path && path[0] == '/') ? path : "/";
+    if (defaultPort) {
+        snprintf(buf, maxLen, "%s://%s%s", useHttps ? "https" : "http", host, p);
+    } else {
+        snprintf(buf, maxLen, "%s://%s:%u%s", useHttps ? "https" : "http", host, (unsigned)port, p);
+    }
 }
 
 void PedalyaApi::ensureTime() {
+    time_t cur = time(nullptr);
+    // If the ESP32 clock is at Unix epoch 1970, seed it with a safe baseline
+    // (~October 2026) so mbedTLS X.509 notBefore validation does not fail before NTP sync.
+    if (cur < 1700000000ULL) {
+        struct timeval tv = { 1792000000ULL, 0 };
+        settimeofday(&tv, nullptr);
+        Serial.println("[ntp] clock initialized with baseline timestamp for TLS validation");
+    }
+
     if (timeSynced) {
         return;
     }
 
     uint32_t now = millis();
-    if (lastNtpAttempt != 0 && (uint32_t)(now - lastNtpAttempt) < 60000UL) {
+    // Bounded retry: check every 5s while unsynced
+    if (lastNtpAttempt != 0 && (uint32_t)(now - lastNtpAttempt) < 5000UL) {
         return;
     }
     lastNtpAttempt = now;
@@ -132,14 +208,16 @@ void PedalyaApi::ensureTime() {
     // with the compile-time default on every attempt.
     configTime(appliedUtcOffset >= 0 ? appliedUtcOffset : DEFAULT_UTC_OFFSET_SECONDS, 0, NTP_SERVER);
 
-    struct tm timeInfo;
-    if (getLocalTime(&timeInfo, 200)) {
-        char stamp[32];
-        strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &timeInfo);
-        Serial.printf("[ntp] clock set to %s\n", stamp);
-        timeSynced = true;
+    if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+        struct tm timeInfo;
+        if (getLocalTime(&timeInfo, 100)) {
+            char stamp[32];
+            strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &timeInfo);
+            Serial.printf("[ntp] clock synchronized via NTP: %s\n", stamp);
+            timeSynced = true;
+        }
     } else {
-        Serial.println("[ntp] not available yet; relying on server clock");
+        Serial.println("[ntp] sync in progress; using baseline clock for TLS");
     }
 }
 
@@ -163,27 +241,32 @@ void PedalyaApi::reportFailure(int status, const String& body, String& error) {
         detail = doc["message"] | "";
     }
 
-    switch (status) {
-        case 0:
-        case -1:
+    if (status <= 0) {
+        String httpErrStr = HTTPClient::errorToString(status);
+        if (status == HTTPC_ERROR_READ_TIMEOUT) {
+            error = "timeout";
+            Serial.printf("[api] Request timeout reaching %s:%d (server took > %lu ms to respond)\n",
+                          SERVER_HOST, SERVER_PORT, (unsigned long)REQUEST_TIMEOUT_MS);
+        } else {
             error = "connect failed";
             if (WiFi.status() != WL_CONNECTED && SIM_ENABLED && simPresent()) {
-                // No Wi-Fi association and a modem that is answering: the fault
-                // is on the cellular path, so pointing at the router would send
-                // the reader to the wrong room.
-                Serial.printf("[api] cannot reach %s:%d over the EC20F link\n",
-                              SERVER_HOST, SERVER_PORT);
+                Serial.printf("[api] cannot reach %s:%d over the EC20F link (%s [%d])\n",
+                              SERVER_HOST, SERVER_PORT, httpErrStr.c_str(), status);
                 Serial.println("      Check SIM_APN in pedalya_lcd/secrets.h, that the SIM has");
                 Serial.println("      a data plan, and that SERVER_HOST is a public address the");
                 Serial.println("      cellular network can route to (a LAN IP cannot be reached");
                 Serial.println("      from outside the LAN).");
             } else {
-                Serial.printf("[api] cannot reach %s:%d\n", SERVER_HOST, SERVER_PORT);
-                Serial.println("      Check the PC is on the same Wi-Fi, that php artisan serve");
-                Serial.println("      was started with --host=0.0.0.0, and that Windows Firewall");
-                Serial.println("      allows inbound TCP 8000.");
+                Serial.printf("[api] cannot reach %s:%d (%s [%d])\n",
+                              SERVER_HOST, SERVER_PORT, httpErrStr.c_str(), status);
+                Serial.println("      Check the server is running, the Dev Tunnel is forwardable,");
+                Serial.println("      and TLS/DNS connection succeeds.");
             }
-            return;
+        }
+        return;
+    }
+
+    switch (status) {
 
         case 401:
             error = "auth 401";
@@ -227,9 +310,23 @@ void PedalyaApi::reportFailure(int status, const String& body, String& error) {
             return;
     }
 
+    if (status == 502 || status == 504) {
+        error = (status == 502) ? "bad gateway 502" : "gateway timeout 504";
+        Serial.printf("[api] %d %s - devtunnel/reverse proxy responded,\n",
+                      status, (status == 502) ? "Bad Gateway" : "Gateway Timeout");
+        Serial.println("      but the local backend (Laravel on port 8000) was unreachable or timed out.");
+        Serial.println("      Ensure 'php artisan serve' is running on 127.0.0.1:8000.");
+        if (detail.length()) {
+            Serial.printf("      proxy said: %s\n", detail.c_str());
+        } else if (body.length()) {
+            Serial.printf("      proxy body: %.120s\n", body.c_str());
+        }
+        return;
+    }
+
     if (status >= 500) {
         error = "server error";
-        Serial.printf("[api] %d from Laravel - the request authenticated but the server failed\n", status);
+        Serial.printf("[api] %d from Laravel - the request reached the application but an unhandled exception occurred\n", status);
         if (detail.length()) {
             Serial.printf("      server said: %s\n", detail.c_str());
         } else if (body.length()) {
@@ -243,39 +340,6 @@ void PedalyaApi::reportFailure(int status, const String& body, String& error) {
     Serial.printf("[api] unexpected HTTP %d\n", status);
     if (detail.length()) {
         Serial.printf("      server said: %s\n", detail.c_str());
-    }
-}
-
-namespace {
-
-// One place builds the server URL so the cellular route can never drift from
-// the configured host again. SERVER_HOST is a bare hostname (no scheme, no
-// port, no trailing slash): https carries no port because 443 is implicit,
-// plain http keeps SERVER_PORT. Either way the result is
-// <scheme>://<host><path> with no ":443" in it.
-void buildServerUrl(char* out, size_t outSize, const char* path) {
-#if USE_HTTPS
-    snprintf(out, outSize, "https://%s%s", SERVER_HOST, path);
-#else
-    snprintf(out, outSize, "http://%s:%d%s", SERVER_HOST, SERVER_PORT, path);
-#endif
-}
-
-}  // namespace
-
-/**
- * Prints a 422 response body so the exact backend validation error is
- * visible on the monitor. The body is server-generated JSON (field messages
- * only); request headers and keys are never printed. Capped so a large
- * error document cannot flood the log.
- */
-void logValidationBody(const String& response) {
-    Serial.println("[api] 422 Unprocessable Entity body:");
-    if (response.length() > 600) {
-        Serial.println(response.substring(0, 600));
-        Serial.println("[api] ...<truncated>");
-    } else {
-        Serial.println(response);
     }
 }
 
@@ -293,8 +357,13 @@ bool PedalyaApi::cellularRequest(const char* method, const char* path, const Str
         return false;
     }
 
+    const bool useHttps = (USE_HTTPS == 1);
     char url[160];
-    buildServerUrl(url, sizeof(url), path);
+    if (useHttps) {
+        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, path);
+    } else {
+        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, path);
+    }
     const String authHeader = String("X-API-Key: ") + apiKey;
     const bool isPost = (strcmp(method, "POST") == 0);
 
@@ -303,8 +372,6 @@ bool PedalyaApi::cellularRequest(const char* method, const char* path, const Str
     const int status = simLastHttpStatus();
 
     if (status == 0) {
-        // No transport completed it: dead modem, lost bearer, or a TLS URL the
-        // modem cannot take. reportFailure() carries the diagnosis.
         reportFailure(0, responseBody, error);
         return false;
     }
@@ -355,22 +422,23 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
             return false;
         }
 
-        Serial.printf("[api] 200 OK over cellular from %s://%s%s\n",
-                      USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PATH);
+        Serial.printf("[api] 200 OK over cellular from %s%s\n", SERVER_HOST, SERVER_PATH);
         return parse(body, out, error);
     }
 
 #if USE_HTTPS
-    WiFiClientSecure client;
-    client.setInsecure();
+    BundleVerifiedWiFiClientSecure client;
 #else
     WiFiClient client;
 #endif
 
     HTTPClient http;
     char url[160];
-    snprintf(url, sizeof(url), "%s://%s:%d%s",
-             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, SERVER_PATH);
+    if (USE_HTTPS) {
+        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, SERVER_PATH);
+    } else {
+        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, SERVER_PATH);
+    }
 
     if (!http.begin(client, url)) {
         error = "begin failed";
@@ -384,13 +452,25 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
 
     int status = http.GET();
     String body = http.getString();
+
+    if (status <= 0) {
+        // Log TLS/transport error from WiFiClientSecure before http.end()
+        char tlsErr[128] = "";
+        client.lastError(tlsErr, sizeof(tlsErr));
+        Serial.printf("[api] WiFi GET failed: HTTPClient error %d (%s)\n",
+                      status, HTTPClient::errorToString(status).c_str());
+        if (tlsErr[0]) Serial.printf("[api] TLS error: %s\n", tlsErr);
+    }
+
     http.end();
 
     // Temporary wire-level diagnostic for a successful device poll. This logs
     // only the response body; request headers (including X-API-Key) are never
     // printed.
-    Serial.println("[api] RAW RESPONSE:");
-    Serial.println(body);
+    if (status > 0) {
+        Serial.println("[api] RAW RESPONSE:");
+        Serial.println(body);
+    }
 
     if (status != 200) {
         reportFailure(status, body, error);
@@ -433,16 +513,18 @@ bool PedalyaApi::pollCommands(DeviceCommand* commands, size_t capacity, size_t& 
     }
 
 #if USE_HTTPS
-    WiFiClientSecure client;
-    client.setInsecure();
+    BundleVerifiedWiFiClientSecure client;
 #else
     WiFiClient client;
 #endif
 
     HTTPClient http;
     char url[160];
-    snprintf(url, sizeof(url), "%s://%s:%d%s",
-             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, COMMANDS_PATH);
+    if (USE_HTTPS) {
+        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, COMMANDS_PATH);
+    } else {
+        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, COMMANDS_PATH);
+    }
 
     if (!http.begin(client, url)) {
         error = "command begin";
@@ -489,17 +571,18 @@ bool PedalyaApi::acknowledgeCommand(uint32_t commandId, bool executed, const Str
     }
 
 #if USE_HTTPS
-    WiFiClientSecure client;
-    client.setInsecure();
+    BundleVerifiedWiFiClientSecure client;
 #else
     WiFiClient client;
 #endif
 
     HTTPClient http;
     char url[196];
-    snprintf(url, sizeof(url), "%s://%s:%d%s/%lu/ack",
-             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, COMMANDS_PATH,
-             (unsigned long)commandId);
+    if (USE_HTTPS) {
+        snprintf(url, sizeof(url), "https://%s%s/%lu/ack", SERVER_HOST, COMMANDS_PATH, (unsigned long)commandId);
+    } else {
+        snprintf(url, sizeof(url), "http://%s:%d%s/%lu/ack", SERVER_HOST, SERVER_PORT, COMMANDS_PATH, (unsigned long)commandId);
+    }
 
     if (!http.begin(client, url)) {
         error = "ack begin";
@@ -543,22 +626,22 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
     // branch carries every report onto the cellular route at once.
     if (cellularActive()) {
         String response;
-        const bool ok = cellularRequest("POST", path, payload, response, error, apiKey);
-        if (!ok && lastStatus_ == 422) logValidationBody(response);
-        return ok;
+        return cellularRequest("POST", path, payload, response, error, apiKey);
     }
 
 #if USE_HTTPS
-    WiFiClientSecure client;
-    client.setInsecure();
+    BundleVerifiedWiFiClientSecure client;
 #else
     WiFiClient client;
 #endif
 
     HTTPClient http;
     char url[192];
-    snprintf(url, sizeof(url), "%s://%s:%d%s",
-             USE_HTTPS ? "https" : "http", SERVER_HOST, SERVER_PORT, path);
+    if (USE_HTTPS) {
+        snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, path);
+    } else {
+        snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, SERVER_PORT, path);
+    }
     if (!http.begin(client, url)) {
         error = "post begin";
         return false;
@@ -571,7 +654,6 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
     const int status = http.POST(payload);
     const String response = http.getString();
     http.end();
-    if (status == 422) logValidationBody(response);
     if (status < 200 || status >= 300) {
         reportFailure(status, response, error);
         return false;
@@ -581,11 +663,10 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
 
 bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptimeSeconds, String& error) {
     JsonDocument payload;
-    // Fleet-wide route: the bicycle travels in the payload (same pattern as
-    // the accident report). bicycle_id and device_id are required by the
-    // backend validator; without them the server answers 422.
-    payload["bicycle_id"] = (uint32_t)ACCIDENT_BICYCLE_ID;
-    payload["device_id"] = ACCIDENT_DEVICE_ID;
+    // The fleet endpoint requires both: without them every heartbeat is a
+    // 422 and the unit looks dead on the dashboard while the link is fine.
+    payload["bicycle_id"] = (uint32_t)BICYCLE_ID;
+    payload["device_id"] = DEVICE_ID;
     if (lockStateKnown) payload["locked"] = locked;
     payload["uptime"] = uptimeSeconds;
     payload["firmware"] = "pedalya-esp32-v1";
@@ -659,6 +740,192 @@ bool PedalyaApi::reportAccident(double latitude,
     return postJson(ACCIDENT_REPORT_PATH, body, error, PEDALYA_API_KEY);
 }
 
+bool PedalyaApi::checkHealth(String& detail) {
+    // Cleared up front so a stale rejection from an earlier poll cannot be
+    // mistaken for the verdict on this probe.
+    lastStatus_ = 0;
+    detail = "";
+
+    // Stage 1: modem initialization. simPresent() is cached from simInit(),
+    // so this is a cheap check with no UART traffic.
+#if SIM_ONLY_MODE || CONNECTIVITY_MODE == CONNECTIVITY_MODE_EC20F_SIM
+    if (SIM_ENABLED && !simPresent()) {
+        detail = "modem init failure";
+        Serial.println("[health] Stage 1 failed: EC20F silent on UART2 (modem init failure)");
+        Serial.println("         health HTTP status: not attempted; server response success: NOT TESTED");
+        Serial.println("         Check EC20F TXD -> GPIO16, RXD -> GPIO17, common GND,");
+        Serial.println("         and modem power supply (3.8V-4.2V VBAT rail).");
+        return false;
+    }
+#endif
+
+    // Stage 2: link availability. EC20F mode can distinguish registration
+    // failure from Wi-Fi being unavailable.
+    if (!connected()) {
+#if SIM_ONLY_MODE || CONNECTIVITY_MODE == CONNECTIVITY_MODE_EC20F_SIM
+        if (SIM_ENABLED && simPresent() && !simIsRegistered()) {
+            detail = "network registration failure";
+            Serial.println("[health] Stage 2 failed: modem not registered on any cellular network");
+            Serial.println("         health HTTP status: not attempted; server response success: NOT TESTED");
+            Serial.println("         Check RF antenna, SIM card, and carrier coverage.");
+        } else if (SIM_ENABLED && simPresent() && !simIsReady()) {
+            detail = "packet data link failure";
+            Serial.println("[health] Stage 3 failed: packet data link down (CGATT/CGACT)");
+            Serial.println("         health HTTP status: not attempted; server response success: NOT TESTED");
+            Serial.println("         Check SIM_APN in secrets.h and that SIM has an active data plan.");
+        } else {
+            detail = offlineError();
+            Serial.printf("[health] link down (%s)\n", detail.c_str());
+            Serial.println("         health HTTP status: not attempted; server response success: NOT TESTED");
+        }
+#else
+        detail = offlineError();
+        Serial.println("[health] Wi-Fi is not connected; health request not attempted");
+#endif
+        return false;
+    }
+
+#if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+    const char* healthHost = WIFI_TEST_SERVER_HOST;
+    const char* healthPath = WIFI_TEST_HEALTH_PATH;
+#else
+    const char* healthHost = SERVER_HOST;
+    const char* healthPath = HEALTH_PATH;
+#endif
+
+    // The test URL is fixed to the requested HTTPS host, port and health path.
+    // No key is attached: /api/health is public.
+    char url[160];
+#if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+    snprintf(url, sizeof(url), "https://%s:%d%s", healthHost, WIFI_TEST_SERVER_PORT, healthPath);
+#else
+    if (USE_HTTPS) {
+        snprintf(url, sizeof(url), "https://%s%s", healthHost, healthPath);
+    } else {
+        snprintf(url, sizeof(url), "http://%s:%d%s", healthHost, SERVER_PORT, healthPath);
+    }
+#endif
+
+    // Same bearer the rental poll would use. The EC20F branch reuses the
+    // existing QHTTP GET + QHTTPREAD sequence verbatim via simHttpGet()
+    // (empty extraHeaders = no X-API-Key line in the request head).
+    if (cellularActive()) {
+        String body;
+        const bool ok = simHttpGet(url, &body, String());
+        const int status = simLastHttpStatus();
+        lastStatus_ = status;
+
+        // Stage 3: HTTPS/TLS or transport failure. The modem completed no
+        // HTTP exchange, so there is no status to report.
+        if (status == 0) {
+            detail = "https/tls failure";
+            Serial.printf("[health] HTTPS/TLS failure reaching %s over cellular\n", url);
+            Serial.println("         TLS handshake or TCP setup failed before any HTTP status.");
+            Serial.println("         Check the hostname, that the tunnel is running, and SNI/TLS config.");
+            return false;
+        }
+
+        // Stage 4: the server answered with an HTTP error status.
+        if (!ok) {
+            char shortReason[24];
+            snprintf(shortReason, sizeof(shortReason), "http error %d", status);
+            detail = shortReason;
+            Serial.printf("[health] HTTP %d from %s over cellular\n", status, HEALTH_PATH);
+            if (body.length()) {
+                Serial.println("[health] body:");
+                Serial.println(body);
+            }
+            return false;
+        }
+
+        // Stage 5: successful response. Report the status and the body, so
+        // the operator can confirm the tunnel serves this firmware's host.
+        Serial.printf("[health] success: HTTP %d from %s over cellular\n", status, HEALTH_PATH);
+        Serial.println("[health] body:");
+        Serial.println(body);
+        char verdict[32];
+        snprintf(verdict, sizeof(verdict), "success http %d", status);
+        detail = verdict;
+        return true;
+    }
+
+#if USE_HTTPS || CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+    BundleVerifiedWiFiClientSecure client;
+#else
+    WiFiClient client;
+#endif
+
+#if USE_HTTPS || CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+    ensureTime();
+    Serial.printf("[health] attempting HTTPS GET %s\n", url);
+#endif
+    HTTPClient http;
+    if (!http.begin(client, url)) {
+        detail = "https/tls failure";
+        Serial.printf("[health] Stage3: HTTPS setup failed for %s\n", url);
+        return false;
+    }
+
+    http.setTimeout(REQUEST_TIMEOUT_MS);
+    http.addHeader("Accept", "application/json");
+    const int status = http.GET();
+    String body = http.getString();
+
+    if (status <= 0) {
+        // Stage 3: TLS/TCP failure — capture mbedTLS error string before http.end()
+        char tlsErr[128] = "";
+#if USE_HTTPS || CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
+        client.lastError(tlsErr, sizeof(tlsErr));
+#endif
+        lastStatus_ = 0;
+        if (status == HTTPC_ERROR_CONNECTION_REFUSED) {
+            detail = "connection refused";
+            Serial.printf("[health] Stage3: TCP connection refused to %s\n", url);
+        } else if (status == HTTPC_ERROR_SEND_HEADER_FAILED) {
+            detail = "tls handshake fail";
+            Serial.printf("[health] Stage3: TLS handshake failed to %s\n", url);
+        } else if (status == HTTPC_ERROR_READ_TIMEOUT) {
+            detail = "read timeout";
+            Serial.printf("[health] Stage3: read timeout reaching %s\n", url);
+        } else {
+            detail = "https/tls failure";
+            Serial.printf("[health] Stage3: transport error %d (%s) reaching %s\n",
+                          status, HTTPClient::errorToString(status).c_str(), url);
+        }
+        if (tlsErr[0]) {
+            Serial.printf("[health] TLS detail: %s\n", tlsErr);
+        }
+        Serial.println("[health] Possible causes: clock not synced (notBefore/notAfter), wrong CA cert, SNI mismatch, or TCP refused.");
+        http.end();
+        return false;
+    }
+
+    http.end();
+
+    // Stage 4: HTTP error from server
+    lastStatus_ = status;
+    if (status < 200 || status >= 300) {
+        char shortReason[24];
+        snprintf(shortReason, sizeof(shortReason), "http error %d", status);
+        detail = shortReason;
+        Serial.printf("[health] Stage4: HTTP %d from %s\n", status, healthPath);
+        if (body.length()) {
+            Serial.println("[health] body:");
+            Serial.println(body);
+        }
+        return false;
+    }
+
+    // Stage 5: success
+    Serial.printf("[health] Stage5: HTTP %d OK from %s\n", status, healthPath);
+    Serial.println("[health] body:");
+    Serial.println(body);
+    char verdict[32];
+    snprintf(verdict, sizeof(verdict), "success http %d", status);
+    detail = verdict;
+    return true;
+}
+
 bool PedalyaApi::parse(const String& body, RentalState& out, String& error) {
     JsonDocument doc;
     if (deserializeJson(doc, body)) {
@@ -677,6 +944,20 @@ bool PedalyaApi::parse(const String& body, RentalState& out, String& error) {
     if (!clock.isNull()) {
         out.serverUnix = clock["unix"].as<int64_t>();
         out.utcOffsetSeconds = clock["utcOffsetSeconds"] | DEFAULT_UTC_OFFSET_SECONDS;
+
+        // If NTP has not yet synced, synchronize the system clock immediately
+        // from the server's authoritative Unix time so TLS and logs stay accurate.
+        if (out.serverUnix > 1700000000ULL && (!timeSynced || sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED)) {
+            struct timeval tv = { (time_t)out.serverUnix, 0 };
+            settimeofday(&tv, nullptr);
+            timeSynced = true;
+            char stamp[32];
+            struct tm tmServer;
+            time_t t = (time_t)(out.serverUnix + out.utcOffsetSeconds);
+            gmtime_r(&t, &tmServer);
+            strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &tmServer);
+            Serial.printf("[clock] synchronized from server: %s\n", stamp);
+        }
     }
     out.syncedAtMs = millis();
 
@@ -696,6 +977,10 @@ bool PedalyaApi::parse(const String& body, RentalState& out, String& error) {
     if (!bicycle.isNull()) {
         out.bicycleLockStatus = bicycle["lockStatus"] | "locked";
         out.bicycleStatus = bicycle["status"] | "available";
+        out.bicycleSerial = bicycle["serialNumber"] | "";
+        if (bicycle["batteryLevel"].is<int>()) {
+            out.bicycleBatteryLevel = bicycle["batteryLevel"].as<int>();
+        }
     }
 
     JsonObjectConst rental = data["rental"].as<JsonObjectConst>();
@@ -704,7 +989,11 @@ bool PedalyaApi::parse(const String& body, RentalState& out, String& error) {
         Serial.printf("[api] parsed hasRental=%d status=%s start=%lld deadline=%lld overdue=%d\n",
                       out.hasRental ? 1 : 0, out.status.c_str(), (long long)out.startTs,
                       (long long)out.deadlineTs, out.isOverdue ? 1 : 0);
-        Serial.println("[api] bicycle idle");
+        if (out.bicycleStatus == "maintenance") {
+            Serial.println("[api] bicycle in maintenance (not available)");
+        } else {
+            Serial.println("[api] bicycle idle");
+        }
         return true;
     }
 

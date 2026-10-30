@@ -10,6 +10,7 @@ use App\Models\Rental;
 use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\RentalService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Tests\Concerns\CreatesTestData;
@@ -412,46 +413,59 @@ class RentalExpirationWorkflowTest extends TestCase
 
         SystemSetting::setValue('lateReturnPenaltyPerHour', 20);
 
-        $deadline = now()->subHours(3);
+        // Freeze the clock so the 3-hour lateness resolves to exactly 36
+        // completed 5-minute intervals regardless of wall-clock drift.
+        $frozenNow = now();
+        Carbon::setTestNow($frozenNow);
+        $deadline = $frozenNow->copy()->startOfMinute()->subHours(3);
 
         $rental = $this->makeRental([
             'riderId' => $rider->id,
             'bicycleId' => $bike->id,
             'status' => Rental::STATUS_OVERDUE_RETURN,
-            'startTime' => now()->subHours(5),
-            'expectedEndTime' => now()->subHours(4),
+            'startTime' => $frozenNow->copy()->subHours(5),
+            'expectedEndTime' => $frozenNow->copy()->subHours(4),
             'returnDeadline' => $deadline,
+            // A later operational grace deadline must not move the original
+            // rental deadline used for the late-penalty calculation.
+            'expectedEndTime' => $deadline,
             'returnDeadlineSetBy' => $admin->name,
             'overdueReturnAt' => $deadline,
             'ratePerHour' => 15.00,
+            'totalFee' => 75.00,
+            'durationMinutes' => 300,
+            'durationFormatted' => '5h 0m',
+            'chargedHours' => 5,
             'paymentStatus' => 'pending',
         ]);
-
-        $returnTime = now()->format('Y-m-d\TH:i');
 
         $this->actingAs($admin)
             ->from(route('admin.rentals.returns'))
             ->put(route('admin.rentals.process-return', $rental->id), [
                 'condition' => 'good',
-                'returnTime' => $returnTime,
+                'returnTime' => $frozenNow->format('Y-m-d\TH:i'),
                 'note' => 'All good',
             ])
             ->assertRedirect(route('admin.rentals.returns'))
             ->assertSessionDoesntHaveErrors();
 
+        Carbon::setTestNow(); // unfreeze once the charge is frozen server-side
+
         $fresh = $rental->fresh();
 
-        // 5h ride @ 15 = 75 base; 3h late @ 20/hr = 60 penalty; final 135.
+        // Base fee stays the stored Estimated Cost (₱75.00); the global ₱20.00
+        // rate charges 36 completed 5-minute intervals for 3 hours late; the
+        // penalty is applied once, from the stored deadline; final 795.00.
         $this->assertSame(Rental::STATUS_RETURNED, $fresh->status);
-        $this->assertSame(60.0, (float) $fresh->overdueFee);
-        $this->assertSame(135.0, (float) $fresh->finalFee);
-        $this->assertSame(135.0, (float) $fresh->totalFee);
+        $this->assertSame(720.0, (float) $fresh->overdueFee);
+        $this->assertSame(795.0, (float) $fresh->finalFee);
+        $this->assertSame(795.0, (float) $fresh->totalFee);
         $this->assertSame($admin->name, $fresh->returnInspectedBy);
 
         $this->assertDatabaseHas('payments', [
             'rentalId' => $rental->id,
             'status' => 'paid',
-            'totalAmount' => 135.0,
+            'totalAmount' => 795.0,
         ]);
 
         $this->assertDatabaseHas('bicycles', [
@@ -475,14 +489,80 @@ class RentalExpirationWorkflowTest extends TestCase
         $this->assertSame(1, Payment::where('rentalId', $rental->id)->count());
     }
 
+    public function test_process_return_keeps_the_stored_base_and_charges_every_completed_5_minutes(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
+
+        // Freeze the clock so the 28-minute lateness resolves to exactly five
+        // completed 5-minute intervals no matter when the suite runs. Their
+        // example: deadline 11:33 PM, actual arrival 12:01 AM => 28 minutes
+        // late => 5 intervals => ₱100.00.
+        $frozenNow = now();
+        Carbon::setTestNow($frozenNow);
+        $deadline = $frozenNow->copy()->startOfMinute()->subMinutes(28);
+
+        // A one-minute rental: the stored Estimated Cost is ₱15.00 and the
+        // stored deadline passed before the actual arrival.
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_OVERDUE_RETURN,
+            'startTime' => $frozenNow->copy()->subMinutes(29),
+            'expectedEndTime' => $deadline,
+            'returnDeadline' => $deadline,
+            'returnDeadlineSetBy' => $admin->name,
+            'overdueReturnAt' => $deadline,
+            'ratePerHour' => 15.00,
+            'totalFee' => 15.00,
+            'durationMinutes' => 1,
+            'durationFormatted' => '1m 0s',
+            'chargedHours' => 1,
+            'paymentStatus' => 'pending',
+        ]);
+
+        // The modal preview is display-only: no fee/penalty/total field is sent,
+        // and the server derives every amount from the stored deadline.
+        $this->actingAs($admin)
+            ->from(route('admin.rentals.returns'))
+            ->put(route('admin.rentals.process-return', $rental->id), [
+                'condition' => Rental::CONDITION_GOOD,
+                'return_time' => $frozenNow->format('Y-m-d\TH:i'),
+            ])
+            ->assertRedirect(route('admin.rentals.returns'))
+            ->assertSessionDoesntHaveErrors();
+
+        Carbon::setTestNow(); // unfreeze once the charge is frozen server-side
+
+        $fresh = $rental->fresh();
+
+        $this->assertSame(Rental::STATUS_RETURNED, $fresh->status);
+        // Late penalty = 5 completed 5-minute intervals x the default ₱20.00.
+        $this->assertSame(100.0, (float) $fresh->overdueFee);
+        // Base fee stays the stored Estimated Cost, not the recomputed ~29-minute
+        // ride; final = base + late penalty = 15.00 + 100.00.
+        $this->assertSame(15.0, round((float) $fresh->finalFee - (float) $fresh->overdueFee, 2));
+        $this->assertSame(115.0, (float) $fresh->finalFee);
+        $this->assertSame(115.0, (float) $fresh->totalFee);
+
+        $this->assertDatabaseHas('payments', [
+            'rentalId' => $rental->id,
+            'status' => 'paid',
+            'totalAmount' => 115.0,
+        ]);
+    }
+
     public function test_process_return_without_deadline_uses_legacy_overdue_surcharge(): void
     {
         $admin = $this->makeAdmin();
         $rider = $this->makeRider();
         $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
 
-        // 4h ride, returned 2.5h past the expected end => legacy surcharge =
-        // ceil(2.5) = 3h @ 15 = 45; base = 4h @ 15 = 60; final = 105.
+        // 4h ride, returned 2.5h past the expected end. The legacy surcharge
+        // still applies (ceil(2.5) = 3h @ 15 = 45), but the Base Fee remains
+        // the saved Estimated Cost (15), never the elapsed 4h figure. Final =
+        // 15 + 45 = 60.
         $rental = $this->makeRental([
             'riderId' => $rider->id,
             'bicycleId' => $bike->id,
@@ -506,10 +586,109 @@ class RentalExpirationWorkflowTest extends TestCase
         $fresh = $rental->fresh();
         $this->assertSame(Rental::STATUS_RETURNED, $fresh->status);
         $this->assertSame(45.0, (float) $fresh->overdueFee);
-        $this->assertSame(105.0, (float) $fresh->finalFee);
+        $this->assertSame(15.0, round((float) $fresh->finalFee - (float) $fresh->overdueFee, 2));
+        $this->assertSame(60.0, (float) $fresh->finalFee);
     }
 
-    public function test_late_penalty_uses_configurable_rate_from_settings(): void
+    public function test_late_penalty_only_counts_completed_five_minute_intervals(): void
+    {
+        $service = app(RentalService::class);
+        $deadline = Carbon::parse('2026-10-24 23:33:00');
+
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle();
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_OVERDUE_RETURN,
+            'returnDeadline' => $deadline,
+            'penaltyType' => null,
+            'penaltyValue' => null,
+        ]);
+
+        // 4:59 late is inside the current 5-minute interval: no penalty.
+        $this->assertSame(0.0, $service->calculatePenaltyForRental(
+            $rental,
+            $deadline->copy()->addMinutes(4)->addSeconds(59)
+        ));
+
+        // Exactly 5:00 late completes the first interval.
+        // Timestamp arithmetic crosses midnight without resetting elapsed time:
+        // 23:33 -> 00:38 is 65 minutes, or 13 completed intervals.
+        $this->assertSame(260.0, $service->calculatePenaltyForRental(
+            $rental,
+            $deadline->copy()->addMinutes(5)
+        ));
+
+        $this->assertSame(40.0, $service->calculatePenaltyForRental($rental, $deadline->copy()->addMinutes(10)));
+        $this->assertSame(60.0, $service->calculatePenaltyForRental($rental, $deadline->copy()->addMinutes(15)));
+
+        // 28 minutes completes five intervals, matching the requested example.
+        $this->assertSame(100.0, $service->calculatePenaltyForRental(
+            $rental,
+            $deadline->copy()->addMinutes(28)
+        ));
+        $this->assertSame(120.0, $service->calculatePenaltyForRental($rental, $deadline->copy()->addMinutes(30)));
+        $this->assertSame(20.0, $service->calculatePenaltyForRental(
+            $rental,
+            Carbon::parse('2026-10-25 00:38:00')
+        ));
+    }
+
+    public function test_process_return_accepts_camel_case_time_and_ignores_client_fee_fields(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
+
+        Carbon::setTestNow(Carbon::parse('2026-10-24 23:42:00'));
+        $deadline = Carbon::parse('2026-10-24 23:33:00');
+
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_OVERDUE_RETURN,
+            'startTime' => Carbon::parse('2026-10-24 23:32:00'),
+            'expectedEndTime' => $deadline,
+            'returnDeadline' => $deadline,
+            'overdueReturnAt' => $deadline,
+            'ratePerHour' => 15.00,
+            'totalFee' => 15.00,
+            'durationMinutes' => 1,
+            'durationFormatted' => '1m 0s',
+            'chargedHours' => 1,
+            'paymentStatus' => 'pending',
+        ]);
+
+        $this->actingAs($admin)
+            ->from(route('admin.rentals.returns'))
+            ->put(route('admin.rentals.process-return', $rental->id), [
+                'condition' => Rental::CONDITION_GOOD,
+                // The camelCase key is accepted too, not silently replaced by
+                // the server's current time.
+                'returnTime' => '2026-10-24 23:42:00',
+                'return_time_evidence' => 'Dock camera timestamp confirms physical arrival.',
+                // Tampered preview values must never be charged.
+                'baseFee' => 1.00,
+                'latePenalty' => 1.00,
+                'overdueFee' => 1.00,
+                'finalFee' => 1.00,
+                'totalFee' => 1.00,
+            ])
+            ->assertRedirect(route('admin.rentals.returns'))
+            ->assertSessionDoesntHaveErrors();
+
+        Carbon::setTestNow();
+
+        $fresh = $rental->fresh();
+        // 9 completed minutes => one 5-minute interval = PHP 20.
+        $this->assertSame(20.0, (float) $fresh->overdueFee);
+        $this->assertSame(15.0, (float) $fresh->totalFee, 'the stored estimate remains the base fee');
+        $this->assertSame(15.0, round((float) $fresh->finalFee - (float) $fresh->overdueFee, 2));
+        $this->assertSame(35.0, (float) $fresh->finalFee);
+    }
+
+    public function test_late_penalty_is_always_20_per_completed_five_minutes(): void
     {
         SystemSetting::setValue('lateReturnPenaltyPerHour', 30);
 
@@ -520,8 +699,8 @@ class RentalExpirationWorkflowTest extends TestCase
             now()
         );
 
-        // 150 minutes late => ceil(150/60) = 3 hours @ 30 = 90.
-        $this->assertSame(90.0, $penalty);
+        // 150 minutes late = 30 completed five-minute blocks @ PHP 20.
+        $this->assertSame(600.0, $penalty);
 
         $none = $service->calculateLateReturnPenalty(now()->addHour(), now());
         $this->assertSame(0.0, $none);
@@ -592,7 +771,7 @@ class RentalExpirationWorkflowTest extends TestCase
         $this->assertSame(45.0, $service->calculatePenaltyForRental($rental, now()));
     }
 
-    public function test_calculate_penalty_falls_back_to_global_hourly_rate(): void
+    public function test_calculate_penalty_falls_back_to_global_5_minute_rate(): void
     {
         SystemSetting::setValue('lateReturnPenaltyPerHour', 40);
 
@@ -609,8 +788,8 @@ class RentalExpirationWorkflowTest extends TestCase
 
         $service = app(RentalService::class);
 
-        // ceil(90/60) = 2 hours @ 40 = 80.
-        $this->assertSame(80.0, $service->calculatePenaltyForRental($rental, now()));
+        // floor(90/5) = 18 completed 5-minute intervals @ 40 = 720.
+        $this->assertSame(720.0, $service->calculatePenaltyForRental($rental, now()));
     }
 
     public function test_deadline_pass_snapshots_penalty_accrued_and_notifies_rider_with_message(): void
@@ -810,7 +989,13 @@ class RentalExpirationWorkflowTest extends TestCase
         $this->assertSame(1, Notification::where('userId', $rider->id)->where('type', 'rental_deadline')->count());
 
         // 3. awaiting_return -> overdue_return exactly once the deadline passes.
-        $rental->update(['returnDeadline' => now()->subMinutes(25)]);
+        // Freeze time so the per-minute penalty calculation is deterministic across
+        // the full test suite regardless of wall-clock drift between the DB write
+        // and the Artisan command execution (which can shift diffInMinutes by ±1).
+        $frozenNow = now();
+        Carbon::setTestNow($frozenNow);
+        $overdueDeadline = $frozenNow->copy()->subMinutes(25);
+        $rental->update(['returnDeadline' => $overdueDeadline]);
         Artisan::call('rentals:check-return-deadlines');
 
         $fresh = $rental->fresh();
@@ -824,12 +1009,18 @@ class RentalExpirationWorkflowTest extends TestCase
         Artisan::call('rentals:check-return-deadlines');
         $this->assertSame(1, Notification::where('userId', $rider->id)->where('type', 'rental_overdue_return')->count());
 
+        // Keep the clock frozen through settlement. The return timestamp is
+        // minute-precision, so unfreezing here could shave a few seconds off
+        // the elapsed time and turn 25 whole minutes into 24.
         // 4. overdue_return -> returned (confirm return): final fee 30 + 250 = 280.
         $this->actingAs($admin)
             ->from(route('admin.rentals.returns'))
             ->put(route('admin.rentals.process-return', $rental->id), [
                 'condition' => Rental::CONDITION_GOOD,
-                'returnTime' => now()->format('Y-m-d\TH:i'),
+                // Keep the seconds: the stored deadline carries the frozen
+                // clock's seconds, and truncating this to the minute would
+                // turn a 25-minute gap into 24 completed intervals.
+                'returnTime' => now()->format('Y-m-d H:i:s'),
             ])
             ->assertSessionDoesntHaveErrors();
 
@@ -849,6 +1040,8 @@ class RentalExpirationWorkflowTest extends TestCase
 
         $this->assertSame(1, Payment::where('rentalId', $rental->id)->count());
         $this->assertSame(1, Notification::where('userId', $rider->id)->where('type', 'rental_completed')->count());
+
+        Carbon::setTestNow(); // unfreeze after the minute-sensitive assertions
     }
 
     public function test_confirming_a_return_reports_the_state_the_bicycle_is_left_in(): void
