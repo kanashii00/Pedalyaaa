@@ -151,10 +151,16 @@
 </div>
 
 {{-- ===================== ACTIVITY FEED ===================== --}}
+@php
+    // Keep markup out of the component attribute itself. A literal `>` inside
+    // a bound attribute makes Blade terminate the <x-admin.card> tag early,
+    // which then leaves orphaned compiled `endif` statements.
+    $recentRentalsTools = '<a href="' . route('admin.rentals.index') . '" class="btn-admin btn-admin--ghost btn-admin--sm">View all</a>';
+@endphp
 <div class="row g-3">
     <div class="col-12 col-lg-6">
-        <x-admin.card title="Recent Rentals" sub="Latest activity" :flush="true">
-            <div id="recentRentalsFeed">
+        <x-admin.card title="Recent Rentals" sub="Latest activity" :flush="true" :tools="$recentRentalsTools">
+            <div id="recentRentalsFeed" class="recent-rentals__scroll">
             @forelse($recentRentals ?? [] as $r)
                 <div class="d-flex align-items-center gap-3 px-3 py-3 border-bottom" style="border-color: var(--border-subtle) !important;">
                     <div class="kpi__icon" style="width: 36px; height: 36px; font-size: 15px; background: var(--brand-soft); color: var(--brand-strong);">

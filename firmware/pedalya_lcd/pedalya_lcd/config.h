@@ -310,11 +310,11 @@
 // is driven by ESP32 TX (GPIO26). GPIO1/GPIO3 stay reserved for the USB-UART0
 // monitor, and GPIO4/GPIO2 are released by this move.
 #ifndef GPS_RX_PIN
-#define GPS_RX_PIN 25
+#define GPS_RX_PIN 26
 #endif
 
 #ifndef GPS_TX_PIN
-#define GPS_TX_PIN 26
+#define GPS_TX_PIN 27
 #endif
 
 #ifndef GPS_BAUD_RATE

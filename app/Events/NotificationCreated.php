@@ -50,6 +50,7 @@ class NotificationCreated implements ShouldBroadcastNow
             'read' => (bool) $this->notification->read,
             'rentalId' => $this->notification->rentalId,
             'bicycleId' => $this->notification->bicycleId,
+            'incidentId' => $this->notification->incidentId,
             'created_at' => $this->notification->created_at?->toIso8601String(),
         ];
     }

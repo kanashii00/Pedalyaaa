@@ -670,6 +670,19 @@ bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptime
     if (lockStateKnown) payload["locked"] = locked;
     payload["uptime"] = uptimeSeconds;
     payload["firmware"] = "pedalya-esp32-v1";
+
+    // Keep the admin and rider maps live even while the modem or GPS receiver
+    // is not producing a fresh fix. The backend treats heartbeat lat/lng as the
+    // current position source and refreshes lastGpsUpdate from it, so a last
+    // known fix continues to move the marker without requiring a separate GPS
+    // POST every cycle.
+    if (hasGpsFix_) {
+        payload["lat"] = lastGpsFix_.latitude;
+        payload["lng"] = lastGpsFix_.longitude;
+        payload["speed"] = lastGpsFix_.speedKph;
+        payload["heading"] = lastGpsFix_.heading;
+    }
+
     String body;
     serializeJson(payload, body);
     // Fleet-wide route: authenticated with the shared fleet key, not this
@@ -680,6 +693,13 @@ bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptime
 
 bool PedalyaApi::sendGps(double latitude, double longitude, float speedKph,
                          float heading, String& error) {
+    lastGpsFix_.latitude = latitude;
+    lastGpsFix_.longitude = longitude;
+    lastGpsFix_.speedKph = speedKph;
+    lastGpsFix_.heading = heading;
+    lastGpsFix_.receivedAtMs = millis();
+    hasGpsFix_ = true;
+
     JsonDocument payload;
     payload["lat"] = latitude;
     payload["lng"] = longitude;

@@ -69,6 +69,9 @@ final class AuditLogger
     public const BICYCLE_MAINTENANCE_AUTO = 'bicycle_maintenance_auto';
     public const ACCIDENT_ACKNOWLEDGED = 'accident_acknowledged';
     public const THEFT_ALERT_ACKNOWLEDGED = 'theft_alert_acknowledged';
+    public const THEFT_ALERT_INVESTIGATED = 'theft_alert_investigated';
+    public const THEFT_ALERT_FALSE_ALARM = 'theft_alert_false_alarm';
+    public const THEFT_ALERT_RESOLVED = 'theft_alert_resolved';
 
     // Configuration.
     public const SYSTEM_SETTINGS_UPDATED = 'system_settings_updated';
@@ -87,6 +90,9 @@ final class AuditLogger
         self::BICYCLE_MAINTENANCE_AUTO,
         self::ACCIDENT_ACKNOWLEDGED,
         self::THEFT_ALERT_ACKNOWLEDGED,
+        self::THEFT_ALERT_INVESTIGATED,
+        self::THEFT_ALERT_FALSE_ALARM,
+        self::THEFT_ALERT_RESOLVED,
     ];
 
     /**

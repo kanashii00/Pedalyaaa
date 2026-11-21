@@ -50,6 +50,61 @@ class ApiDeviceTest extends TestCase
         ], $this->deviceHeaders())->assertOk()->assertJsonPath('message', 'Heartbeat processed');
     }
 
+    public function test_heartbeat_with_coordinates_updates_live_position(): void
+    {
+        $bike = $this->makeBicycle();
+
+        $this->postJson('/api/iot/heartbeat', [
+            'bicycle_id' => $bike->id,
+            'device_id' => 'ESP-001',
+            'lat' => 14.6123456,
+            'lng' => 120.9876543,
+            'battery' => 81,
+            'locked' => false,
+        ], $this->deviceHeaders())->assertOk();
+
+        $bike->refresh();
+        $this->assertEquals(14.6123456, (float) $bike->currentLat);
+        $this->assertEquals(120.9876543, (float) $bike->currentLng);
+        $this->assertNotNull($bike->lastGpsUpdate);
+    }
+
+    public function test_admin_monitoring_page_handles_heartbeat_only_position(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->makeBicycle();
+        $bike->update([
+            'currentLat' => 14.6123456,
+            'currentLng' => 120.9876543,
+            'lastGpsUpdate' => now(),
+        ]);
+
+        $this->actingAs($admin, 'web')
+            ->get('/admin/monitoring')
+            ->assertOk();
+    }
+
+    public function test_admin_monitoring_ignores_dummy_qa_bicycle(): void
+    {
+        $admin = $this->makeAdmin();
+        Bicycle::create([
+            'name' => 'QA System Bicycle',
+            'serialNumber' => 'QA-16',
+            'model' => 'Test',
+            'status' => 'out_of_service',
+            'lockStatus' => 'locked',
+            'batteryLevel' => 100,
+            'hourlyRate' => 15.00,
+            'currentLat' => 14.5995,
+            'currentLng' => 120.9842,
+        ]);
+
+        $this->actingAs($admin, 'web')
+            ->get('/admin/monitoring')
+            ->assertOk()
+            ->assertDontSee('QA System Bicycle');
+    }
+
     public function test_heartbeat_requires_valid_bicycle(): void
     {
         $this->postJson('/api/iot/heartbeat', [

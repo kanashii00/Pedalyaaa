@@ -324,6 +324,10 @@ static void reportTelemetry() {
         }
     }
 
+    if (gps.hasFreshFix()) {
+        api.cacheGpsFix(gps.fix());
+    }
+
     if (gps.hasFreshFix() && now - lastGpsReportMs >= GPS_REPORT_INTERVAL_MS) {
         lastGpsReportMs = now;
         const GpsFix& fix = gps.fix();

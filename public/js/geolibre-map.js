@@ -42,6 +42,21 @@
         return id ? document.getElementById(id) : null;
     }
 
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function capitalize(str) {
+        if (!str) return '';
+        return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
     // --- Geometry helpers (mirror GeofenceService) ---
 
     function circlePolygon(lng, lat, radiusMeters, segments) {
@@ -361,7 +376,8 @@
             map: null,
             markers: {},
             cycling: null,
-            centerButton: null
+            centerButton: null,
+            activePopup: null
         };
 
         var gf = ctx.geofence;
@@ -398,31 +414,185 @@
             return null;
         }
 
-        function popupHtml(bike) {
-            var dist = bike.distance !== null && bike.distance !== undefined
-                ? '<br><small>Distance: ' + Math.round(bike.distance) + ' m</small>' : '';
-            var zoneLabel = bike.zone ? zoneLabelText(bike.zone) : 'Unknown';
-            var alert = options.alertBicycles && options.alertBicycles[bike.id];
-            var alertHtml = alert
-                ? '<br><small style="color:#e74c3c;font-weight:700;">&#9888; Theft alert' + (alert.status ? ' (' + alert.status + ')' : '') + '</small>'
-                : '';
-            var gpsStatus = gpsLabel(bike);
-            var gpsHtml = gpsStatus
-                ? '<br><small>' + gpsStatus + '</small>' +
-                    '<br><small>Latitude: ' + Number(bike.lat).toFixed(7) + '</small>' +
-                    '<br><small>Longitude: ' + Number(bike.lng).toFixed(7) + '</small>' +
-                    '<br><small>Last GPS update: ' + (bike.last_gps_update ? new Date(bike.last_gps_update).toLocaleString() : 'N/A') + '</small>' +
-                    '<br><small>Accuracy: ' + (bike.gps_accuracy !== null && bike.gps_accuracy !== undefined ? Number(bike.gps_accuracy).toFixed(1) + ' m' : 'N/A') + '</small>' +
-                    '<br><small>HDOP: ' + (bike.gps_hdop !== null && bike.gps_hdop !== undefined ? Number(bike.gps_hdop).toFixed(2) : 'N/A') + '</small>'
-                : '';
+        function createPopup(bike) {
+            var popup = new global.maplibregl.Popup({
+                offset: {
+                    'top': [0, 8],
+                    'top-left': [0, 8],
+                    'top-right': [0, 8],
+                    'bottom': [0, -32],
+                    'bottom-left': [0, -32],
+                    'bottom-right': [0, -32],
+                    'left': [16, -14],
+                    'right': [-16, -14]
+                },
+                closeButton: true,
+                closeOnClick: false,
+                maxWidth: '310px',
+                className: 'pedalya-map-popup-wrap'
+            }).setHTML(popupHtml(bike));
 
-            return '<strong>' + bike.name + (bike.id !== undefined ? ' (#' + bike.id + ')' : '') + '</strong><br>' +
-                '<small>Status: ' + bike.status + '</small><br>' +
-                '<small>Zone: ' + zoneLabel + '</small><br>' +
-                '<small>Battery: ' + bike.battery + '%</small><br>' +
-                '<small>Lock: ' + (bike.locked ? 'Locked' : 'Unlocked') + '</small>' + dist +
-                gpsHtml + alertHtml +
-                '<br><small>Last heartbeat: ' + (bike.heartbeat ? new Date(bike.heartbeat).toLocaleString() : 'Never') + '</small>';
+            popup.on('open', function () {
+                if (ctx.activePopup && ctx.activePopup !== popup) {
+                    ctx.activePopup.remove();
+                }
+                ctx.activePopup = popup;
+            });
+            popup.on('close', function () {
+                if (ctx.activePopup === popup) {
+                    ctx.activePopup = null;
+                }
+            });
+
+            return popup;
+        }
+
+        function popupHtml(bike) {
+            var alert = options.alertBicycles && options.alertBicycles[bike.id];
+            var isBreach = bike.zone === 'breach' || bike.zone === 'outside';
+            var isNear = bike.zone === 'warning' || bike.zone === 'approaching';
+
+            // 1. Zone badge
+            var zoneBadge = '';
+            if (isBreach) {
+                zoneBadge = '<span class="theft-badge theft-badge--critical"><i class="bi bi-shield-slash-fill"></i>Outside Zone</span>';
+            } else if (isNear) {
+                zoneBadge = '<span class="theft-badge theft-badge--warning"><i class="bi bi-exclamation-triangle-fill"></i>Near Boundary</span>';
+            } else if (bike.zone === 'safe') {
+                zoneBadge = '<span class="theft-badge theft-badge--success"><i class="bi bi-shield-check"></i>Inside Zone</span>';
+            } else {
+                zoneBadge = '<span class="theft-badge theft-badge--neutral">No GPS</span>';
+            }
+
+            // 2. Alert badge (if theft alert/incident exists)
+            var alertBadgeHtml = '';
+            if (alert) {
+                var incId = alert.id ? ('#' + alert.id) : '';
+                alertBadgeHtml = '<span class="theft-badge theft-badge--critical"><i class="bi bi-bell-fill"></i>Theft ' + incId + '</span>';
+            }
+
+            // 3. Status badge (Available, Rented, Maintenance, etc.)
+            var statusBadge = '';
+            var st = String(bike.status || 'unknown').toLowerCase();
+            if (st === 'available') {
+                statusBadge = '<span class="theft-badge theft-badge--success">Available</span>';
+            } else if (st === 'rented') {
+                statusBadge = '<span class="theft-badge theft-badge--info">Rented</span>';
+            } else if (st === 'maintenance') {
+                statusBadge = '<span class="theft-badge theft-badge--warning">Maintenance</span>';
+            } else {
+                statusBadge = '<span class="theft-badge theft-badge--neutral">' + escapeHtml(capitalize(st)) + '</span>';
+            }
+
+            // 4. Lock badge
+            var isLocked = !!(bike.locked || bike.lock_status === 'locked');
+            var lockBadge = isLocked
+                ? '<span class="theft-badge theft-badge--critical"><i class="bi bi-lock-fill"></i>Locked</span>'
+                : '<span class="theft-badge theft-badge--success"><i class="bi bi-unlock-fill"></i>Unlocked</span>';
+
+            // 5. Distance formatting
+            var distText = 'Inside';
+            var distClass = 'text-success';
+            if (bike.distance !== null && bike.distance !== undefined && !isNaN(Number(bike.distance))) {
+                var dVal = Math.round(Number(bike.distance));
+                if (isBreach) {
+                    distText = dVal + 'm outside';
+                    distClass = 'text-danger';
+                } else if (isNear) {
+                    distText = dVal + 'm from edge';
+                    distClass = 'text-warning';
+                } else {
+                    distText = dVal + 'm radius';
+                    distClass = 'text-success';
+                }
+            } else if (!isBreach && !isNear && bike.zone === 'safe') {
+                distText = 'Inside Zone';
+            } else {
+                distText = '—';
+                distClass = 'text-muted';
+            }
+
+            // 6. Coordinates
+            var latStr = Number(bike.lat).toFixed(5);
+            var lngStr = Number(bike.lng).toFixed(5);
+
+            // 7. GPS Status and Icon
+            var isFix = bike.gps_status === 'fix';
+            var isLastKnown = bike.gps_status === 'last_known';
+            var gpsTitle = isFix ? 'Live GPS Fix' : (isLastKnown ? 'Last Known Location' : 'No GPS Fix');
+            var gpsClass = isFix ? 'text-success' : (isLastKnown ? 'text-warning' : 'text-muted');
+            var gpsIcon = isFix ? 'bi-broadcast' : (isLastKnown ? 'bi-clock-history' : 'bi-geo');
+
+            var updateTimeText = 'N/A';
+            if (bike.last_gps_update) {
+                var d = new Date(bike.last_gps_update);
+                updateTimeText = isNaN(d.getTime()) ? String(bike.last_gps_update) : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } else if (bike.heartbeat) {
+                var d2 = new Date(bike.heartbeat);
+                updateTimeText = isNaN(d2.getTime()) ? String(bike.heartbeat) : d2.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+
+            // 8. Rider & Rental row
+            var riderHtml = '';
+            var riderName = bike.rider || (bike.current_rider_user ? bike.current_rider_user.name : null);
+            if (riderName && riderName !== 'No Active Rental') {
+                var rentalPart = bike.rental ? ('<span class="text-muted ms-auto font-monospace">' + escapeHtml(bike.rental) + '</span>') : '';
+                riderHtml = '<div class="pedalya-map-popup__rider">' +
+                    '<span><i class="bi bi-person-fill text-muted me-1"></i><strong class="text-light">' + escapeHtml(riderName) + '</strong></span>' +
+                    rentalPart +
+                '</div>';
+            }
+
+            // 9. Action button
+            var actionBtn = '';
+            if (alert && alert.id) {
+                actionBtn = '<button type="button" class="btn-admin btn-admin--primary btn-admin--sm w-100" data-view-incident="' + alert.id + '">' +
+                    '<i class="bi bi-journal-text me-1"></i>View Incident Details' +
+                '</button>';
+            }
+
+            return '<div class="pedalya-map-popup">' +
+                '<div class="pedalya-map-popup__header">' +
+                    '<div class="pedalya-map-popup__badges">' +
+                        (alertBadgeHtml || zoneBadge) +
+                        statusBadge +
+                    '</div>' +
+                '</div>' +
+                '<div class="mb-2">' +
+                    '<div class="pedalya-map-popup__title" title="' + escapeHtml(bike.name) + '">' + escapeHtml(bike.name) + '</div>' +
+                    '<div class="pedalya-map-popup__subtitle">' +
+                        '<span>#' + bike.id + '</span>' +
+                        '<span>&bull;</span>' +
+                        '<span class="font-monospace">' + escapeHtml(bike.serialNumber || 'SN-' + bike.id) + '</span>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="pedalya-map-popup__grid">' +
+                    '<div class="pedalya-map-popup__grid-item">' +
+                        '<span class="pedalya-map-popup__grid-label">Lock</span>' +
+                        '<span class="pedalya-map-popup__grid-value">' + lockBadge + '</span>' +
+                    '</div>' +
+                    '<div class="pedalya-map-popup__grid-item">' +
+                        '<span class="pedalya-map-popup__grid-label">Boundary</span>' +
+                        '<span class="pedalya-map-popup__grid-value ' + distClass + '">' + distText + '</span>' +
+                    '</div>' +
+                    '<div class="pedalya-map-popup__grid-item">' +
+                        '<span class="pedalya-map-popup__grid-label">Battery</span>' +
+                        '<span class="pedalya-map-popup__grid-value text-muted"><i class="bi bi-battery-charging me-1 text-success"></i>' + (bike.battery !== undefined ? bike.battery + '%' : '—') + '</span>' +
+                    '</div>' +
+                '</div>' +
+                riderHtml +
+                '<div class="pedalya-map-popup__telemetry">' +
+                    '<div class="pedalya-map-popup__coords">' +
+                        '<span><i class="bi bi-geo-alt-fill text-muted me-1"></i>Coordinates</span>' +
+                        '<code>' + latStr + ', ' + lngStr + '</code>' +
+                    '</div>' +
+                    '<div class="pedalya-map-popup__gps-status">' +
+                        '<span class="' + gpsClass + ' fw-semibold"><i class="bi ' + gpsIcon + ' me-1"></i>' + gpsTitle + '</span>' +
+                        '<span class="text-muted">' + escapeHtml(updateTimeText) + '</span>' +
+                    '</div>' +
+                '</div>' +
+                actionBtn +
+            '</div>';
         }
 
         function currentGpsPosition() {
@@ -448,14 +618,29 @@
         function addMarker(bike) {
             if (!hasValidCoordinates(bike.lat, bike.lng)) return;
             var color = markerColor(bike);
+            var popup = createPopup(bike);
             var marker = new global.maplibregl.Marker({ color: color, pitchAlignment: 'auto', rotationAlignment: 'auto' })
                 .setLngLat([Number(bike.lng), Number(bike.lat)])
-                .setPopup(new global.maplibregl.Popup({ offset: 30 }).setHTML(popupHtml(bike)))
+                .setPopup(popup)
                 .addTo(map);
 
-            ctx.markers[bike.id] = { marker: marker, bike: bike };
+            ctx.markers[bike.id] = { marker: marker, bike: bike, popup: popup };
             var markerElement = marker.getElement();
-            if (markerElement && bike.gps_status === 'last_known') markerElement.style.opacity = '0.55';
+            if (markerElement) {
+                if (bike.gps_status === 'last_known') markerElement.style.opacity = '0.55';
+
+                // Reposition map gently on marker click so the popup does not get clipped by map container edges
+                markerElement.addEventListener('click', function () {
+                    if (map) {
+                        var canvas = map.getCanvas();
+                        var point = map.project([Number(bike.lng), Number(bike.lat)]);
+                        var pad = 70;
+                        if (point.x < pad || point.x > canvas.width - pad || point.y < pad || point.y > canvas.height - pad) {
+                            map.easeTo({ center: [Number(bike.lng), Number(bike.lat)], duration: 300 });
+                        }
+                    }
+                });
+            }
         }
 
         function syncFleetStatus(bike) {

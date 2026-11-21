@@ -96,6 +96,154 @@
         color: #dc3545 !important;
         font-weight: 600;
     }
+
+    @media (max-width: 767.98px) {
+        .modal {
+            padding-left: 0;
+            padding-right: 0;
+            padding-top: max(12px, env(safe-area-inset-top));
+            padding-bottom: max(12px, env(safe-area-inset-bottom));
+        }
+
+        .modal-dialog {
+            width: calc(100vw - 32px);
+            max-width: calc(100vw - 32px);
+            margin: 0 auto;
+        }
+
+        .modal-content {
+            border-radius: 18px;
+            box-shadow: 0 18px 42px rgba(15, 23, 42, 0.22);
+            overflow: hidden;
+        }
+
+        .modal-header {
+            padding: 12px 16px;
+            gap: 10px;
+        }
+
+        .modal-header .modal-title {
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .modal-header .btn-close {
+            width: 0.8rem;
+            height: 0.8rem;
+            margin-right: 2px;
+            opacity: 0.8;
+        }
+
+        .modal-body {
+            padding: 14px 16px 12px;
+            max-height: min(68vh, 440px);
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .modal-body .d-inline-flex.rounded-circle {
+            width: 58px !important;
+            height: 58px !important;
+            font-size: 1.45rem !important;
+        }
+
+        .modal-body h5.mt-2 {
+            font-size: 1.05rem;
+        }
+
+        .modal-body .bg-light.rounded.p-3.mb-3 {
+            padding: 12px !important;
+            margin-bottom: 12px !important;
+        }
+
+        .modal-body .row.text-center .col-4 {
+            padding-left: 4px;
+            padding-right: 4px;
+        }
+
+        .modal-body .row.text-center small,
+        .modal-body .row.text-center strong {
+            font-size: 0.76rem;
+        }
+
+        .form-label-pedalya {
+            font-size: 0.78rem;
+            margin-bottom: 6px;
+        }
+
+        .modal-body .form-control,
+        .modal-body .form-select {
+            min-height: 42px;
+            font-size: 0.9rem;
+        }
+
+        #durationPresets {
+            gap: 6px !important;
+        }
+
+        #durationPresets .btn {
+            padding: 6px 10px;
+            min-height: 32px;
+            font-size: 0.75rem;
+        }
+
+        .modal-body .d-flex.justify-content-between.mt-2 {
+            font-size: 0.72rem;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .bg-primary-custom.text-white.rounded.p-3.text-center.mb-3 {
+            padding: 12px !important;
+            margin-bottom: 12px !important;
+        }
+
+        .bg-primary-custom.text-white.rounded.p-3.text-center.mb-3 small {
+            font-size: 0.72rem;
+        }
+
+        .bg-primary-custom.text-white.rounded.p-3.text-center.mb-3 h4 {
+            font-size: 1.45rem;
+        }
+
+        .modal-body .payment-method-option .text-center.p-3.rounded.border.h-100 {
+            padding: 10px !important;
+        }
+
+        .modal-body .payment-method-option .text-center.p-3.rounded.border.h-100 i {
+            font-size: 1.5rem !important;
+        }
+
+        .modal-body .payment-method-option .text-center.p-3.rounded.border.h-100 .fw-bold {
+            font-size: 0.8rem !important;
+        }
+
+        .modal-body .payment-method-option .text-center.p-3.rounded.border.h-100 small {
+            font-size: 0.7rem;
+        }
+
+        #rentalTermsWrap {
+            margin-bottom: 4px;
+        }
+
+        #rentalTermsWrap .form-check-label {
+            font-size: 0.76rem;
+            line-height: 1.45;
+        }
+
+        .modal-footer {
+            padding: 12px 16px 14px;
+            gap: 8px;
+        }
+
+        .modal-footer .btn {
+            min-height: 42px;
+            flex: 1 1 0;
+            font-size: 0.88rem;
+        }
+    }
 </style>
 @endsection
 

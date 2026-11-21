@@ -160,6 +160,7 @@ class IoTService
         if (isset($data['lat'], $data['lng'])) {
             $updateData['currentLat'] = $data['lat'];
             $updateData['currentLng'] = $data['lng'];
+            $updateData['lastGpsUpdate'] = $timestamp;
         }
 
         $battery = HelperService::valueOf($data, ['batteryLevel', 'battery_level', 'battery']);

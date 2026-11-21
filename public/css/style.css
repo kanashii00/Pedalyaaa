@@ -1687,6 +1687,148 @@ body:not(.admin-shell) :is(.admin-dropdown, .admin-notif, .admin-empty, .admin-i
   filter: drop-shadow(0 20px 40px rgba(46,125,50,0.2));
 }
 
+@media (max-width: 991.98px) {
+  .landing-nav {
+    position: fixed;
+  }
+
+  .landing-nav .container {
+    position: relative;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .landing-nav .navbar-brand {
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .landing-nav .navbar-brand img {
+    width: 52px !important;
+    height: 52px !important;
+    margin-right: 0 !important;
+  }
+
+  .landing-nav .navbar-toggler {
+    margin-left: auto;
+    border: 0;
+    padding: 7px 8px;
+    border-radius: 10px;
+  }
+
+  .landing-nav .navbar-collapse {
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 12px;
+    right: 12px;
+    background: rgba(255,255,255,0.97);
+    border: 1px solid rgba(46,125,50,0.08);
+    border-radius: 16px;
+    box-shadow: 0 20px 35px rgba(15, 23, 42, 0.12);
+    padding: 10px 12px;
+    z-index: 15;
+  }
+
+  .landing-nav .navbar-nav {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .landing-nav .nav-item {
+    width: 100%;
+  }
+
+  .landing-nav .nav-link {
+    display: block;
+    width: 100%;
+    padding: 12px 14px !important;
+    border-radius: 10px;
+  }
+
+  .landing-nav .navbar-nav .btn-pedalya,
+  .landing-nav .navbar-nav .btn-pedalya-outline {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+    margin: 0;
+  }
+
+  .hero-section {
+    min-height: 90vh;
+    padding-top: 96px;
+  }
+
+  .hero-content {
+    position: relative;
+    z-index: 2;
+    max-width: 100%;
+  }
+
+  .hero-content h1 {
+    font-size: clamp(2.1rem, 8vw, 3rem);
+    line-height: 1.1;
+    margin-bottom: 14px;
+  }
+
+  .hero-content p {
+    font-size: 1rem;
+    max-width: 100%;
+    margin-bottom: 20px;
+  }
+
+  .hero-logo {
+    margin-top: 12px;
+  }
+
+  .hero-logo img {
+    width: min(76vw, 260px) !important;
+    height: auto !important;
+    max-height: 260px;
+    border-radius: 22px;
+  }
+
+  .hero-section .d-flex.gap-3.flex-wrap.mt-4 {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px !important;
+  }
+
+  .hero-section .d-flex.gap-3.flex-wrap.mt-4 a {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .landing-nav .container {
+    min-height: 62px;
+  }
+
+  .landing-nav .navbar-brand span {
+    font-size: 1.2rem;
+  }
+
+  .hero-section {
+    min-height: 100vh;
+    padding-top: 92px;
+    overflow: hidden;
+  }
+
+  .hero-content h1 {
+    font-size: clamp(1.8rem, 8.5vw, 2.7rem);
+  }
+
+  .hero-content p {
+    font-size: 0.95rem;
+  }
+
+  .hero-logo img {
+    width: min(64vw, 220px) !important;
+  }
+}
+
 .features-section {
   padding: 100px 0;
   background: var(--white);
@@ -2345,6 +2487,53 @@ body:not(.admin-shell) :is(.admin-dropdown, .admin-notif, .admin-empty, .admin-i
     grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
+
+  .recent-rentals-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .recent-rentals-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .recent-rentals-scroll,
+  .rental-history-scroll {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+    background: var(--white);
+  }
+
+  .recent-rentals-table,
+  .rental-history-table {
+    width: max-content;
+    min-width: 620px;
+    margin-bottom: 0;
+    white-space: nowrap;
+  }
+
+  .recent-rentals-scroll th,
+  .recent-rentals-scroll td,
+  .rental-history-scroll th,
+  .rental-history-scroll td {
+    white-space: nowrap;
+  }
+
+  .recent-rentals-scroll thead th,
+  .rental-history-scroll thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
 }
 
 @media (max-width: 575.98px) {
@@ -2358,6 +2547,11 @@ body:not(.admin-shell) :is(.admin-dropdown, .admin-notif, .admin-empty, .admin-i
 
   .rider-welcome .d-flex.gap-2 .btn {
     width: 100%;
+  }
+
+  .recent-rentals-scroll,
+  .rental-history-scroll {
+    max-height: none;
   }
 }
 

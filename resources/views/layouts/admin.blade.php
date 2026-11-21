@@ -20,6 +20,7 @@
     $activeRentalsCount = Rental::activeListCount();
     $recentNotifs = $notificationService->getRecentForUser(auth()->id());
     $unackTheft = Accident::where('type', 'theft')->where('acknowledged', false)->count();
+    $unresolvedTheft = Accident::where('type', 'theft')->whereIn('status', ['open', 'investigating'])->count();
     $unackAccidents = Accident::whereIn('type', ['accident', 'impact_detected'])->where('acknowledged', false)->count();
     $pendingMaint = MaintenanceRecord::whereIn('status', ['scheduled', 'in_progress'])->count();
     $blacklistedCount = User::where('role', User::ROLE_RIDER)
@@ -88,7 +89,7 @@
                         ['title' => 'Circular Geofence', 'icon' => 'bi-bounding-box-circles', 'route' => 'admin.geofence.index', 'sub' => 'Azuela Cove riding zone', 'active' => ['admin.geofence.*']],
                         ['title' => 'Smart Lock Control', 'icon' => 'bi-lock', 'route' => 'admin.monitoring.index', 'section' => 'locks', 'query' => '?section=locks', 'sub' => 'Remote lock / unlock', 'active' => ['admin.monitoring.index']],
                         ['title' => 'IoT Device Monitoring', 'icon' => 'bi-cpu', 'route' => 'admin.monitoring.index', 'section' => 'devices', 'query' => '?section=devices', 'sub' => 'Firmware & telemetry', 'active' => ['admin.monitoring.index']],
-                        ['title' => 'Theft Detection', 'icon' => 'bi-shield-exclamation', 'route' => 'admin.theft-alerts.index', 'sub' => 'Alerts & incident log', 'badge' => $unackTheft, 'badgeType' => 'danger', 'active' => ['admin.theft-alerts.*']],
+                        ['title' => 'Theft Detection', 'icon' => 'bi-shield-exclamation', 'route' => 'admin.theft-alerts.index', 'sub' => 'Alerts & incident log', 'badge' => $unresolvedTheft, 'badgeType' => 'danger', 'active' => ['admin.theft-alerts.*']],
                     ],
                 ],
             ],
@@ -387,7 +388,15 @@
                     </div>
                     <div class="admin-dropdown__body">
                         @forelse($recentNotifs as $n)
-                            <a href="{{ route('admin.notifications.index') }}" class="admin-notif {{ !$n->read ? 'unread' : '' }}">
+                            @php
+                                $notifHref = route('admin.notifications.index');
+                                if ($n->type === 'theft') {
+                                    $notifHref = $n->incidentId ? route('admin.theft-alerts.index', ['incident' => $n->incidentId]) : route('admin.theft-alerts.index');
+                                } elseif (in_array($n->type, ['accident', 'impact_detected'], true)) {
+                                    $notifHref = $n->incidentId ? route('admin.accidents.index', ['incident' => $n->incidentId]) : route('admin.accidents.index');
+                                }
+                            @endphp
+                            <a href="{{ $notifHref }}" class="admin-notif {{ !$n->read ? 'unread' : '' }}">
                                 <div class="admin-notif__icon" style="background: {{ NotificationType::accent($n->type) }}22; color: {{ NotificationType::accent($n->type) }};">
                                     <i class="bi {{ NotificationType::icon($n->type) }}"></i>
                                 </div>

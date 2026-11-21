@@ -68,6 +68,30 @@
         .rv-filter-grid { grid-template-columns: repeat(2, 1fr); }
         .rv-filter-field--search { grid-column: span 2; }
     }
+    @media (max-width: 767px) {
+        .rv-table-scroll {
+            max-width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior-x: contain;
+            touch-action: pan-x;
+            padding-bottom: 6px;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(148, 163, 184, 0.8) transparent;
+        }
+        .rv-table-scroll::-webkit-scrollbar {
+            height: 8px;
+        }
+        .rv-table-scroll::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.72);
+            border-radius: 999px;
+        }
+        .rv-table {
+            min-width: 960px;
+            width: max-content;
+        }
+    }
     @media (max-width: 640px) {
         .rv-filter-grid { grid-template-columns: 1fr; }
         .rv-filter-field--search { grid-column: span 1; }

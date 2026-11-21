@@ -9,8 +9,8 @@ namespace {
 // Register addresses, from the MPU-6000/MPU-6050 register map.
 constexpr uint8_t REG_SMPLRT_DIV = 0x19;
 constexpr uint8_t REG_CONFIG = 0x1A;
-constexpr uint8_t REG_ACCEL_CONFIG = 0x1B;
-constexpr uint8_t REG_GYRO_CONFIG = 0x1C;
+constexpr uint8_t REG_ACCEL_CONFIG = 0x1C;
+constexpr uint8_t REG_GYRO_CONFIG  = 0x1B;
 constexpr uint8_t REG_ACCEL_XOUT_H = 0x3B;
 constexpr uint8_t REG_PWR_MGMT_1 = 0x6B;
 constexpr uint8_t REG_WHO_AM_I = 0x75;

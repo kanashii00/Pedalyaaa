@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Bicycle;
+use App\Models\Payment;
 use App\Models\Rental;
 use App\Models\SystemSetting;
 use App\Models\User;
@@ -299,5 +300,40 @@ class RiderRentalDurationMinutesTest extends TestCase
             $html,
             'the customer must see the duration that is actually stored'
         );
+    }
+
+    public function test_rider_history_uses_the_final_amount_collected_not_the_base_fee(): void
+    {
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'status' => Rental::STATUS_RETURNED,
+            'totalFee' => 15.00,
+            'overdueFee' => 20.00,
+            'finalFee' => 35.00,
+            'paymentStatus' => 'paid',
+        ]);
+
+        Payment::create([
+            'rentalId' => $rental->id,
+            'userId' => $rider->id,
+            'bicycleId' => $rental->bicycleId,
+            'paymentReference' => 'PMT-HISTORY-FINAL',
+            'paymentMethod' => 'cash',
+            'amount' => 15.00,
+            'latePenalty' => 20.00,
+            'totalAmount' => 35.00,
+            'amountPaid' => 35.00,
+            'balanceDue' => 0,
+            'currency' => 'PHP',
+            'status' => 'paid',
+        ]);
+
+        $html = $this->actingAs($rider)->get(route('rider.rentals.index'))->getContent();
+
+        $this->assertSame(35.00, $rental->fresh()->finalAmountCollected());
+        $this->assertStringContainsString('<td>₱35.00</td>', $html);
+        $this->assertStringNotContainsString('<td>₱15.00</td>', $html);
+        $this->assertStringContainsString('"cost":"\u20b135.00"', $html);
     }
 }

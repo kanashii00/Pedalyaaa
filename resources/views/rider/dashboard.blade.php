@@ -208,46 +208,48 @@
 
     <!-- Recent History -->
     <div class="col-lg-6">
-        <div class="card-pedalya h-100">
+        <div class="card-pedalya h-100 recent-rentals-card">
             <div class="card-pedalya-header d-flex justify-content-between">
                 <span><i class="bi bi-clock-history text-primary me-2"></i><strong>Recent Rentals</strong></span>
                 <a href="{{ route('rider.rentals.index') }}" style="font-size:0.82rem;">View All</a>
             </div>
-            <div class="card-pedalya-body p-0">
-                <table class="table-pedalya mb-0">
-                    <thead>
-                        <tr>
-                            <th>Bicycle</th>
-                            <th>Date</th>
-                            <th>Duration</th>
-                            <th>Cost</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="recentRentalsBody">
-                        @forelse($recentRentals as $rental)
+            <div class="card-pedalya-body p-0 recent-rentals-body">
+                <div class="recent-rentals-scroll" aria-label="Recent rentals table scroll area">
+                    <table class="table-pedalya mb-0 recent-rentals-table">
+                        <thead>
                             <tr>
-                                <td><strong>{{ $rental->bicycle->serialNumber ?? 'N/A' }}</strong></td>
-                                <td>{{ $rental->startTime->format('M d') }}</td>
-                                <td>{{ $rental->durationMinutes ? floor($rental->durationMinutes / 60) . 'h ' . ($rental->durationMinutes % 60) . 'm' : '—' }}</td>
-                                <td>₱{{ number_format($rental->totalFee ?? 0, 2) }}</td>
-                                <td>
-                                    @if($rental->status === 'active')
-                                        <span class="badge-status badge-active"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Active</span>
-                                    @elseif($rental->status === 'completed')
-                                        <span class="badge-status badge-completed"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Completed</span>
-                                    @elseif(in_array($rental->status, ['awaiting_return', 'overdue_return'], true))
-                                        <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>
-                                    @else
-                                        <span class="badge-status badge-cancelled"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> {{ ucfirst($rental->status) }}</span>
-                                    @endif
-                                </td>
+                                <th>Bicycle</th>
+                                <th>Date</th>
+                                <th>Duration</th>
+                                <th>Cost</th>
+                                <th>Status</th>
                             </tr>
-                        @empty
-                            <tr><td colspan="5" class="text-center text-muted py-3">No rental history yet</td></tr>
-                        @endforelse
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody id="recentRentalsBody">
+                            @forelse($recentRentals as $rental)
+                                <tr>
+                                    <td><strong>{{ $rental->bicycle->serialNumber ?? 'N/A' }}</strong></td>
+                                    <td>{{ $rental->startTime->format('M d') }}</td>
+                                    <td>{{ $rental->durationMinutes ? floor($rental->durationMinutes / 60) . 'h ' . ($rental->durationMinutes % 60) . 'm' : '—' }}</td>
+                                    <td>₱{{ number_format($rental->finalAmountCollected(), 2) }}</td>
+                                    <td>
+                                        @if($rental->status === 'active')
+                                            <span class="badge-status badge-active"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Active</span>
+                                        @elseif($rental->status === 'completed')
+                                            <span class="badge-status badge-completed"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Completed</span>
+                                        @elseif(in_array($rental->status, ['awaiting_return', 'overdue_return'], true))
+                                            <span class="badge-status" style="background:#FFF3E0;color:#E65100;"><i class="bi bi-hourglass-split" style="font-size:0.5rem;"></i> Awaiting Admin Confirmation</span>
+                                        @else
+                                            <span class="badge-status badge-cancelled"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> {{ ucfirst($rental->status) }}</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="5" class="text-center text-muted py-3">No rental history yet</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>

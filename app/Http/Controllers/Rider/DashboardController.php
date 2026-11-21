@@ -35,7 +35,7 @@ class DashboardController extends Controller
         $activeRental = $this->operatingArea->liveRentalFor($user);
 
         $recentRentals = $user->rentals()
-            ->with('bicycle')
+            ->with(['bicycle', 'payment'])
             ->latest()
             ->limit(5)
             ->get();
@@ -104,7 +104,7 @@ class DashboardController extends Controller
         $activeRental = $this->operatingArea->liveRentalFor($user);
 
         $recentRentals = $user->rentals()
-            ->with('bicycle')
+            ->with(['bicycle', 'payment'])
             ->latest()
             ->limit(5)
             ->get();
@@ -138,7 +138,7 @@ class DashboardController extends Controller
                 'durationLabel' => $rental->durationMinutes
                     ? floor($rental->durationMinutes / 60).'h '.($rental->durationMinutes % 60).'m'
                     : '—',
-                'cost' => (float) ($rental->totalFee ?? 0),
+                'cost' => $rental->finalAmountCollected(),
                 'status' => $rental->status,
             ])->values(),
             'lastSettled' => $lastSettled ? [

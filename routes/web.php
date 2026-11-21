@@ -101,12 +101,17 @@ Route::middleware(['auth', 'role:admin', 'no-cache'])->prefix('admin')->name('ad
     Route::put('/geofence', [AdminGeofence::class, 'update'])->name('geofence.update');
 
     // Theft alerts
-Route::get('/theft', [AdminTheft::class, 'index'])->name('theft-alerts.index');
-Route::get('/theft/live', [AdminTheft::class, 'live'])->name('theft-alerts.live');
-Route::post('/theft/{id}/acknowledge', [AdminTheft::class, 'acknowledge'])->name('theft-alerts.acknowledge');
+    Route::get('/theft', [AdminTheft::class, 'index'])->name('theft-alerts.index');
+    Route::get('/theft/live', [AdminTheft::class, 'live'])->name('theft-alerts.live');
+    Route::get('/theft/{id}/details', [AdminTheft::class, 'details'])->name('theft-alerts.details');
+    Route::post('/theft/{id}/acknowledge', [AdminTheft::class, 'acknowledge'])->name('theft-alerts.acknowledge');
+    Route::post('/theft/{id}/investigate', [AdminTheft::class, 'investigate'])->name('theft-alerts.investigate');
+    Route::post('/theft/{id}/false-alarm', [AdminTheft::class, 'markFalseAlarm'])->name('theft-alerts.false-alarm');
+    Route::post('/theft/{id}/resolve', [AdminTheft::class, 'resolve'])->name('theft-alerts.resolve');
 
     // Accidents
     Route::get('/accidents', [AdminAccident::class, 'index'])->name('accidents.index');
+    Route::get('/accidents/{id}/details', [AdminAccident::class, 'details'])->name('accidents.details');
     Route::post('/accidents/{id}/acknowledge', [AdminAccident::class, 'acknowledge'])->name('accidents.acknowledge');
 
     // Maintenance

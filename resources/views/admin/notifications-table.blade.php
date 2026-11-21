@@ -40,6 +40,13 @@
                             @else
                                 <x-admin.badge type="info" label="Unread"/>
                             @endif
+                            @if($notification->type === 'theft' || !empty($notification->incidentId))
+                                <a href="{{ route('admin.theft-alerts.index', ['incident' => $notification->incidentId]) }}"
+                                   class="btn-admin btn-admin--soft btn-admin--sm ms-1"
+                                   title="View Incident details">
+                                    <i class="bi bi-shield-exclamation me-1"></i>View Incident
+                                </a>
+                            @endif
                             @if($notification->userId === auth()->id() && !$notification->readAt)
                                 <button type="button"
                                     class="btn-admin btn-admin--secondary btn-admin--sm ms-1"

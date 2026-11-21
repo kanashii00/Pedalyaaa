@@ -68,6 +68,30 @@
         .rv-filter-grid { grid-template-columns: repeat(2, 1fr); }
         .rv-filter-field--search { grid-column: span 2; }
     }
+    @media (max-width: 767px) {
+        .rv-table-scroll {
+            max-width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior-x: contain;
+            touch-action: pan-x;
+            padding-bottom: 6px;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(148, 163, 184, 0.8) transparent;
+        }
+        .rv-table-scroll::-webkit-scrollbar {
+            height: 8px;
+        }
+        .rv-table-scroll::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.72);
+            border-radius: 999px;
+        }
+        .rv-table {
+            min-width: 960px;
+            width: max-content;
+        }
+    }
     @media (max-width: 640px) {
         .rv-filter-grid { grid-template-columns: 1fr; }
         .rv-filter-field--search { grid-column: span 1; }
@@ -514,8 +538,8 @@
                             $durLabel = $rental->durationMinutes ? ($durH ? $durH . 'h ' . $durM . 'm' : $durM . 'm') : null;
                         @endphp
                         <tr class="rv-row">
-                            <td><span class="rv-id"><small>REN</small>#{{ $rental->id }}</span></td>
-                            <td>
+                            <td data-label="Rental ID"><span class="rv-id"><small>REN</small>#{{ $rental->id }}</span></td>
+                            <td data-label="Rider">
                                 <div class="rv-rider">
                                     <div class="user-avatar" style="width:30px;height:30px;font-size:11px;">
                                         {{ strtoupper(substr($rental->rider->name ?? 'U', 0, 1)) }}
@@ -526,43 +550,43 @@
                                     </div>
                                 </div>
                             </td>
-                            <td>
+                            <td data-label="Bicycle">
                                 <div class="rv-bike__name">{{ $rental->bicycle->name ?? 'Unknown' }}</div>
                                 @if($rental->bicycle?->serialNumber)
                                     <div class="rv-bike__sub">SN &middot; {{ $rental->bicycle->serialNumber }}</div>
                                 @endif
                             </td>
-                            <td>
+                            <td data-label="Start">
                                 <div class="rv-dt">
                                     <div class="rv-dt__date">{{ $rental->startTime?->format('M d, Y') ?? '—' }}</div>
                                     <div class="rv-dt__time">{{ $rental->startTime?->format('h:i A') ?? 'Not started' }}</div>
                                 </div>
                             </td>
-                            <td>
+                            <td data-label="End">
                                 <div class="rv-dt">
                                     <div class="rv-dt__date">{{ $rental->endTime?->format('M d, Y') ?? '—' }}</div>
                                     <div class="rv-dt__time">{{ $rental->endTime?->format('h:i A') ?? '—' }}</div>
                                 </div>
                             </td>
-                            <td>
+                            <td data-label="Duration">
                                 @if($durLabel)
                                     <span class="rv-chip"><i class="bi bi-hourglass-split"></i>{{ $durLabel }}</span>
                                 @else
                                     <span style="color:var(--text-3);">&mdash;</span>
                                 @endif
                             </td>
-                            <td>
+                            <td data-label="Fee">
                                 <div class="rv-fee">&#8369;{{ number_format($rental->totalFee ?? 0, 2) }}</div>
                                 <div class="rv-fee__sub">&#8369;{{ number_format($rental->ratePerHour ?? 0, 2) }}/hr</div>
                             </td>
-                            <td>
+                            <td data-label="Method">
                                 @if($rental->paymentMethod === 'gcash')
                                     <span class="rv-method rv-method--gcash"><i class="bi bi-phone"></i>GCash</span>
                                 @else
                                     <span class="rv-method rv-method--cash"><i class="bi bi-cash-stack"></i>Cash</span>
                                 @endif
                             </td>
-                            <td>
+                            <td data-label="Status">
                                 @if($rental->status === 'completed')
                                     <span class="rv-status rv-status--completed rv-status--dot">Completed</span>
                                 @elseif($rental->status === 'returned')
@@ -582,7 +606,7 @@
                                     </div>
                                 @endif
                             </td>
-                            <td>
+                            <td data-label="Payment">
                                 @if($rental->paymentStatus === 'paid')
                                     <span class="rv-status rv-status--paid"><i class="bi bi-check-circle-fill"></i>Paid</span>
                                 @elseif($rental->paymentStatus === 'partial')
@@ -596,7 +620,7 @@
                                     <span class="rv-status rv-status--unpaid rv-status--dot">{{ ucfirst($rental->paymentStatus ?? 'unpaid') }}</span>
                                 @endif
                             </td>
-                            <td>
+                            <td data-label="Actions">
                                 <div class="rv-actions">
                                     @php
                                         $detailBaseFee = ($rental->totalFee ?? 0) - (float) ($rental->overdueFee ?? 0);

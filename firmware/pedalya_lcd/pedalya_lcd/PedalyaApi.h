@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "config.h"
+#include "GpsReceiver.h"
 #include <ArduinoJson.h>
 
 struct RentalState {
@@ -138,6 +139,12 @@ public:
     bool connected();
     void begin();
     void ensureTime();
+    void cacheGpsFix(const GpsFix& fix) {
+        lastGpsFix_ = fix;
+        hasGpsFix_ = true;
+    }
+    bool hasCachedGpsFix() const { return hasGpsFix_; }
+    const GpsFix& cachedGpsFix() const { return lastGpsFix_; }
 
     bool poll(RentalState& out, String& error);
     bool pollCommands(DeviceCommand* commands, size_t capacity, size_t& count, String& error);
@@ -253,4 +260,7 @@ private:
     // "sta is connecting, cannot set config" error and prevents a clean retry.
     bool     wifiAttemptInProgress = false;
     uint32_t wifiAttemptStartedMs = 0;
+
+    bool     hasGpsFix_ = false;
+    GpsFix   lastGpsFix_;
 };

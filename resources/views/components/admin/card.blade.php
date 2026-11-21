@@ -1,6 +1,6 @@
 @props(['title' => null, 'sub' => null, 'flush' => false, 'bodyClass' => ''])
 
-<div class="admin-card">
+<div {{ $attributes->merge(['class' => 'admin-card']) }}>
     @if($title || isset($tools))
         <div class="admin-card__head">
             <div>

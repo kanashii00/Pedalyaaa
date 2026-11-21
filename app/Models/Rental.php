@@ -282,6 +282,42 @@ class Rental extends Model
         return $this->hasOne(Payment::class, 'rentalId');
     }
 
+    /**
+     * The amount actually collected for this rental's final settlement.
+     *
+     * `totalFee` is deliberately only the original booked base fee and
+     * `finalFee` is the final rental charge before payment-specific charges.
+     * The linked payment's `amountPaid` is therefore the only amount that can
+     * truthfully be shown as collected: it includes the frozen late penalty
+     * and any valid payment charge, while still allowing a partial payment to
+     * remain visibly partial. The paid-rental fallback preserves historical
+     * rows created before Payment records were required.
+     */
+    public function finalAmountCollected(): float
+    {
+        $payment = $this->relationLoaded('payment')
+            ? $this->getRelation('payment')
+            : $this->payment()->first();
+
+        if ($payment !== null) {
+            if ($payment->amountPaid !== null) {
+                return round((float) $payment->amountPaid, 2);
+            }
+
+            if ($payment->status === 'paid') {
+                return round((float) ($payment->totalAmount ?? $payment->amount ?? 0), 2);
+            }
+
+            return 0.0;
+        }
+
+        if ($this->paymentStatus === 'paid') {
+            return round((float) ($this->finalFee ?? $this->totalFee ?? 0), 2);
+        }
+
+        return 0.0;
+    }
+
     public function rider(): BelongsTo
     {
         return $this->belongsTo(User::class, 'riderId');

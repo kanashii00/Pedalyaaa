@@ -2,6 +2,27 @@
 
 @section('title', 'My Rental History')
 
+@section('styles')
+<style>
+    /* Scoped to the rider's Bootstrap dialog: the admin has a distinct modal
+       structure that historically reused this ID. */
+    @media (max-width: 767.98px) {
+        .rider-rental-detail-modal { display: flex !important; align-items: center; justify-content: center; padding: max(16px, env(safe-area-inset-top)) 0 max(16px, env(safe-area-inset-bottom)); overflow: hidden; }
+        .rider-rental-detail-modal .rider-rental-detail__dialog { width: calc(100% - 32px); height: min(720px, calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom))); max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); margin: 0; }
+        .rider-rental-detail-modal .rider-rental-detail__content { height: 100%; border-radius: 16px; }
+        .rider-rental-detail-modal .rider-rental-detail__content { display: flex; flex-direction: column; overflow: hidden; }
+        .rider-rental-detail-modal .rider-rental-detail__header { flex: 0 0 auto; padding: 14px 16px; }
+        .rider-rental-detail-modal .rider-rental-detail__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px 16px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+        .rider-rental-detail-modal .rider-rental-detail__footer { display: block; flex: 0 0 auto; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+        .rider-rental-detail-modal .rider-rental-detail__footer .btn { width: 100%; min-height: 44px; }
+        .rider-rental-detail__grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin: 0; }
+        .rider-rental-detail__card { width: auto; min-width: 0; padding: 11px 12px; border: 1px solid var(--gray-200); border-radius: 10px; background: var(--gray-50); }
+        .rider-rental-detail__label { display: block; margin-bottom: 5px; color: var(--gray-500); font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+        .rider-rental-detail__value { margin: 0; color: var(--gray-800); font-size: .9rem; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+    }
+</style>
+@endsection
+
 @section('content')
 @if($activeRental && in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true))
     @php
@@ -144,8 +165,8 @@
 <!-- Table -->
 <div class="card-pedalya">
     <div class="card-pedalya-header"><span><strong>Rental History</strong></span></div>
-    <div class="table-responsive">
-        <table class="table table-pedalya mb-0">
+    <div class="rental-history-scroll">
+        <table class="table table-pedalya mb-0 rental-history-table">
             <thead>
                 <tr>
                     <th>ID</th>
@@ -167,7 +188,7 @@
                         <td>{{ $rental->startTime?->format('M d, g:i A') ?? '—' }}</td>
                         <td>{{ $rental->endTime ? $rental->endTime->format('M d, g:i A') : '—' }}</td>
                         <td>{{ $rental->durationFormatted ?? ($rental->durationMinutes ? floor($rental->durationMinutes / 60) . 'h ' . ($rental->durationMinutes % 60) . 'm' : '—') }}</td>
-                        <td>₱{{ number_format($rental->totalFee ?? 0, 2) }}</td>
+                        <td>₱{{ number_format($rental->finalAmountCollected(), 2) }}</td>
                         <td>
                             @if($rental->paymentMethod === 'gcash')
                                 <span class="badge bg-primary-subtle text-primary" style="font-size:0.75rem;"><i class="bi bi-phone me-1"></i>GCash</span>
@@ -256,27 +277,26 @@
 </div>
 
 <!-- Rental Detail Modal -->
-<div class="modal fade" id="rentalDetailModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Rental Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+<div class="modal fade rider-rental-detail-modal" id="rentalDetailModal" tabindex="-1" aria-labelledby="rentalDetailTitle" aria-hidden="true">
+    <div class="modal-dialog rider-rental-detail__dialog">
+        <div class="modal-content rider-rental-detail__content">
+            <div class="modal-header rider-rental-detail__header">
+                <h5 class="modal-title" id="rentalDetailTitle">Rental Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close rental details"></button>
             </div>
-            <div class="modal-body">
-                <div class="row g-3">
-                    <div class="col-sm-6"><label class="form-label-pedalya">Rental ID</label><p><strong id="detailRentalId">—</strong></p></div>
-                    <div class="col-sm-6"><label class="form-label-pedalya">Bicycle</label><p id="detailBicycle">—</p></div>
-                    <div class="col-sm-6"><label class="form-label-pedalya">Start Time</label><p id="detailStart">—</p></div>
-                    <div class="col-sm-6"><label class="form-label-pedalya">End Time</label><p id="detailEnd">—</p></div>
-                    <div class="col-sm-6"><label class="form-label-pedalya">Duration</label><p id="detailDuration">—</p></div>
-                    <div class="col-sm-6"><label class="form-label-pedalya">Total Cost</label><p><strong class="text-primary" id="detailCost">—</strong></p></div>
-                    <div class="col-sm-6"><label class="form-label-pedalya">Payment Method</label><p id="detailPaymentMethod">—</p></div>
-                    <div class="col-sm-6"><label class="form-label-pedalya">Status</label><p id="detailStatus">—</p></div>
-                    <div class="col-sm-6"><label class="form-label-pedalya">Payment</label><p id="detailPayment">—</p></div>
+            <div class="modal-body rider-rental-detail__body">
+                <div class="row g-3 rider-rental-detail__grid">
+                    <div class="col-sm-6 rider-rental-detail__card"><label class="form-label-pedalya rider-rental-detail__label">Rental ID</label><p class="rider-rental-detail__value"><strong id="detailRentalId">—</strong></p></div>
+                    <div class="col-sm-6 rider-rental-detail__card"><label class="form-label-pedalya rider-rental-detail__label">Bicycle</label><p class="rider-rental-detail__value" id="detailBicycle">—</p></div>
+                    <div class="col-sm-6 rider-rental-detail__card"><label class="form-label-pedalya rider-rental-detail__label">Start Time</label><p class="rider-rental-detail__value" id="detailStart">—</p></div>
+                    <div class="col-sm-6 rider-rental-detail__card"><label class="form-label-pedalya rider-rental-detail__label">End Time</label><p class="rider-rental-detail__value" id="detailEnd">—</p></div>
+                    <div class="col-sm-6 rider-rental-detail__card"><label class="form-label-pedalya rider-rental-detail__label">Duration</label><p class="rider-rental-detail__value" id="detailDuration">—</p></div>
+                    <div class="col-sm-6 rider-rental-detail__card"><label class="form-label-pedalya rider-rental-detail__label">Total Cost</label><p class="rider-rental-detail__value"><strong class="text-primary" id="detailCost">—</strong></p></div>
+                    <div class="col-sm-6 rider-rental-detail__card"><label class="form-label-pedalya rider-rental-detail__label">Payment Method</label><p class="rider-rental-detail__value" id="detailPaymentMethod">—</p></div>
+                    <div class="col-sm-6 rider-rental-detail__card"><label class="form-label-pedalya rider-rental-detail__label">Status</label><p class="rider-rental-detail__value" id="detailStatus">—</p></div>
                 </div>
             </div>
-            <div class="modal-footer">
+            <div class="modal-footer rider-rental-detail__footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
@@ -310,7 +330,7 @@
         'start' => $r->startTime?->format('M d, Y g:i A') ?? '—',
         'end' => $r->endTime ? $r->endTime->format('M d, Y g:i A') : '—',
         'duration' => $r->durationFormatted ?? ($r->durationMinutes ? floor($r->durationMinutes / 60) . 'h ' . ($r->durationMinutes % 60) . 'm' : '—'),
-        'cost' => '₱' . number_format($r->totalFee ?? 0, 2),
+        'cost' => '₱' . number_format($r->finalAmountCollected(), 2),
         'status' => $r->status,
         'paymentMethod' => ucfirst($r->paymentMethod ?? 'cash'),
         'payment' => $r->paymentStatus ?? 'pending',
@@ -326,7 +346,6 @@
         document.getElementById('detailDuration').textContent = rental.duration;
         document.getElementById('detailCost').textContent = rental.cost;
         document.getElementById('detailPaymentMethod').textContent = rental.paymentMethod;
-        document.getElementById('detailPayment').textContent = rental.payment;
         var statusHtml = '';
         if (rental.status === 'active') statusHtml = '<span class="badge-status badge-active"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Active</span>';
         else if (rental.status === 'completed') statusHtml = '<span class="badge-status badge-completed"><i class="bi bi-circle-fill" style="font-size:0.5rem;"></i> Completed</span>';

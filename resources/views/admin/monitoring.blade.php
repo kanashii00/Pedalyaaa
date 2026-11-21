@@ -280,7 +280,10 @@
                     <td data-label="Distance from center" data-gps-field="distance">{{ $bike->zone['distance'] !== null ? number_format($bike->zone['distance'], 0) . ' m' : 'N/A' }}</td>
                     <td data-label="Last GPS" data-gps-field="updated-at">
                         @if($gps['updated_at'])
-                            <time datetime="{{ $gps['updated_at'] }}" title="{{ $gps['updated_at'] }}">{{ $bike->latestGpsLog->created_at->diffForHumans() }}</time>
+                            @php
+                                $lastGpsDisplay = $bike->latestGpsLog?->created_at ?? $bike->lastGpsUpdate ?? \Carbon\Carbon::parse($gps['updated_at']);
+                            @endphp
+                            <time datetime="{{ $gps['updated_at'] }}" title="{{ $gps['updated_at'] }}">{{ $lastGpsDisplay->diffForHumans() }}</time>
                         @else
                             Never
                         @endif
@@ -490,6 +493,9 @@
     $bicycleLocations = collect($bicycles)->map(fn($b) => [
         'id' => $b->id,
         'name' => $b->name,
+        'serialNumber' => $b->serialNumber,
+        'rider' => $b->currentRiderUser?->name,
+        'rental' => $b->currentRental ? ('#' . ($b->currentRental->rentalId ?? $b->currentRental->id)) : null,
         'lat' => $b->gps_data['latitude'],
         'lng' => $b->gps_data['longitude'],
         'gps_status' => $b->gps_data['status'],
@@ -569,7 +575,7 @@
         });
     }
 
-    window.PedalyaGeoLibre.init({
+    var mapCtx = window.PedalyaGeoLibre.init({
         container: 'monitoringMap',
         geofence: geofence,
         bicycles: bicycles,
@@ -587,6 +593,73 @@
             updateGpsFeed(data);
         }
     });
+
+    var urlParams = new URLSearchParams(window.location.search);
+    var targetBikeId = urlParams.get('bike');
+    var targetLat = parseFloat(urlParams.get('lat'));
+    var targetLng = parseFloat(urlParams.get('lng'));
+
+    function focusTarget() {
+        if (!mapCtx || !mapCtx.map) return;
+        if (targetBikeId && mapCtx.markers && mapCtx.markers[targetBikeId]) {
+            var m = mapCtx.markers[targetBikeId];
+            if (m.marker && m.bike && m.bike.lat && m.bike.lng) {
+                mapCtx.map.flyTo({ center: [Number(m.bike.lng), Number(m.bike.lat)], zoom: 17, essential: true });
+                if (typeof m.marker.togglePopup === 'function') {
+                    m.marker.togglePopup();
+                }
+                return;
+            }
+        }
+        if (Number.isFinite(targetLat) && Number.isFinite(targetLng)) {
+            mapCtx.map.flyTo({ center: [targetLng, targetLat], zoom: 17, essential: true });
+            if (window.maplibregl) {
+                var accPopupHtml = '<div class="pedalya-map-popup">' +
+                    '<div class="pedalya-map-popup__header">' +
+                        '<div class="pedalya-map-popup__badges">' +
+                            '<span class="theft-badge theft-badge--critical"><i class="bi bi-exclamation-triangle-fill"></i>Accident Location</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="pedalya-map-popup__telemetry mb-0">' +
+                        '<div class="pedalya-map-popup__coords">' +
+                            '<span><i class="bi bi-geo-alt-fill text-danger me-1"></i>Coordinates</span>' +
+                            '<code>' + targetLat.toFixed(6) + ', ' + targetLng.toFixed(6) + '</code>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+
+                var accPopup = new window.maplibregl.Popup({
+                    offset: {
+                        'top': [0, 8],
+                        'bottom': [0, -25],
+                        'left': [15, 0],
+                        'right': [-15, 0]
+                    },
+                    closeButton: true,
+                    maxWidth: '310px',
+                    className: 'pedalya-map-popup-wrap'
+                })
+                .setLngLat([targetLng, targetLat])
+                .setHTML(accPopupHtml)
+                .addTo(mapCtx.map);
+
+                if (mapCtx) {
+                    if (mapCtx.activePopup && mapCtx.activePopup !== accPopup) {
+                        mapCtx.activePopup.remove();
+                    }
+                    mapCtx.activePopup = accPopup;
+                }
+            }
+        }
+    }
+
+    if (mapCtx && mapCtx.map) {
+        if (mapCtx.map.loaded()) {
+            focusTarget();
+        } else {
+            mapCtx.map.on('load', focusTarget);
+        }
+    }
 })();
 </script>
 @endif

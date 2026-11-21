@@ -1307,16 +1307,20 @@ public function startRental(
             $alreadyPaid = (float) ($rental->totalFee ?? $baseFee);
         }
 
+        $convenienceFee = round((float) ($payment?->convenienceFee ?? 0), 2);
+        $finalPaymentTotal = round($finalFee + $convenienceFee, 2);
+
         if ($method === 'cash') {
             // Existing workflow treats cash as settled when the return is
-            // confirmed; any late fee is handed over at the counter.
-            $amountPaid = $finalFee;
+            // confirmed; any late fee and valid payment charge are handed
+            // over at the counter.
+            $amountPaid = $finalPaymentTotal;
         } else {
-            $amountPaid = min(max($alreadyPaid, 0), $finalFee);
+            $amountPaid = min(max($alreadyPaid, 0), $finalPaymentTotal);
         }
 
         $amountPaid = round($amountPaid, 2);
-        $balanceDue = round(max($finalFee - $amountPaid, 0), 2);
+        $balanceDue = round(max($finalPaymentTotal - $amountPaid, 0), 2);
 
         $status = $payment?->status;
         if ($balanceDue <= 0) {
@@ -1342,6 +1346,7 @@ public function startRental(
             'base_fee' => $baseFee,
             'late_penalty' => $latePenalty,
             'final_fee' => $finalFee,
+            'payment_total' => $finalPaymentTotal,
             'amount_paid' => $amountPaid,
             'balance_due' => $balanceDue,
             'payment_method' => $method,
@@ -1364,8 +1369,8 @@ public function startRental(
         $attributes = [
             'paymentMethod' => $method,
             'amount' => $baseFee,
-            'convenienceFee' => $payment?->convenienceFee ?? 0,
-            'totalAmount' => $finalFee,
+            'convenienceFee' => $convenienceFee,
+            'totalAmount' => $finalPaymentTotal,
             'latePenalty' => $latePenalty,
             'amountPaid' => $amountPaid,
             'balanceDue' => $balanceDue,

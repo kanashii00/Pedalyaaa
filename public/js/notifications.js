@@ -265,7 +265,8 @@
 
             if (pageOwnsToast(payload)) return;
 
-            toast(payload.message || 'You have a new notification.', 'info', payload.title || 'Notification');
+            var variant = (payload.type === 'theft' || payload.type === 'error') ? 'error' : ((payload.type === 'warning' || payload.type === 'geofence_alert') ? 'warning' : 'info');
+            toast(payload.message || 'You have a new notification.', variant, payload.title || 'Notification');
         });
     }
 

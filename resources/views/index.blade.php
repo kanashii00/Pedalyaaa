@@ -230,5 +230,35 @@
             nav.classList.toggle('scrolled', window.scrollY > 40);
         }
     });
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const navCollapse = document.getElementById('landingNavbar');
+        const toggler = document.querySelector('.landing-nav .navbar-toggler');
+
+        if (!navCollapse || !toggler) {
+            return;
+        }
+
+        navCollapse.querySelectorAll('.nav-link, .btn-pedalya, .btn-pedalya-outline').forEach(function (link) {
+            link.addEventListener('click', function () {
+                if (window.innerWidth < 992) {
+                    if (window.bootstrap && window.bootstrap.Collapse) {
+                        const collapse = window.bootstrap.Collapse.getOrCreateInstance(navCollapse);
+                        collapse.hide();
+                    } else {
+                        navCollapse.classList.remove('show');
+                    }
+                }
+            });
+        });
+
+        toggler.addEventListener('click', function () {
+            if (window.innerWidth < 992 && navCollapse.classList.contains('show')) {
+                document.body.classList.add('mobile-menu-open');
+            } else {
+                document.body.classList.remove('mobile-menu-open');
+            }
+        });
+    });
 </script>
 @endsection
