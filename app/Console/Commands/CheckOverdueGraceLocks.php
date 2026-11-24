@@ -97,6 +97,7 @@ class CheckOverdueGraceLocks extends Command
         $latestHeartbeat = $this->latestHeartbeat($bicycle->id);
 
         $guards = [
+            [$bicycle->manualUnlockOverrideUntil?->isFuture(), 'info', "Bicycle #{$bicycle->id} has an active administrator unlock override."],
             [$bicycle->lockStatus === 'locked', 'info', "Bicycle #{$bicycle->id} is already locked."],
             [$this->hasPendingLockCommand($bicycle->id), 'info', "Bicycle #{$bicycle->id} already has a pending lock command."],
             [$latestHeartbeat === null, 'warn', "Bicycle #{$bicycle->id}: no heartbeat available. Lock skipped."],

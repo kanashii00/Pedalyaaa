@@ -45,25 +45,32 @@
         </x-admin.card>
 
         <x-admin.card title="Remote Lock Control">
+            @php($pendingLockCommand = \App\Models\DeviceCommand::where('bicycleId', $bicycle->id)->whereIn('command', ['lock', 'unlock'])->whereIn('status', ['pending', 'sent'])->latest('id')->first())
+            @php($deviceOffline = !$bicycle->lastHeartbeat || $bicycle->lastHeartbeat->lt(now()->subMinutes(2)))
+            @if($pendingLockCommand)
+                <div class="alert alert-warning py-2 mb-2"><i class="bi bi-hourglass-split me-1"></i>{{ ucfirst($pendingLockCommand->command) }}ing — pending ESP32 acknowledgement.</div>
+            @elseif($deviceOffline)
+                <div class="alert alert-secondary py-2 mb-2"><i class="bi bi-wifi-off me-1"></i>Device offline; command delivery waits for its next check-in.</div>
+            @endif
             <p class="bike-hint">Queue a command for the ESP32 smart lock. It applies when the device next checks in — the lock state below updates only after the device acknowledges.</p>
             <div class="bike-lock-actions">
                 <form action="{{ route('admin.bicycles.lock', $bicycle->id) }}" method="POST">
                     @csrf
                     <input type="hidden" name="action" value="lock">
-                    <button type="submit" class="btn-admin btn-admin--danger bike-lock-btn" {{ $bicycle->lockStatus === 'locked' ? 'disabled' : '' }}>
+                    <button type="submit" class="btn-admin btn-admin--danger bike-lock-btn" {{ $pendingLockCommand ? 'disabled' : '' }}>
                         <i class="bi bi-lock-fill me-1"></i>Lock
                     </button>
                 </form>
                 <form action="{{ route('admin.bicycles.lock', $bicycle->id) }}" method="POST">
                     @csrf
                     <input type="hidden" name="action" value="unlock">
-                    <button type="submit" class="btn-admin btn-admin--secondary bike-lock-btn" {{ $bicycle->lockStatus === 'unlocked' ? 'disabled' : '' }}>
+                    <button type="submit" class="btn-admin btn-admin--secondary bike-lock-btn" {{ $pendingLockCommand ? 'disabled' : '' }}>
                         <i class="bi bi-unlock-fill me-1"></i>Unlock
                     </button>
                 </form>
             </div>
             <small class="bike-hint bike-hint--muted d-block mt-2">
-                Last queued: {{ $bicycle->lastLockAction ? $bicycle->lastLockAction->diffForHumans() : 'Never' }}
+                Last hardware acknowledgement: {{ $bicycle->lastLockAction ? $bicycle->lastLockAction->diffForHumans() : 'Never' }}
                 @if($bicycle->lockActionBy) by #{{ $bicycle->lockActionBy }} @endif
             </small>
         </x-admin.card>
@@ -72,7 +79,7 @@
     <!-- Telemetry -->
     <div class="col-lg-7">
         <x-admin.card title="Device Telemetry">
-            @php
+            <?php
                 $t = $bicycle->latestTelemetry;
                 $hasDevice = (bool) ($bicycle->iotEnabled ?? $t);
                 $freshCutoff = now()->subMinutes(5);
@@ -83,7 +90,7 @@
                 $lockShown = $hasDevice;
                 $uptimeShown = $hasDevice && $t?->uptime;
                 $fwShown = $hasDevice && $t?->deviceVersion;
-            @endphp
+            ?>
             <div class="row g-3">
                 <div class="col-6 col-md-3">
                     <div class="bike-tel-tile">

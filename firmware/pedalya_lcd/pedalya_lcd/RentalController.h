@@ -66,6 +66,7 @@ public:
     void maintainDuringNetworkFailure(const RentalState& rental);
 
     bool rentalIsExpired(const RentalState& rental) const;
+    void activateManualUnlockOverride() { manualUnlockOverride_ = true; }
 
     ActuatorState state() const { return state_; }
     const RentalTimer& timer() const { return timer_; }
@@ -89,6 +90,7 @@ private:
     // deliberate rotation on each fresh expiry, while the safety loop continues
     // issuing the final holding command afterwards.
     bool lockMovementCompleted_ = false;
+    bool manualUnlockOverride_ = false;
 
     // Only the "remaining" line is logged, and only when the value actually
     // changes, so the countdown reads as one line per second instead of five.

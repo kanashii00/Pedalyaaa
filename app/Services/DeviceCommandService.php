@@ -8,6 +8,7 @@ use App\Models\DeviceCommand;
 use App\Models\DeviceStatus;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class DeviceCommandService
@@ -43,13 +44,31 @@ class DeviceCommandService
             return null;
         }
 
-        $deviceCommand = DeviceCommand::create([
-            'bicycleId' => $bicycleId,
-            'command' => $command,
-            'params' => $params ?: null,
-            'status' => 'pending',
-            'issuedBy' => $user?->id,
-        ]);
+        $isLockCommand = in_array($command, ['lock', 'unlock'], true);
+        $manualOverride = $isLockCommand && $command === 'unlock' && $user?->isAdmin();
+        if ($manualOverride) {
+            $params = array_merge($params, ['source' => 'admin', 'manual_override' => true]);
+        }
+
+        $deviceCommand = DB::transaction(function () use ($bicycleId, $command, $params, $user, $isLockCommand) {
+            // A newer lock decision wins. Do not deliver an old LOCK after an
+            // administrator has requested UNLOCK (or vice versa).
+            if ($isLockCommand) {
+                DeviceCommand::where('bicycleId', $bicycleId)
+                    ->whereIn('command', ['lock', 'unlock'])
+                    ->whereIn('status', ['pending', 'sent'])
+                    ->update(['status' => 'superseded', 'supersededAt' => now()]);
+            }
+
+            return DeviceCommand::create([
+                'bicycleId' => $bicycleId,
+                'command' => $command,
+                'params' => $params ?: null,
+                'status' => 'pending',
+                'issuedBy' => $user?->id,
+                'expiresAt' => $isLockCommand ? now()->addMinutes(15) : now()->addMinutes(5),
+            ]);
+        });
 
         DeviceStatus::create([
             'bicycleId' => $bicycleId,
@@ -69,7 +88,7 @@ class DeviceCommandService
         ?string $result = null,
         string $status = 'executed'
     ): bool {
-        $command = DeviceCommand::find($deviceCommandId);
+        $command = DeviceCommand::lockForUpdate()->find($deviceCommandId);
 
         if (! $command) {
             return false;
@@ -78,10 +97,15 @@ class DeviceCommandService
         $validStatus = $this->normalizeCommandStatus($status);
         $previousStatus = $command->status;
 
+        if (in_array($previousStatus, ['executed', 'failed', 'superseded', 'expired'], true)) {
+            return $previousStatus === $validStatus;
+        }
+
         $command->update([
             'status' => $validStatus,
             'executedAt' => $validStatus === 'executed' ? now() : null,
             'response' => $result,
+            'acknowledgedAt' => now(),
         ]);
 
         if ($validStatus === 'executed') {
@@ -115,16 +139,24 @@ class DeviceCommandService
 
     public function getPendingCommands(int $bicycleId): array
     {
+        DeviceCommand::where('bicycleId', $bicycleId)
+            ->where('status', 'pending')
+            ->whereNotNull('expiresAt')
+            ->where('expiresAt', '<=', now())
+            ->update(['status' => 'expired']);
+
         return DeviceCommand::where('bicycleId', $bicycleId)
             ->where('status', 'pending')
-            ->orderBy('id', 'asc')
-            ->take(5)
+            ->where(fn ($query) => $query->whereNull('expiresAt')->orWhere('expiresAt', '>', now()))
+            ->orderByDesc('id')
+            ->take(1)
             ->get()
             ->map(fn (DeviceCommand $cmd) => [
                 'id' => $cmd->id,
                 'command' => $cmd->command,
                 'params' => $cmd->params,
                 'issued_at' => $cmd->created_at,
+                'expires_at' => $cmd->expiresAt?->toIso8601String(),
             ])
             ->toArray();
     }
@@ -172,6 +204,12 @@ class DeviceCommandService
             'status' => $status,
             'lastLockAction' => Carbon::now(),
             'lockActionBy' => $command->issuedBy,
+            // The override is created only after the device confirms it moved
+            // the servo. A manual LOCK explicitly revokes it.
+            'manualUnlockOverrideUntil' => $command->command === 'unlock' && ($command->params['manual_override'] ?? false)
+                ? now()->addMinutes(30) : ($command->command === 'lock' ? null : $bicycle->manualUnlockOverrideUntil),
+            'manualUnlockOverrideBy' => $command->command === 'unlock' && ($command->params['manual_override'] ?? false)
+                ? $command->issuedBy : ($command->command === 'lock' ? null : $bicycle->manualUnlockOverrideBy),
         ]);
     }
 }

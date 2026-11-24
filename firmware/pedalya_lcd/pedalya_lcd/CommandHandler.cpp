@@ -46,7 +46,7 @@ void CommandHandler::execute(const DeviceCommand& command, RentalState& rental) 
         const bool maintenance = (rental.bicycleStatus == "maintenance");
         const bool authFailed = (api_.lastStatus() == 401 || api_.lastStatus() == 403);
 
-        if (expired || terminated || maintenance || authFailed) {
+        if ((expired && !command.manualOverride) || terminated || maintenance || authFailed) {
             executed = false;
             if (expired) result = "unlock blocked: rental expired";
             else if (terminated) result = "unlock blocked: rental terminated";
@@ -60,6 +60,7 @@ void CommandHandler::execute(const DeviceCommand& command, RentalState& rental) 
         } else {
             lock_.release();
             rental.bicycleLockStatus = "unlocked";
+            if (command.manualOverride) controller_.activateManualUnlockOverride();
             Serial.println("[servo] unlock command accepted");
         }
     } else if (command.command == "buzzer") {

@@ -628,7 +628,7 @@ class AdminBicycleManagementTest extends TestCase
         $this->assertStringContainsString('Device Management', substr($cell, $menuStart, 2000));
     }
 
-    public function test_lock_blocked_when_rented(): void
+    public function test_lock_can_be_queued_when_rented_for_expiry_recovery(): void
     {
         $admin = $this->makeAdmin();
         $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
@@ -636,7 +636,13 @@ class AdminBicycleManagementTest extends TestCase
         $this->from(route('admin.bicycles.index'))
             ->actingAs($admin)
             ->post(route('admin.bicycles.lock', $bike->id), ['action' => 'lock'])
-            ->assertSessionHasErrors('bicycle');
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('device_commands', [
+            'bicycleId' => $bike->id,
+            'command' => 'lock',
+            'status' => 'pending',
+        ]);
     }
 
     public function test_telemetry_returns_json(): void

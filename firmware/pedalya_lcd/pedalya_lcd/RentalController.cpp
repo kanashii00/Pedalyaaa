@@ -24,7 +24,7 @@ RentalController::RentalController(LockActuator& lock, BuzzerAlarm& buzzer, Rent
  * as active from walking an already-locked wheel back to Active.
  */
 bool RentalController::rentalIsExpired(const RentalState& rental) const {
-    return expiryLatched_ || rental.expired();
+    return !(manualUnlockOverride_ || rental.manualUnlockOverride) && (expiryLatched_ || rental.expired());
 }
 
 void RentalController::enterState(ActuatorState next, const String& bikeStatus) {
@@ -73,6 +73,7 @@ void RentalController::update(const RentalState& rental, bool serverReachable) {
     if (!rental.hasRental || rental.status == "returned" || rental.status == "cancelled") {
         // The rental is over, which is the only thing that clears the latch.
         expiryLatched_ = false;
+        manualUnlockOverride_ = false;
         remainingLogged_ = false;
         timer_.reset();
         enterState(ActuatorState::Idle, rental.bicycleStatus);
@@ -122,6 +123,16 @@ void RentalController::update(const RentalState& rental, bool serverReachable) {
 
 void RentalController::enforce(const RentalState& rental, BoundaryStatus boundary) {
     if (ACTUATOR_CALIBRATION_MODE) {
+        buzzer_.silence();
+        return;
+    }
+
+    // An acknowledged administrator override is authoritative until the server
+    // expires it or an administrator sends LOCK. This is deliberately before
+    // the expired branch so the second safety pass cannot immediately relock.
+    if ((manualUnlockOverride_ || rental.manualUnlockOverride) && rental.hasRental) {
+        lock_.release();
+        lock_.setLocked(false);
         buzzer_.silence();
         return;
     }

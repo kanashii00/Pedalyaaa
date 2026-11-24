@@ -19,6 +19,9 @@ class DeviceCommand extends Model
         'status',
         'issuedBy',
         'executedAt',
+        'expiresAt',
+        'acknowledgedAt',
+        'supersededAt',
         'response',
     ];
 
@@ -27,6 +30,9 @@ class DeviceCommand extends Model
         return [
             'params' => 'array',
             'executedAt' => 'datetime',
+            'expiresAt' => 'datetime',
+            'acknowledgedAt' => 'datetime',
+            'supersededAt' => 'datetime',
         ];
     }
 

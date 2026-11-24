@@ -997,6 +997,7 @@ bool PedalyaApi::parse(const String& body, RentalState& out, String& error) {
     if (!bicycle.isNull()) {
         out.bicycleLockStatus = bicycle["lockStatus"] | "locked";
         out.bicycleStatus = bicycle["status"] | "available";
+        out.manualUnlockOverride = bicycle["manualUnlockOverrideActive"] | false;
         out.bicycleSerial = bicycle["serialNumber"] | "";
         if (bicycle["batteryLevel"].is<int>()) {
             out.bicycleBatteryLevel = bicycle["batteryLevel"].as<int>();
@@ -1073,6 +1074,7 @@ bool PedalyaApi::parseCommands(const String& body, DeviceCommand* commands, size
             command.message = params["message"] | "";
             command.durationMs = params["duration_ms"] | 0;
             command.servoAngle = params["servo_angle"] | -1;
+            command.manualOverride = params["manual_override"] | false;
         }
     }
     return true;

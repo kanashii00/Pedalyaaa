@@ -18,6 +18,7 @@ struct RentalState {
     String  bicycleStatus;
     String  bicycleSerial;
     int     bicycleBatteryLevel = -1;
+    bool    manualUnlockOverride = false;
 
     int64_t startTs          = 0;
     int64_t deadlineTs       = 0;
@@ -110,6 +111,7 @@ struct DeviceCommand {
     String message;
     uint32_t durationMs = 0;
     int servoAngle = -1;
+    bool manualOverride = false;
 };
 
 class PedalyaApi {

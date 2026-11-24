@@ -317,8 +317,8 @@ class BicycleController extends Controller
             'action' => ['required', 'string', 'in:lock,unlock'],
         ]);
 
-        if (in_array($bicycle->status, ['rented', 'maintenance'])) {
-            return back()->withErrors(['bicycle' => 'Cannot change lock status while bicycle is rented or in maintenance.']);
+        if ($bicycle->status === 'maintenance') {
+            return back()->withErrors(['bicycle' => 'Cannot change lock status while bicycle is in maintenance.']);
         }
 
         // A bicycle that is not in service has no servo or smart lock behind the
