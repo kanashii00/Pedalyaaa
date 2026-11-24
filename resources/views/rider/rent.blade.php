@@ -323,7 +323,9 @@
                             <span class="badge-status badge-unavailable">{{ $availabilityLabel }}</span>
                         @endif
                     </div>
-                    <p class="text-muted mb-2" style="font-size:0.85rem;">{{ $bicycle->model ?? '' }}</p>
+                    <p class="text-muted mb-2" style="font-size:0.85rem;">
+                        <strong>Category:</strong> {{ $bicycle->model ?? '—' }}
+                    </p>
                     <div class="card-details">
                         <span>
                             @if($bicycle->batteryLevel >= 70)
@@ -335,6 +337,7 @@
                             @endif
                             {{ (int) ($bicycle->batteryLevel ?? 0) }}%
                         </span>
+                        <span><strong>IoT-enabled:</strong> {{ $bicycle->isInService() ? 'Yes' : 'No' }}</span>
                         <span><strong>₱{{ number_format($rentalRatePerMinute, 2) }}/min</strong></span>
                     </div>
                     @if($isSelectable)

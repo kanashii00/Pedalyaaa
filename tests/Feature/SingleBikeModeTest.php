@@ -42,7 +42,7 @@ class SingleBikeModeTest extends TestCase
 
     public function test_only_the_featured_bicycle_is_selectable(): void
     {
-        config(['pedalya.single_bike_mode' => ['enabled' => true, 'bicycle_id' => 1]]);
+        config(['pedalya.single_bike_mode' => ['enabled' => true]]);
 
         $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
         $this->makeFleet();
@@ -93,7 +93,7 @@ class SingleBikeModeTest extends TestCase
 
     public function test_storing_a_greyed_out_bicycle_is_rejected(): void
     {
-        config(['pedalya.single_bike_mode' => ['enabled' => true, 'bicycle_id' => 1]]);
+        config(['pedalya.single_bike_mode' => ['enabled' => true]]);
 
         $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
         $this->makeFleet();
@@ -110,7 +110,7 @@ class SingleBikeModeTest extends TestCase
 
     public function test_the_featured_bicycle_can_still_be_rented(): void
     {
-        config(['pedalya.single_bike_mode' => ['enabled' => true, 'bicycle_id' => 1]]);
+        config(['pedalya.single_bike_mode' => ['enabled' => true]]);
 
         $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
         $this->makeFleet();
@@ -127,7 +127,7 @@ class SingleBikeModeTest extends TestCase
 
     public function test_disabling_the_mode_restores_the_whole_fleet(): void
     {
-        config(['pedalya.single_bike_mode' => ['enabled' => false, 'bicycle_id' => 1]]);
+        config(['pedalya.single_bike_mode' => ['enabled' => false]]);
 
         $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
         $this->makeFleet();
@@ -149,5 +149,67 @@ class SingleBikeModeTest extends TestCase
         ]);
 
         $this->assertSame(1, Rental::count());
+    }
+
+    public function test_featured_serial_resolves_to_its_actual_database_id(): void
+    {
+        config([
+            'pedalya.single_bike_mode' => ['enabled' => true],
+            'pedalya.fleet.in_service_serial' => 'PDY-001',
+        ]);
+
+        $other = $this->makeBicycle([
+            'serialNumber' => 'PDY-099',
+            'status' => Bicycle::STATUS_AVAILABLE,
+        ]);
+        $featured = $this->makeBicycle([
+            'serialNumber' => 'PDY-001',
+            'name' => 'Beach Cruiser 001',
+            'model' => 'Urban Cruiser',
+            'status' => Bicycle::STATUS_AVAILABLE,
+        ]);
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+
+        $html = $this->actingAs($rider)->get(route('rider.rentals.create'))->getContent();
+
+        $this->assertStringContainsString(
+            'data-bike-payload="{&quot;id&quot;:'.$featured->id,
+            $html
+        );
+        $this->assertStringNotContainsString(
+            'data-bike-payload="{&quot;id&quot;:'.$other->id,
+            $html
+        );
+
+        $this->actingAs($rider)->post(route('rider.rent.store'), [
+            'bicycleId' => $other->id,
+            'paymentMethod' => 'cash',
+            'durationMinutes' => 60,
+        ])->assertSessionHasErrors('bicycleId');
+
+        $this->assertSame(0, Rental::count());
+    }
+
+    public function test_missing_featured_serial_fails_closed(): void
+    {
+        config([
+            'pedalya.single_bike_mode' => ['enabled' => true],
+            'pedalya.fleet.in_service_serial' => 'PDY-MISSING',
+        ]);
+
+        $bicycle = $this->makeBicycle(['status' => Bicycle::STATUS_AVAILABLE]);
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+
+        $html = $this->actingAs($rider)->get(route('rider.rentals.create'))->getContent();
+
+        $this->assertStringNotContainsString('Select & Rent', $html);
+
+        $this->actingAs($rider)->post(route('rider.rent.store'), [
+            'bicycleId' => $bicycle->id,
+            'paymentMethod' => 'cash',
+            'durationMinutes' => 60,
+        ])->assertSessionHasErrors('bicycleId');
+
+        $this->assertSame(0, Rental::count());
     }
 }

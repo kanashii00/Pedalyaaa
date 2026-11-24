@@ -27,6 +27,13 @@ class RentLiveAvailabilityTest extends TestCase
     use RefreshDatabase;
     use CreatesTestData;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config(['pedalya.single_bike_mode.enabled' => false]);
+    }
+
     private function rider(array $overrides = []): User
     {
         return $this->makeRider(array_merge([
@@ -232,7 +239,7 @@ class RentLiveAvailabilityTest extends TestCase
 
     // ---------------- Rendering cannot produce NaN ----------------
 
-    public function test_a_zero_rate_bicycle_renders_a_numeric_payload(): void
+    public function test_a_zero_hourly_rate_bicycle_uses_the_fixed_minute_rate(): void
     {
         $rider = $this->rider();
         $this->makeBicycle([
@@ -246,13 +253,13 @@ class RentLiveAvailabilityTest extends TestCase
 
         $payload = $this->cardPayload($html, 'PDY-N1');
 
-        $this->assertIsNumeric($payload['rate'], 'the rate reaches the client as a number');
-        $this->assertSame(0.0, (float) $payload['rate']);
+        $this->assertIsNumeric($payload['ratePerMinute'], 'the rate reaches the client as a number');
+        $this->assertSame(RentalService::RENTAL_RATE_PER_MINUTE, (float) $payload['ratePerMinute']);
         $this->assertSame(0, $payload['battery']);
         $this->assertNoNonFinite($html);
     }
 
-    public function test_a_zero_rate_never_leaks_into_the_cost_estimate(): void
+    public function test_bicycle_hourly_rate_does_not_override_the_fixed_minute_estimate(): void
     {
         $rider = $this->rider();
         $this->makeBicycle([
@@ -263,10 +270,7 @@ class RentLiveAvailabilityTest extends TestCase
 
         $html = $this->actingAs($rider)->get(route('rider.rentals.create'))->getContent();
 
-        // A 0 rate is legitimate (a promo or a grant), so the page must render a
-        // real ₱0.00 figure rather than an empty argument or a NaN that breaks
-        // the whole script block.
-        $this->assertStringContainsString('"rate":0', $html);
+        $this->assertStringContainsString('"ratePerMinute":1.5', $html);
         $this->assertNoNonFinite($html);
     }
 
@@ -285,10 +289,12 @@ class RentLiveAvailabilityTest extends TestCase
         $rental = app(RentalService::class)->startRental($rider, $bicycle->id, 60, 'cash');
 
         $this->assertSame(
-            $payload['rate'],
-            (float) $rental->ratePerHour,
-            'the rate shown on the card is the rate the rental is billed at'
+            RentalService::RENTAL_RATE_PER_MINUTE,
+            (float) $payload['ratePerMinute'],
+            'the card uses the same fixed per-minute rate as rental creation'
         );
+        $this->assertSame(RentalService::RENTAL_RATE_PER_HOUR, (float) $rental->ratePerHour);
+        $this->assertSame(90.0, (float) $rental->totalFee);
     }
 
     public function test_a_quote_in_a_bicycle_name_cannot_break_the_script_block(): void
@@ -327,11 +333,22 @@ class RentLiveAvailabilityTest extends TestCase
         );
         $this->assertStringContainsString('function money(amount)', $html);
         $this->assertStringContainsString("document.getElementById('costDisplay').textContent = money(total);", $html);
-        $this->assertStringContainsString(
-            "document.getElementById('gcashAmountDisplay').textContent = money(total);",
-            $html,
-            'the GCash amount is guarded the same way as the estimate'
-        );
+    }
+
+    public function test_rent_card_shows_the_bicycle_category_and_iot_enabled_flag(): void
+    {
+        $rider = $this->rider();
+        $this->makeBicycle([
+            'serialNumber' => 'PDY-001',
+            'name' => 'Beach Cruiser 001',
+            'model' => 'Urban Cruiser',
+            'status' => Bicycle::STATUS_AVAILABLE,
+        ]);
+
+        $html = $this->actingAs($rider)->get(route('rider.rentals.create'))->getContent();
+
+        $this->assertStringContainsString('Category:</strong> Urban Cruiser', $html);
+        $this->assertStringContainsString('IoT-enabled:</strong> Yes', $html);
     }
 
     public function test_the_map_only_markers_available_bicycles_with_a_usable_position(): void

@@ -321,6 +321,10 @@ class BicycleController extends Controller
             return back()->withErrors(['bicycle' => 'Cannot change lock status while bicycle is in maintenance.']);
         }
 
+        if ($bicycle->status === Bicycle::STATUS_RENTED || $bicycle->currentRentalId !== null) {
+            return back()->withErrors(['bicycle' => 'Cannot change lock status while bicycle is rented.']);
+        }
+
         // A bicycle that is not in service has no servo or smart lock behind the
         // dashboard control, so there is nothing to actuate. Say so instead of
         // queueing a command that could never be acknowledged.

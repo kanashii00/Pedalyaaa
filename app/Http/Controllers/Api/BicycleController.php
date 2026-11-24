@@ -40,8 +40,7 @@ class BicycleController extends Controller
         $latDelta = $radiusMeters / 111320;
         $lngDelta = $radiusMeters / (111320 * cos(deg2rad($lat)));
 
-        $bicycles = Bicycle::query()
-            ->where('status', 'available')
+        $bicycles = Bicycle::rentable()
             ->where('currentLat', '>=', $lat - $latDelta)
             ->where('currentLat', '<=', $lat + $latDelta)
             ->where('currentLng', '>=', $lng - $lngDelta)

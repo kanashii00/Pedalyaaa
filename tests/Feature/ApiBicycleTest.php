@@ -37,6 +37,23 @@ class ApiBicycleTest extends TestCase
         $this->getJson('/api/bicycles/nearby?lat=999&lng=120')->assertStatus(422);
     }
 
+    public function test_nearby_excludes_available_bicycles_without_iot_hardware(): void
+    {
+        $rider = $this->makeRider();
+        Sanctum::actingAs($rider);
+
+        $this->makeOutOfServiceBicycle([
+            'serialNumber' => 'PDY-002',
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'currentLat' => 14.6,
+            'currentLng' => 120.99,
+        ]);
+
+        $this->getJson('/api/bicycles/nearby?lat=14.6&lng=120.99&radius=1000')
+            ->assertOk()
+            ->assertJsonPath('count', 0);
+    }
+
     public function test_index_with_filters(): void
     {
         $rider = $this->makeRider();

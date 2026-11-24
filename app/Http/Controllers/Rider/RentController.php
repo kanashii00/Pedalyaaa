@@ -76,6 +76,8 @@ class RentController extends Controller
      * An empty array means "no restriction", which is what the config returns
      * when single-bike mode is off. This is a feature flag, not availability:
      * it is intersected with the live bicycle status before a card is offered.
+     * Resolve the configured hardware serial to its current database id so a
+     * different local/production auto-increment value cannot select another bike.
      */
     private function selectableBicycleIds(): array
     {
@@ -85,9 +87,12 @@ class RentController extends Controller
             return [];
         }
 
-        $featured = $mode['bicycle_id'] ?? null;
+        $serial = config('pedalya.fleet.in_service_serial');
+        $featuredId = is_string($serial) && $serial !== ''
+            ? Bicycle::query()->where('serialNumber', $serial)->value('id')
+            : null;
 
-        return $featured === null ? [] : [(int) $featured => true];
+        return $featuredId === null ? [-1 => true] : [(int) $featuredId => true];
     }
 
     public function store(Request $request): RedirectResponse

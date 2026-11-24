@@ -39,16 +39,14 @@ return [
     | id the rider submits, so an out-of-band POST for another bike is rejected
     | by the server exactly as before.
     |
-    | Set enabled to false, or bicycle_id to null, to get the full fleet back
-    | without touching a view.
+    | The featured bicycle is resolved by its configured serial number, not by
+    | a database id that can differ between local and production databases.
+    | Set enabled to false to get the full fleet back without touching a view.
     |
     */
 
     'single_bike_mode' => [
         'enabled' => env('PEDALYA_SINGLE_BIKE_MODE', true),
-
-        // Primary key of the bicycle that stays selectable. PDY-001 is id 1.
-        'bicycle_id' => env('PEDALYA_SINGLE_BIKE_ID', 1),
     ],
 
 ];
