@@ -1,5 +1,7 @@
-# Free-tier demo deployment. Render Free Postgres expires after 30 days, so
-# this configuration is for testing and prototyping, not production rider data.
+# Pedalya web service. Select the existing service in Render before applying
+# this Blueprint: its `free` plan is retained here so source changes cannot
+# silently create a paid service. A production plan requires the owner's
+# explicit billing approval in Render.
 services:
   - type: web
     name: pedalya-demo
@@ -19,7 +21,9 @@ services:
       - key: APP_TIMEZONE
         value: Asia/Manila
       - key: APP_KEY
-        generateValue: true
+        # Copy the existing production key into Render. Do not rotate it during
+        # a redeployment because that invalidates encrypted data and sessions.
+        sync: false
       - key: LOG_CHANNEL
         value: stderr
       - key: LOG_LEVEL
@@ -30,19 +34,32 @@ services:
         value: file
       - key: QUEUE_CONNECTION
         value: sync
-      - key: FILESYSTEM_DISK
-        value: public
+      - key: SESSION_SECURE_COOKIE
+        value: "true"
+      - key: SESSION_SAME_SITE
+        value: lax
       - key: DB_CONNECTION
-        value: pgsql
-      # Set this to the database's Internal Database URL in the Render
-      # dashboard. Keep the credential out of the Blueprint and source control.
-      - key: DB_URL
+        value: mysql
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "3306"
+      - key: DB_DATABASE
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      # Base64-encoded Aiven CA certificate. The entrypoint writes this to a
+      # mode-600 temporary file and configures PDO MySQL to verify the server.
+      - key: MYSQL_SSL_CA_BASE64
         sync: false
       - key: DEVICE_API_KEY
         generateValue: true
-      # Password for the shared demo admin/rider logins. Set it once in the
-      # dashboard; docker/entrypoint.sh then recreates those logins on every
-      # deploy, which the ephemeral SQLite file otherwise wipes. Leave it unset
-      # and no demo accounts are created.
-      - key: DEMO_ACCOUNT_PASSWORD
+      # Do not enable until a backup exists and pending migrations were reviewed.
+      - key: RUN_MIGRATIONS
+        value: "false"
+      # Configure S3-compatible object storage before accepting production ID
+      # uploads. Render's filesystem is ephemeral.
+      - key: FILESYSTEM_DISK
         sync: false

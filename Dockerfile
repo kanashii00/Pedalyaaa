@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Runtime image for Pedalya on Render.
+# Runtime image for Pedalya on Render connected to Aiven MySQL.
 #
 # There is no Node build step: public/css and public/js are committed built
 # assets, so composer install is the only build the image needs.
@@ -11,7 +11,7 @@ FROM php:8.3-apache
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git \
-        libpq-dev \
+        default-libmysqlclient-dev \
         libzip-dev \
         libpng-dev \
         libjpeg62-turbo-dev \
@@ -29,7 +29,7 @@ RUN apt-get update \
         gd \
         intl \
         mbstring \
-        pdo_pgsql \
+        pdo_mysql \
         pdo_sqlite \
         zip \
     && a2enmod rewrite \

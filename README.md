@@ -1,23 +1,19 @@
 # Pedalya
 
-## Free Render demo
+## Render + Aiven MySQL deployment
 
-The root `render.yaml` deploys a Docker web service and configures it to use
-PostgreSQL. Before deploying this configuration, create a Render Postgres
-database and add its **Internal Database URL** to the web service's environment
-as the secret `DB_URL`. The Blueprint declares `DB_URL` with `sync: false` so
-the credential stays in the Render dashboard and is not stored in source
-control. The entrypoint runs database migrations and starts the Laravel
-scheduler alongside Apache.
+The root `render.yaml` deploys a Docker web service compatible with Aiven
+MySQL. Configure all database values in Render's secret environment-variable
+editor: `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, and
+the base64-encoded Aiven CA as `MYSQL_SSL_CA_BASE64`. The certificate is created
+only in the running container and is not part of the image or repository.
 
-To inspect the deployed data from a terminal, use the database's **External
-Database URL** from Render's Connect menu with `psql`, then run `\dt` and SQL
-queries such as `SELECT id, name, email, role, status FROM users;`. The old
-local MySQL data and any data in a previous SQLite deployment are not copied to
-the new PostgreSQL database automatically.
+The container never migrates or seeds a production database on startup.
+Back up the Aiven database, review `php artisan migrate:status`, and run
+`php artisan migrate --force --no-interaction` once from Render Shell only after
+approval. Do not run `migrate:fresh` or production seeders.
 
-This is for demos only. Render's free Postgres database expires after 30 days,
-and the web service's filesystem is ephemeral, so uploaded files can be lost
-when the instance restarts or deploys. The service can also spin down while
-idle; scheduled jobs only run while it is awake. Do not store real rider IDs or
-other production data with this configuration.
+Render's filesystem is ephemeral. Before accepting production ID uploads,
+configure S3-compatible object-storage values and set `FILESYSTEM_DISK=s3`.
+The default `free` plan remains in the Blueprint to avoid unapproved billing;
+choose an approved always-on production plan manually in Render.
