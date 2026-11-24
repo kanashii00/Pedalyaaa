@@ -9,6 +9,8 @@ export APP_URL="${APP_URL:-${RENDER_EXTERNAL_URL:-http://localhost}}"
 if [ -n "${MYSQL_SSL_CA_BASE64:-}" ]; then
     umask 077
     printf '%s' "$MYSQL_SSL_CA_BASE64" | base64 -d > /tmp/aiven-ca.pem
+    chown www-data:www-data /tmp/aiven-ca.pem
+    chmod 0400 /tmp/aiven-ca.pem
     export MYSQL_ATTR_SSL_CA=/tmp/aiven-ca.pem
 fi
 
