@@ -859,17 +859,18 @@
      A menu inside a table cell is positioned by Popper, but every container
      between the cell and the card hides its overflow (the cell for
      truncation, the scroll wrapper, the rounded card), so an absolutely
-     positioned menu was cut off after the first few items. Creating each menu
-     with Popper's "fixed" strategy places it against the viewport instead: it
-     opens above or below the row depending on the room it has, stays inside the
-     window, and no ancestor can clip it. Bootstrap keeps owning the behaviour -
-     the button toggles only its own menu, a click outside closes it and opening
-     another row's menu closes the previous one. */
+     positioned menu was cut off after the first few items. A fixed strategy
+     alone can still be clipped by those ancestors, so move the open menu to
+     the admin page root and restore it to its row after it closes. Bootstrap
+     keeps owning the behaviour - the button toggles only its own menu, a click
+     outside closes it and opening another row's menu closes the previous one. */
   function initRowMenus(root) {
     if (!window.bootstrap || !window.bootstrap.Dropdown) return;
     $$('[data-row-menu]', root).forEach((el) => {
       if (el.dataset.rowMenuReady === '1') return;
       el.dataset.rowMenuReady = '1';
+      const menu = el.querySelector('.dropdown-menu');
+      let menuPlaceholder = null;
       el.pedalyaMenu = window.bootstrap.Dropdown.getOrCreateInstance(el, {
         popperConfig: (defaults) => ({
           ...defaults,
@@ -888,6 +889,19 @@
         $$('[data-row-menu].show', table).forEach((other) => {
           if (other !== el && other.pedalyaMenu) other.pedalyaMenu.hide();
         });
+
+        if (menu && menu.parentElement !== document.body) {
+          menuPlaceholder = document.createComment('inventory-row-menu');
+          menu.parentNode.insertBefore(menuPlaceholder, menu);
+          document.body.appendChild(menu);
+        }
+      });
+      el.addEventListener('hidden.bs.dropdown', () => {
+        if (menu && menuPlaceholder && menuPlaceholder.parentNode) {
+          menuPlaceholder.parentNode.insertBefore(menu, menuPlaceholder);
+          menuPlaceholder.remove();
+          menuPlaceholder = null;
+        }
       });
     });
   }

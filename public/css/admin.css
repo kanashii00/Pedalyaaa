@@ -1392,14 +1392,12 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
 .admin-table--inventory .cell-stack code { overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- Row actions menu ----------
-   The three-dots menu is placed by Bootstrap + Popper. The controller in
-   js/admin.js gives it Popper's "fixed" strategy, so it is positioned against
-   the viewport rather than the table cell: it opens above or below the row,
-   stays inside the window, and is not clipped by the cell, the scroll wrapper or
-   the card, all of which hide their overflow. The rules below only give it the
-   dark Pedalya look and keep it above the table's own painting. */
+   The controller in js/admin.js portals the open menu to the admin page root
+   and uses Popper's fixed strategy, so table/card overflow cannot clip it.
+   These rules preserve the dark Pedalya look and keep it above the table. */
 .admin-table--inventory .dropdown { position: relative; }
-.admin-table--inventory .dropdown-menu {
+.admin-table--inventory .dropdown-menu,
+.admin-shell > .inventory-row-menu {
   z-index: 1035;
   min-width: 212px;
   max-height: min(70vh, 420px);
@@ -1412,7 +1410,8 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
   border-radius: 12px;
   box-shadow: var(--shadow-pop);
 }
-.admin-table--inventory .dropdown-menu .dropdown-item {
+.admin-table--inventory .dropdown-menu .dropdown-item,
+.inventory-row-menu .dropdown-item {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -1421,27 +1420,35 @@ a.cell-key:hover, a.cell-key:hover code { color: color-mix(in srgb, var(--brand)
   color: var(--text-2);
   white-space: nowrap;
 }
-.admin-table--inventory .dropdown-menu .dropdown-item i { color: inherit; }
+.admin-table--inventory .dropdown-menu .dropdown-item i,
+.inventory-row-menu .dropdown-item i { color: inherit; }
 .admin-table--inventory .dropdown-menu .dropdown-item:hover,
-.admin-table--inventory .dropdown-menu .dropdown-item:focus {
+.admin-table--inventory .dropdown-menu .dropdown-item:focus,
+.inventory-row-menu .dropdown-item:hover,
+.inventory-row-menu .dropdown-item:focus {
   color: var(--text-1);
   background: var(--surface-3);
 }
 .admin-table--inventory .dropdown-menu .dropdown-item.disabled,
-.admin-table--inventory .dropdown-menu .dropdown-item:disabled {
+.admin-table--inventory .dropdown-menu .dropdown-item:disabled,
+.inventory-row-menu .dropdown-item.disabled,
+.inventory-row-menu .dropdown-item:disabled {
   color: var(--text-3);
   background: none;
   opacity: 0.65;
 }
-.admin-table--inventory .dropdown-menu .dropdown-divider {
+.admin-table--inventory .dropdown-menu .dropdown-divider,
+.inventory-row-menu .dropdown-divider {
   margin: 6px 4px;
   border-color: var(--border-subtle);
   opacity: 1;
 }
 /* The lock control is a real form inside the menu: strip the browser defaults so
    it lines up with the other items and the whole row is the hit target. */
-.admin-table--inventory .dropdown-menu form { margin: 0; }
-.admin-table--inventory .dropdown-menu button.dropdown-item {
+.admin-table--inventory .dropdown-menu form,
+.inventory-row-menu form { margin: 0; }
+.admin-table--inventory .dropdown-menu button.dropdown-item,
+.inventory-row-menu button.dropdown-item {
   width: 100%;
   font: inherit;
   text-align: left;

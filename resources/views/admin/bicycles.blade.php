@@ -228,16 +228,15 @@
                                 </button>
                             @endif
 
-                            {{-- data-row-menu is picked up by the controller in js/admin.js, which
-                                     places this menu against the viewport so it can open above or
-                                     below the row without the table clipping it. --}}
+                            {{-- data-row-menu is picked up by admin.js, which temporarily moves the
+                                     open menu outside the clipped table card. --}}
                             <div class="dropdown" data-row-menu>
                                 <button class="btn-admin btn-admin--soft btn-admin--sm dropdown-toggle" type="button"
                                         data-bs-toggle="dropdown" data-bs-boundary="viewport" aria-expanded="false"
                                         title="More actions for {{ $bike->serialNumber }}">
                                     <i class="bi bi-three-dots-vertical"></i>
                                 </button>
-                                <ul class="dropdown-menu dropdown-menu-end">
+                                <ul class="dropdown-menu dropdown-menu-end inventory-row-menu">
                                     <li>
                                         <a class="dropdown-item" href="{{ route('admin.bicycles.show', $bike->id) }}">
                                             <i class="bi bi-info-circle me-2"></i>View Details

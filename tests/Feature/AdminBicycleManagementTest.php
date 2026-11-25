@@ -633,8 +633,8 @@ class AdminBicycleManagementTest extends TestCase
         $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->assertOk()->getContent();
         $cell = $this->actionsCell($html, $bike->serialNumber);
 
-        // The menu is wired to Bootstrap and flagged for the controller that
-        // gives it Popper's fixed strategy, so it can leave the cell.
+        // The menu is wired to Bootstrap; its controller portals it out of the
+        // clipped inventory card while open.
         $this->assertStringContainsString('<div class="dropdown" data-row-menu>', $cell);
         $this->assertStringContainsString('data-bs-toggle="dropdown"', $cell);
         $this->assertStringContainsString('data-bs-boundary="viewport"', $cell);
@@ -651,7 +651,7 @@ class AdminBicycleManagementTest extends TestCase
 
         // The menu paints above the table itself (its sticky header is z-index 20).
         $this->assertMatchesRegularExpression(
-            '/\.admin-table--inventory \.dropdown-menu \{[^}]*z-index: 1035/',
+            '/\.admin-table--inventory \.dropdown-menu,\s*\.admin-shell > \.inventory-row-menu \{[^}]*z-index: 1035/',
             $css
         );
 
@@ -660,6 +660,9 @@ class AdminBicycleManagementTest extends TestCase
         $this->assertStringContainsString("strategy: 'fixed'", $js);
         $this->assertStringContainsString("boundary: 'viewport'", $js);
         $this->assertStringContainsString("el.addEventListener('show.bs.dropdown'", $js);
+        $this->assertStringContainsString("document.body.appendChild(menu)", $js);
+        $this->assertStringContainsString("el.addEventListener('hidden.bs.dropdown'", $js);
+        $this->assertStringContainsString("menuPlaceholder.parentNode.insertBefore(menu, menuPlaceholder)", $js);
         $this->assertStringContainsString('other.pedalyaMenu.hide()', $js);
     }
 
@@ -673,7 +676,7 @@ class AdminBicycleManagementTest extends TestCase
 
         foreach ([$first, $second] as $bike) {
             $cell = $this->actionsCell($html, $bike->serialNumber);
-            $menuStart = strpos($cell, '<ul class="dropdown-menu dropdown-menu-end">');
+            $menuStart = strpos($cell, '<ul class="dropdown-menu dropdown-menu-end inventory-row-menu">');
             $this->assertNotFalse($menuStart);
             $menu = substr($cell, $menuStart);
 
@@ -728,7 +731,7 @@ class AdminBicycleManagementTest extends TestCase
         $this->assertStringContainsString("PedalyaModal.open('editBicycleModal{$bike->id}')", $cell);
         $this->assertStringContainsString(route('admin.bicycles.destroy', $bike->id), $cell);
 
-        $menuStart = strpos($cell, '<ul class="dropdown-menu dropdown-menu-end">');
+        $menuStart = strpos($cell, '<ul class="dropdown-menu dropdown-menu-end inventory-row-menu">');
         $this->assertNotFalse($menuStart, 'the row still needs the actions dropdown');
 
         // The lock control is offered exactly once, inside that dropdown.
@@ -749,7 +752,7 @@ class AdminBicycleManagementTest extends TestCase
         $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->assertOk()->getContent();
 
         $cell = $this->actionsCell($html, $bike->serialNumber);
-        $menuStart = strpos($cell, '<ul class="dropdown-menu dropdown-menu-end">');
+        $menuStart = strpos($cell, '<ul class="dropdown-menu dropdown-menu-end inventory-row-menu">');
         $lockForm = strpos($cell, route('admin.bicycles.lock', $bike->id));
 
         $this->assertNotFalse($menuStart);
@@ -771,7 +774,7 @@ class AdminBicycleManagementTest extends TestCase
         $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->assertOk()->getContent();
 
         $cell = $this->actionsCell($html, $bike->serialNumber);
-        $menuStart = strpos($cell, '<ul class="dropdown-menu dropdown-menu-end">');
+        $menuStart = strpos($cell, '<ul class="dropdown-menu dropdown-menu-end inventory-row-menu">');
         $this->assertNotFalse($menuStart);
 
         $noDevice = strpos($cell, 'No Device');
@@ -796,7 +799,7 @@ class AdminBicycleManagementTest extends TestCase
         $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->assertOk()->getContent();
 
         $cell = $this->actionsCell($html, $bike->serialNumber);
-        $menuStart = strpos($cell, '<ul class="dropdown-menu dropdown-menu-end">');
+        $menuStart = strpos($cell, '<ul class="dropdown-menu dropdown-menu-end inventory-row-menu">');
         $inUse = strpos($cell, 'In Use');
 
         $this->assertNotFalse($menuStart);
