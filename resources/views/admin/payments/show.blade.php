@@ -29,9 +29,12 @@
             </button>
         @endif
         @if($payment->status === 'pending' || $payment->status === 'processing')
-            <a href="{{ route('admin.payments.verify', $payment) }}" class="btn-admin btn-admin--secondary">
-                <i class="bi bi-arrow-clockwise me-1"></i>Verify Status
-            </a>
+            <form action="{{ route('admin.payments.verify', $payment) }}" method="POST" data-payment-verify>
+                @csrf
+                <button type="submit" class="btn-admin btn-admin--secondary">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Verify Status
+                </button>
+            </form>
         @endif
         @if($payment->status === 'paid' && !$payment->refund && \Illuminate\Support\Facades\Route::has('admin.refunds.create'))
             <a href="{{ route('admin.refunds.create', $payment) }}" class="btn-admin btn-admin--warning">
@@ -313,9 +316,6 @@
                         </div>
                     </div>
                 </div>
-                <a href="{{ route('admin.refunds.show', $payment->refund) }}" class="btn-admin btn-admin--ghost btn-admin--sm mt-2">
-                    <i class="bi bi-arrow-return-left me-1"></i>View Refund Details
-                </a>
             </x-admin.card>
         @endif
     </div>

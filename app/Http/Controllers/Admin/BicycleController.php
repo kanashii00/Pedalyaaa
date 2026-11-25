@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\Bicycle;
 use App\Models\DeviceStatus;
+use App\Models\Rental;
 use App\Services\AuditLogger;
 use App\Services\GeofenceService;
 use App\Services\IoTService;
@@ -173,8 +174,36 @@ class BicycleController extends Controller
         $newStatus = $validated['status'] ?? $previousStatus;
 
         if ($newStatus !== $previousStatus) {
-            if ($newStatus === 'maintenance' && $previousStatus === 'rented') {
-                return back()->withErrors(['status' => 'Cannot move a rented bicycle to maintenance. End the active rental first.']);
+            if ($previousStatus === Bicycle::STATUS_REMOVED) {
+                return back()->withErrors([
+                    'status' => 'Removed bicycles cannot be edited or restored.',
+                ]);
+            }
+
+            if ($newStatus === Bicycle::STATUS_REMOVED) {
+                return back()->withErrors([
+                    'status' => 'Use the Remove action to remove a bicycle.',
+                ]);
+            }
+
+            if ($previousStatus === Bicycle::STATUS_RENTED || $newStatus === Bicycle::STATUS_RENTED) {
+                return back()->withErrors([
+                    'status' => 'Rental status is controlled by the rental lifecycle.',
+                ]);
+            }
+
+            if ($bicycle->currentRentalId !== null) {
+                return back()->withErrors([
+                    'status' => 'A bicycle with a current rental cannot change status until the rental is settled.',
+                ]);
+            }
+
+            if ($newStatus === Bicycle::STATUS_AVAILABLE
+                && $previousStatus === Bicycle::STATUS_OUT_OF_SERVICE
+                && ! $bicycle->isInService()) {
+                return back()->withErrors([
+                    'status' => 'This bicycle must be provisioned with an IoT device before it can be made available.',
+                ]);
             }
 
             if ($newStatus !== 'maintenance' && $previousStatus === 'maintenance' && ! $this->maintenanceService->canReleaseBicycle($bicycle)) {
@@ -282,8 +311,16 @@ class BicycleController extends Controller
             return back()->withErrors(['bicycle' => 'Cannot remove a bicycle that is under maintenance. Complete maintenance first.']);
         }
 
-        if ($bicycle->rentals()->whereIn('status', ['active', 'pending', 'overdue'])->exists()) {
-            return back()->withErrors(['bicycle' => 'Cannot remove bicycle with active or pending rentals.']);
+        $unsettledStatuses = array_unique(array_merge(
+            Rental::ACTIVE_LIST_STATUSES,
+            Rental::LIVE_STATUSES
+        ));
+
+        if ($bicycle->currentRentalId !== null
+            || $bicycle->rentals()->whereIn('status', $unsettledStatuses)->exists()) {
+            return back()->withErrors([
+                'bicycle' => 'Cannot remove a bicycle while an active or unsettled rental exists.',
+            ]);
         }
 
         // Snapshot first: the audit entry must stay traceable even though the

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Tests\TestCase;
+use Illuminate\Support\Facades\DB;
 
 /**
  * The on-board ESP32 probes /api/health (no API key) to verify the bearer
@@ -22,5 +23,18 @@ class ApiHealthTest extends TestCase
     public function test_health_route_requires_no_api_key(): void
     {
         $this->get('/api/health')->assertOk();
+    }
+
+    public function test_health_route_reports_database_unavailability(): void
+    {
+        DB::shouldReceive('select')
+            ->once()
+            ->with('select 1')
+            ->andThrow(new \RuntimeException('database unavailable'));
+
+        $this->getJson('/api/health')
+            ->assertServiceUnavailable()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('data.status', 'unhealthy');
     }
 }

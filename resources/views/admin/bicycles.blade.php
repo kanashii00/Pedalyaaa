@@ -21,9 +21,10 @@
     <div class="admin-table-toolbar inventory-toolbar">
         <div class="grow inventory-toolbar__search">
             <i class="bi bi-search" aria-hidden="true"></i>
-            <input type="text" data-table-search placeholder="Search..." aria-label="Search bicycles">
+            <input type="search" form="inventoryFilters" name="search" value="{{ request('search') }}"
+                   placeholder="Search..." aria-label="Search bicycles">
         </div>
-        <form method="GET" action="{{ route('admin.bicycles.index') }}" class="inventory-toolbar__filters">
+        <form id="inventoryFilters" method="GET" action="{{ route('admin.bicycles.index') }}" class="inventory-toolbar__filters">
             <select name="status" class="form-select form-select-sm inventory-toolbar__select" aria-label="Filter by status">
                 <option value="">All Statuses</option>
                 <option value="available" {{ request('status') === 'available' ? 'selected' : '' }}>Available</option>
@@ -244,7 +245,7 @@
                                     </li>
                                     <li>
                                         <a class="dropdown-item"
-                                           href="{{ route('admin.rentals.index', ['bicycle_id' => $bike->id]) }}">
+                                           href="{{ route('admin.rentals.history', ['bicycle_id' => $bike->id]) }}">
                                             <i class="bi bi-clock-history me-2"></i>Rental History
                                         </a>
                                     </li>
@@ -262,7 +263,7 @@
                                             </span>
                                         @else
                                             <a class="dropdown-item"
-                                               href="{{ route('admin.monitoring.index', ['section' => 'devices']) }}"
+                                               href="{{ route('admin.monitoring.index', ['section' => 'devices']) }}#device-{{ $bike->id }}"
                                                title="Open IoT device monitoring for {{ $bike->serialNumber }}">
                                                 <i class="bi bi-cpu me-2"></i>Device Management
                                             </a>
@@ -394,12 +395,20 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Status</label>
-                                <select name="status" class="form-select">
-                                    <option value="available" {{ $bike->status === 'available' ? 'selected' : '' }}>Available</option>
-                                    <option value="rented" {{ $bike->status === 'rented' ? 'selected' : '' }}>Rented</option>
-                                    <option value="maintenance" {{ $bike->status === 'maintenance' ? 'selected' : '' }}>Maintenance</option>
-                                    <option value="{{ \App\Models\Bicycle::STATUS_OUT_OF_SERVICE }}" {{ $bike->status === \App\Models\Bicycle::STATUS_OUT_OF_SERVICE ? 'selected' : '' }}>Out of Service</option>
-                                </select>
+                                @if(in_array($bike->status, [\App\Models\Bicycle::STATUS_RENTED, \App\Models\Bicycle::STATUS_REMOVED], true))
+                                    <input type="text" class="form-control" value="{{ ucfirst(str_replace('_', ' ', $bike->status)) }}" disabled>
+                                    <small class="form-text text-muted">
+                                        {{ $bike->status === \App\Models\Bicycle::STATUS_RENTED
+                                            ? 'Rental status is managed through the rental lifecycle.'
+                                            : 'Removed bicycles cannot be restored through Edit.' }}
+                                    </small>
+                                @else
+                                    <select name="status" class="form-select">
+                                        <option value="available" {{ $bike->status === 'available' ? 'selected' : '' }}>Available</option>
+                                        <option value="maintenance" {{ $bike->status === 'maintenance' ? 'selected' : '' }}>Maintenance</option>
+                                        <option value="{{ \App\Models\Bicycle::STATUS_OUT_OF_SERVICE }}" {{ $bike->status === \App\Models\Bicycle::STATUS_OUT_OF_SERVICE ? 'selected' : '' }}>Out of Service</option>
+                                    </select>
+                                @endif
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Description</label>

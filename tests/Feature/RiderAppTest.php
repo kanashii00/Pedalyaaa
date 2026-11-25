@@ -9,6 +9,8 @@ use App\Models\Rental;
 use App\Models\User;
 use App\Services\RentalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\CreatesTestData;
 use Tests\TestCase;
 
@@ -20,7 +22,10 @@ class RiderAppTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config(['broadcasting.default' => 'log']);
+        config([
+            'broadcasting.default' => 'log',
+            'pedalya.single_bike_mode' => ['enabled' => false],
+        ]);
     }
 
     private function riderAuth(): User
@@ -156,32 +161,17 @@ class RiderAppTest extends TestCase
         ])->assertRedirect(route('rider.dashboard'));
     }
 
-    public function test_rent_store_gcash(): void
+    public function test_rent_store_rejects_non_cash_payment_methods(): void
     {
         $this->riderAuth();
         $bike = $this->makeBicycle();
-        $this->mock(RentalService::class, function ($mock) {
-            $mock->shouldReceive('startRental')->once();
-        });
 
         $this->post(route('rider.rent.store'), [
             'bicycleId' => $bike->id,
             'paymentMethod' => 'gcash',
             'durationMinutes' => 120,
             'paymentReference' => 'REF-123',
-        ])->assertRedirect(route('rider.rentals.index'));
-    }
-
-    public function test_rent_store_gcash_requires_reference(): void
-    {
-        $this->riderAuth();
-        $bike = $this->makeBicycle();
-
-        $this->post(route('rider.rent.store'), [
-            'bicycleId' => $bike->id,
-            'paymentMethod' => 'gcash',
-            'durationMinutes' => 120,
-        ])->assertSessionHasErrors('paymentReference');
+        ])->assertSessionHasErrors('paymentMethod');
     }
 
     public function test_rent_store_rental_exception(): void
@@ -292,6 +282,7 @@ class RiderAppTest extends TestCase
     public function test_profile_upload_id(): void
     {
         $rider = $this->riderAuth();
+        Storage::fake('id_verifications');
         $pdf = '%PDF-1.4 fake pdf document for id verification';
 
         $this->post(route('rider.profile.upload-id'), [
@@ -299,6 +290,27 @@ class RiderAppTest extends TestCase
         ])->assertRedirect();
 
         $this->assertDatabaseHas('users', ['id' => $rider->id, 'idUploaded' => true]);
+    }
+
+    public function test_profile_accepts_uploaded_pdf_id_documents(): void
+    {
+        $rider = $this->riderAuth();
+        Storage::fake('id_verifications');
+        $path = tempnam(sys_get_temp_dir(), 'id-pdf');
+        file_put_contents($path, "%PDF-1.4\nID verification test document\n");
+
+        try {
+            $this->post(route('rider.profile.upload-id'), [
+                'id_image' => new UploadedFile($path, 'identity.pdf', 'application/pdf', null, true),
+            ])->assertRedirect()->assertSessionHasNoErrors();
+        } finally {
+            @unlink($path);
+        }
+
+        $rider->refresh();
+        $this->assertTrue($rider->idUploaded);
+        $this->assertSame('pdf', pathinfo($rider->idVerification['id_path'], PATHINFO_EXTENSION));
+        Storage::disk('id_verifications')->assertExists($rider->idVerification['id_path']);
     }
 
     public function test_profile_delete_with_active_rental_blocked(): void

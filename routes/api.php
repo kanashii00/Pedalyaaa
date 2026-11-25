@@ -1,7 +1,6 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Api\BicycleController as ApiBicycle;
 use App\Http\Controllers\Api\RentalController as ApiRental;
 use App\Http\Controllers\Api\GpsController as ApiGps;
@@ -9,14 +8,45 @@ use App\Http\Controllers\Api\IoTController as ApiIoT;
 use App\Http\Controllers\Api\DeviceRentalController as ApiDevice;
 use App\Http\Controllers\Api\NotificationController as ApiNotification;
 use App\Http\Controllers\Api\AuthController as ApiAuth;
+use App\Http\Controllers\Admin\PaymentWebhookController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Auth\GoogleAuthController;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 // Health check
-Route::get('/health', fn () => response()->json([
-    'success' => true,
-    'data' => ['status' => 'healthy', 'service' => 'Pedalya IoT Bicycle Rental API', 'version' => '2.0.0', 'timestamp' => now()->toIso8601String()]
-]));
+Route::get('/health', function () {
+    try {
+        DB::select('select 1');
+    } catch (\Throwable $exception) {
+        Log::error('API health check failed because the database is unavailable.', [
+            'exception' => $exception,
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'data' => [
+                'status' => 'unhealthy',
+                'service' => 'Pedalya IoT Bicycle Rental API',
+                'version' => '2.0.0',
+                'timestamp' => now()->toIso8601String(),
+            ],
+        ], 503);
+    }
+
+    return response()->json([
+        'success' => true,
+        'data' => [
+            'status' => 'healthy',
+            'service' => 'Pedalya IoT Bicycle Rental API',
+            'version' => '2.0.0',
+            'timestamp' => now()->toIso8601String(),
+        ],
+    ]);
+});
+
+Route::post('/webhooks/paymongo', [PaymentWebhookController::class, 'handle'])
+    ->name('payments.webhook');
 
 // Public auth
 Route::post('/auth/login', [ApiAuth::class, 'login'])->middleware('throttle:10,1');
@@ -102,13 +132,4 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/notifications/unread-count', [ApiNotification::class, 'unreadCount']);
     Route::put('/notifications/{id}/read', [ApiNotification::class, 'markRead']);
     Route::put('/notifications/read-all', [ApiNotification::class, 'markAllRead']);
-});
-
-Route::get('/test', function () {
-    return response()->json([
-        'success' => true,
-        'message' => 'Pedalya API is working!',
-        'database' => DB::connection()->getDatabaseName(),
-        'users_count' => DB::table('users')->count(),
-    ]);
 });

@@ -97,7 +97,8 @@
                                     data-spent="{{ number_format($rider->totalSpent ?? 0, 2) }}"
                                     data-status="{{ $rider->status ?? 'active' }}"
                                     data-verified-at="{{ $verifiedAt ? \Carbon\Carbon::parse($verifiedAt)->format('M d, Y \a\t g:i A') : '—' }}"
-                                    data-id-url="{{ ($rider->idVerification['id_url'] ?? '') }}">
+                                    data-id-url="{{ !empty($rider->idVerification['id_path']) ? route('admin.riders.id-document', $rider->id) : '' }}"
+                                    data-id-type="{{ strtolower(pathinfo($rider->idVerification['id_path'] ?? '', PATHINFO_EXTENSION)) }}">
                                 <i class="bi bi-eye"></i>
                             </button>
 
@@ -235,6 +236,7 @@
                         <div class="vr-card__body vr-card__body--id">
                             <div class="vr-id-preview">
                                 <img id="vvIdImg" src="" alt="Submitted ID">
+                                <iframe id="vvIdDocument" class="d-none" title="Submitted ID document"></iframe>
                                 <p id="vvIdEmpty" class="vr-id-empty d-none">
                                     <i class="bi bi-file-earmark-image"></i>
                                     <span>No ID image submitted</span>
@@ -279,15 +281,22 @@ function openVerifiedView(btn) {
     statusEl.innerHTML = '<span class="vr-badge ' + badgeClass + '">' + s.charAt(0).toUpperCase() + s.slice(1) + '</span>';
 
     const img = document.getElementById('vvIdImg');
+    const documentFrame = document.getElementById('vvIdDocument');
     const empty = document.getElementById('vvIdEmpty');
     const zoomBtn = document.getElementById('vvZoomBtn');
     if (d.idUrl) {
-        img.src = d.idUrl;
-        img.classList.remove('d-none');
+        const isPdf = d.idType === 'pdf';
+        img.classList.toggle('d-none', isPdf);
+        documentFrame.classList.toggle('d-none', !isPdf);
+        documentFrame.src = isPdf ? d.idUrl : 'about:blank';
+        if (!isPdf) img.src = d.idUrl;
         empty.classList.add('d-none');
         zoomBtn.classList.remove('d-none');
     } else {
+        img.src = '';
         img.classList.add('d-none');
+        documentFrame.src = 'about:blank';
+        documentFrame.classList.add('d-none');
         empty.classList.remove('d-none');
         zoomBtn.classList.add('d-none');
     }
@@ -296,6 +305,12 @@ function openVerifiedView(btn) {
 }
 
 document.getElementById('vvZoomBtn')?.addEventListener('click', function() {
+    const documentFrame = document.getElementById('vvIdDocument');
+    if (documentFrame && !documentFrame.classList.contains('d-none')) {
+        window.open(documentFrame.src, '_blank', 'noopener');
+        return;
+    }
+
     const img = document.getElementById('vvIdImg');
     if (img && img.src && !img.classList.contains('d-none')) {
         document.getElementById('vvLightboxImg').src = img.src;

@@ -38,6 +38,18 @@ class ApiDeviceTest extends TestCase
         $this->postJson('/api/iot/heartbeat', [], ['X-API-Key' => 'wrong'])->assertStatus(401);
     }
 
+    public function test_device_auth_fails_closed_when_no_key_is_configured(): void
+    {
+        config(['services.device_api_key' => null]);
+
+        $this->postJson('/api/iot/heartbeat', [], $this->deviceHeaders())->assertStatus(401);
+    }
+
+    public function test_public_database_diagnostic_endpoint_is_not_registered(): void
+    {
+        $this->getJson('/api/test')->assertNotFound();
+    }
+
     public function test_heartbeat_processes(): void
     {
         $bike = $this->makeBicycle();

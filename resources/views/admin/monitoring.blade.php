@@ -403,7 +403,8 @@
                 $hbLabel = $hbState === 'online' ? 'Online' : ($hbState === 'offline' ? 'Offline' : 'Never connected');
             @endphp
             <div class="col-xl-3 col-lg-4 col-md-6">
-                <div class="bike-monitor-card" data-bike-id="{{ $bike->id }}" data-device-card="{{ $bike->id }}">
+                <div class="bike-monitor-card" id="device-{{ $bike->id }}"
+                     data-bike-id="{{ $bike->id }}" data-device-card="{{ $bike->id }}">
                     <div class="d-flex align-items-center justify-content-between mb-2">
                         <div class="d-flex align-items-center">
                             <span class="bike-status-dot {{ $hbState === 'online' ? 'online' : 'offline' }}" data-dev="conn-dot"></span>

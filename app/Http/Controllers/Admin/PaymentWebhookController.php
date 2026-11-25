@@ -21,7 +21,7 @@ class PaymentWebhookController extends Controller
         private RentalService $rentalService
     ) {}
 
-public function handle(Request $request): JsonResponse
+    public function handle(Request $request): JsonResponse
     {
         $signature = $request->header('Paymongo-Signature');
         $payload = $request->getContent();
@@ -73,7 +73,6 @@ public function handle(Request $request): JsonResponse
         if (!$this->payMongoService->verifyWebhookSignature($payload, $signature)) {
             Log::warning('PayMongo webhook signature verification failed', [
                 'ip' => $request->ip(),
-                'signature' => $signature,
             ]);
             return response()->json(['message' => 'Invalid signature'], 401);
         }

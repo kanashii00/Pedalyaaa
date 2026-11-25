@@ -31,10 +31,13 @@ class AdminPaymentTest extends TestCase
     {
         $rider = $this->makeRider();
         $this->makePayment(['userId' => $rider->id, 'status' => 'paid', 'totalAmount' => 100]);
+        $pendingPayment = $this->makePayment(['userId' => $rider->id, 'status' => 'pending']);
 
         $this->actingAs($this->admin)
             ->get(route('admin.payments.index'))
-            ->assertOk();
+            ->assertOk()
+            ->assertSee('data-payment-verify', false)
+            ->assertSee('action="' . route('admin.payments.verify', $pendingPayment) . '"', false);
 
         $this->actingAs($this->admin)
             ->get(route('admin.payments.index') . '?status=paid&payment_method=gcash&search=zzz&date_from=2020-01-01&date_to=2030-01-01')
@@ -133,7 +136,12 @@ class AdminPaymentTest extends TestCase
         $rider = $this->makeRider();
         $payment = $this->makePayment(['userId' => $rider->id]);
 
-        $this->actingAs($this->admin)->get(route('admin.payments.show', $payment))->assertOk();
+        $this->actingAs($this->admin)
+            ->get(route('admin.payments.show', $payment))
+            ->assertOk()
+            ->assertSee('data-payment-verify', false)
+            ->assertSee('action="' . route('admin.payments.verify', $payment) . '"', false)
+            ->assertSee('method="POST"', false);
         $this->actingAs($this->admin)->get(route('admin.payments.success', $payment))->assertOk();
         $this->actingAs($this->admin)->get(route('admin.payments.cancel', $payment))->assertOk();
     }

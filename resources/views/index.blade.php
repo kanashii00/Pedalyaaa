@@ -81,7 +81,7 @@
                     <div class="feature-card">
                         <div class="feature-icon"><i class="bi bi-person-badge"></i></div>
                         <h5>Automated ID Scanning</h5>
-                        <p>Government IDs are detected, cropped, and read automatically using OCR — no manual typing.</p>
+                        <p>Upload a government ID for administrator review and account verification.</p>
                     </div>
                 </div>
                 <div class="col-md-6 col-lg-4">
@@ -210,7 +210,10 @@
                 <div class="col-lg-4">
                     <h6>Contact</h6>
                     <a href="mailto:hello@pedalya.com">hello@pedalya.com</a>
-                    <a href="#">Azuela Cove, J.P. Laurel Ave., Lanang, Davao City</a>
+                    <a href="https://www.google.com/maps/search/?api=1&amp;query=Azuela+Cove%2C+J.P.+Laurel+Ave.%2C+Lanang%2C+Davao+City"
+                       target="_blank" rel="noopener noreferrer">
+                        Azuela Cove, J.P. Laurel Ave., Lanang, Davao City
+                    </a>
                 </div>
             </div>
             <div class="footer-bottom">

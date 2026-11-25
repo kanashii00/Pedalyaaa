@@ -565,6 +565,46 @@
   }
   window.PedalyaToast = { toast, success: (m, t) => toast(t || 'Success', m, 'success'), error: (m, t) => toast(t || 'Error', m, 'error'), warning: (m, t) => toast(t || 'Warning', m, 'warning'), info: (m, t) => toast(t || 'Info', m, 'info') };
 
+  document.addEventListener('submit', async (event) => {
+    const form = event.target.closest('form[data-payment-verify]');
+    if (!form) return;
+
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    if (!button || button.disabled) return;
+
+    const originalContent = button.innerHTML;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Verifying...';
+
+    try {
+      const response = await fetch(form.action, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: new FormData(form),
+      });
+      const result = await response.json().catch(() => null);
+
+      if (!result) throw new Error('The server returned an invalid response. Please try again.');
+      if (!response.ok) throw new Error(result.message || 'Payment verification failed.');
+      if (typeof result.status !== 'string' || result.status.length === 0) {
+        throw new Error('The server did not return a payment status. Please try again.');
+      }
+
+      toast('Payment status verified', 'Current status: ' + result.status, 'success');
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (error) {
+      toast('Payment verification failed', error instanceof Error ? error.message : 'Please try again.', 'error');
+    } finally {
+      button.disabled = false;
+      button.classList.remove('is-loading');
+      button.removeAttribute('aria-busy');
+      button.innerHTML = originalContent;
+      form.removeAttribute('data-submitting');
+    }
+  }, true);
+
   /* ---------- Confirm dialog ---------- */
   const confirmModal = $('#adminConfirm');
   const confirmBackdrop = confirmModal && $('.admin-modal__backdrop', confirmModal);

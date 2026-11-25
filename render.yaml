@@ -42,8 +42,9 @@ services:
         value: mysql
       - key: DB_HOST
         sync: false
+      # Aiven's external MySQL service uses its assigned port, not the default 3306.
       - key: DB_PORT
-        value: "3306"
+        value: "27661"
       - key: DB_DATABASE
         sync: false
       - key: DB_USERNAME
@@ -54,12 +55,57 @@ services:
       # mode-600 temporary file and configures PDO MySQL to verify the server.
       - key: MYSQL_SSL_CA_BASE64
         sync: false
+      # This fleet-wide API key must match PEDALYA_API_KEY on the ESP32.
+      # Never generate or rotate it without coordinating a firmware update.
       - key: DEVICE_API_KEY
-        generateValue: true
+        sync: false
+      # Google OAuth credentials and redirect URI must match the provider setup.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      # Configure a real SMTP-compatible mailer before enabling password resets.
+      - key: MAIL_MAILER
+        sync: false
+      - key: MAIL_HOST
+        sync: false
+      - key: MAIL_PORT
+        value: "587"
+      - key: MAIL_SCHEME
+        value: tls
+      - key: MAIL_USERNAME
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false
+      - key: MAIL_FROM_ADDRESS
+        sync: false
+      - key: MAIL_FROM_NAME
+        value: Pedalya
       # Do not enable until a backup exists and pending migrations were reviewed.
       - key: RUN_MIGRATIONS
+        value: "false"
+      # Configure these with a durable S3-compatible bucket before ID uploads.
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_DEFAULT_REGION
+        sync: false
+      - key: AWS_BUCKET
+        sync: false
+      - key: AWS_ENDPOINT
+        sync: false
+      - key: AWS_URL
+        sync: false
+      - key: AWS_USE_PATH_STYLE_ENDPOINT
         value: "false"
       # Configure S3-compatible object storage before accepting production ID
       # uploads. Render's filesystem is ephemeral.
       - key: FILESYSTEM_DISK
+        sync: false
+      # Use id_verifications_s3 after configuring AWS/S3-compatible
+      # credentials in Render; the default private local disk is not durable here.
+      - key: ID_VERIFICATION_DISK
         sync: false

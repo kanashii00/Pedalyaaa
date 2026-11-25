@@ -5,6 +5,8 @@ namespace App\Services;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use RuntimeException;
 
 class DocumentUploadService
 {
@@ -28,11 +30,16 @@ class DocumentUploadService
 
     private function storeUploadedFile(UploadedFile $file): array
     {
-        $path = $file->store('id-verifications', 'public');
+        $disk = config('services.id_verification_disk', 'id_verifications');
+        $path = $file->store('id-verifications', $disk);
+
+        if (!is_string($path) || $path === '') {
+            throw new RuntimeException('Unable to store the ID verification document.');
+        }
 
         return [
             'id_path' => $path,
-            'id_url' => Storage::disk('public')->url($path),
+            'id_disk' => $disk,
         ];
     }
 
@@ -50,14 +57,17 @@ class DocumentUploadService
             default => 'png',
         };
 
-        $filename = 'id-' . $userId . '-' . time() . '.' . $extension;
+        $filename = 'id-' . $userId . '-' . Str::uuid() . '.' . $extension;
         $path = 'id-verifications/' . $filename;
+        $disk = config('services.id_verification_disk', 'id_verifications');
 
-        Storage::disk('public')->put($path, $binary);
+        if (!Storage::disk($disk)->put($path, $binary)) {
+            throw new RuntimeException('Unable to store the ID verification document.');
+        }
 
         return [
             'id_path' => $path,
-            'id_url' => Storage::disk('public')->url($path),
+            'id_disk' => $disk,
         ];
     }
 

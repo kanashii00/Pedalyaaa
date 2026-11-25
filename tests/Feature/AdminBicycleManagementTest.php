@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\Bicycle;
 use App\Models\DeviceCommand;
 use App\Models\DeviceStatus;
+use App\Models\GpsLog;
 use App\Models\MaintenanceRecord;
 use App\Models\Rental;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -20,11 +21,30 @@ class AdminBicycleManagementTest extends TestCase
     public function test_index_with_filters(): void
     {
         $admin = $this->makeAdmin();
-        $this->makeBicycle(['name' => 'Alpha', 'status' => Bicycle::STATUS_AVAILABLE, 'batteryLevel' => 40]);
-        $this->makeBicycle(['name' => 'Beta', 'status' => Bicycle::STATUS_RENTED, 'batteryLevel' => 90]);
+        $alpha = $this->makeBicycle([
+            'name' => 'Alpha',
+            'serialNumber' => 'PDY-SEARCH-ALPHA',
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'batteryLevel' => 40,
+        ]);
+        $this->makeBicycle([
+            'name' => 'Beta',
+            'serialNumber' => 'PDY-SEARCH-BETA',
+            'status' => Bicycle::STATUS_RENTED,
+            'batteryLevel' => 90,
+        ]);
 
         $this->actingAs($admin)->get(route('admin.bicycles.index'))->assertOk();
-        $this->actingAs($admin)->get(route('admin.bicycles.index', ['status' => 'rented', 'battery' => 50, 'search' => 'Beta']))->assertOk();
+
+        $response = $this->actingAs($admin)->get(route('admin.bicycles.index', [
+            'status' => 'available',
+            'search' => $alpha->serialNumber,
+        ]))->assertOk();
+
+        $response->assertSee($alpha->serialNumber)->assertDontSee('PDY-SEARCH-BETA');
+        $response->assertSee('form="inventoryFilters"', false);
+        $response->assertSee('name="search"', false);
+        $response->assertSee('value="' . $alpha->serialNumber . '"', false);
     }
 
     public function test_show_and_create_pages(): void
@@ -32,8 +52,68 @@ class AdminBicycleManagementTest extends TestCase
         $admin = $this->makeAdmin();
         $bike = $this->makeBicycle();
 
-        $this->actingAs($admin)->get(route('admin.bicycles.show', $bike->id))->assertOk();
+        $this->actingAs($admin)
+            ->get(route('admin.bicycles.show', $bike->id))
+            ->assertOk()
+            ->assertSee(route('admin.bicycles.lock', $bike->id), false);
         $this->actingAs($admin)->get(route('admin.bicycles.create'))->assertOk();
+    }
+
+    public function test_details_hide_lock_controls_when_the_bicycle_cannot_be_controlled(): void
+    {
+        $admin = $this->makeAdmin();
+
+        foreach ([
+            ['status' => Bicycle::STATUS_RENTED],
+            ['status' => Bicycle::STATUS_MAINTENANCE],
+            ['iotEnabled' => false],
+        ] as $attributes) {
+            $bike = $this->makeBicycle($attributes);
+            $html = $this->actingAs($admin)
+                ->get(route('admin.bicycles.show', $bike->id))
+                ->assertOk()
+                ->getContent();
+
+            $this->assertStringNotContainsString(route('admin.bicycles.lock', $bike->id), $html);
+        }
+    }
+
+    public function test_bicycle_details_do_not_fabricate_a_map_position_without_a_gps_log(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->makeBicycle(['currentLat' => null, 'currentLng' => null]);
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.bicycles.show', $bike->id))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('No GPS position has been reported', $html);
+        $this->assertStringNotContainsString('<div class="bike-map" id="bicycleDetailMap"', $html);
+    }
+
+    public function test_bicycle_details_use_the_latest_recorded_gps_position(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->makeBicycle([
+            'currentLat' => 1,
+            'currentLng' => 2,
+        ]);
+        GpsLog::create([
+            'bicycleId' => $bike->id,
+            'lat' => 14.6,
+            'lng' => 120.99,
+            'timestamp' => now(),
+        ]);
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.bicycles.show', $bike->id))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('data-lat="14.6000000"', $html);
+        $this->assertStringContainsString('data-lng="120.9900000"', $html);
+        $this->assertStringNotContainsString('data-lat="1.0000000"', $html);
     }
 
     public function test_store_creates_bicycle_and_audit_log(): void
@@ -164,6 +244,56 @@ class AdminBicycleManagementTest extends TestCase
         $this->assertSame(Bicycle::STATUS_RENTED, $bike->fresh()->status);
     }
 
+    public function test_edit_cannot_change_a_rented_bicycle_to_available(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
+        $rental = $this->makeRental([
+            'bicycleId' => $bike->id,
+            'riderId' => $rider->id,
+            'status' => Rental::STATUS_ACTIVE,
+        ]);
+        $bike->update(['currentRentalId' => $rental->id, 'currentRider' => $rider->id]);
+
+        $this->from(route('admin.bicycles.index'))
+            ->actingAs($admin)
+            ->put(route('admin.bicycles.update', $bike->id), ['status' => Bicycle::STATUS_AVAILABLE])
+            ->assertSessionHasErrors('status');
+
+        $this->assertSame(Bicycle::STATUS_RENTED, $bike->fresh()->status);
+        $this->assertSame((string) $rental->id, $bike->fresh()->currentRentalId);
+        $this->assertSame(Rental::STATUS_ACTIVE, $rental->fresh()->status);
+    }
+
+    public function test_edit_cannot_manually_mark_an_available_bicycle_as_rented(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_AVAILABLE]);
+
+        $this->from(route('admin.bicycles.index'))
+            ->actingAs($admin)
+            ->put(route('admin.bicycles.update', $bike->id), ['status' => Bicycle::STATUS_RENTED])
+            ->assertSessionHasErrors('status');
+
+        $this->assertSame(Bicycle::STATUS_AVAILABLE, $bike->fresh()->status);
+        $this->assertNull($bike->fresh()->currentRentalId);
+    }
+
+    public function test_edit_cannot_mark_an_unprovisioned_bicycle_available(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->makeOutOfServiceBicycle();
+
+        $this->from(route('admin.bicycles.index'))
+            ->actingAs($admin)
+            ->put(route('admin.bicycles.update', $bike->id), ['status' => Bicycle::STATUS_AVAILABLE])
+            ->assertSessionHasErrors('status');
+
+        $this->assertSame(Bicycle::STATUS_OUT_OF_SERVICE, $bike->fresh()->status);
+        $this->assertFalse($bike->fresh()->isInService());
+    }
+
     public function test_update_from_maintenance_to_available_blocked_when_active_records(): void
     {
         $admin = $this->makeAdmin();
@@ -218,6 +348,28 @@ class AdminBicycleManagementTest extends TestCase
             ->actingAs($admin)
             ->delete(route('admin.bicycles.destroy', $bike->id))
             ->assertSessionHasErrors('bicycle');
+    }
+
+    public function test_destroy_is_blocked_while_a_return_is_unsettled(): void
+    {
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider();
+
+        foreach ([Rental::STATUS_AWAITING_RETURN, Rental::STATUS_OVERDUE_RETURN] as $status) {
+            $bike = $this->makeBicycle(['status' => Bicycle::STATUS_AVAILABLE]);
+            $this->makeRental([
+                'bicycleId' => $bike->id,
+                'riderId' => $rider->id,
+                'status' => $status,
+            ]);
+
+            $this->from(route('admin.bicycles.index'))
+                ->actingAs($admin)
+                ->delete(route('admin.bicycles.destroy', $bike->id))
+                ->assertSessionHasErrors('bicycle');
+
+            $this->assertSame(Bicycle::STATUS_AVAILABLE, $bike->fresh()->status);
+        }
     }
 
     public function test_lock_sends_remote_command(): void
@@ -537,6 +689,32 @@ class AdminBicycleManagementTest extends TestCase
         }
     }
 
+    public function test_rental_history_menu_opens_the_filtered_history_page(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->makeBicycle(['serialNumber' => 'PDY-HISTORY-LINK']);
+        $rental = $this->makeRental([
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_RETURNED,
+        ]);
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.bicycles.index'))
+            ->assertOk()
+            ->getContent();
+        $cell = $this->actionsCell($html, $bike->serialNumber);
+
+        $this->assertStringContainsString(
+            route('admin.rentals.history', ['bicycle_id' => $bike->id]),
+            $cell
+        );
+
+        $this->actingAs($admin)
+            ->get(route('admin.rentals.history', ['bicycle_id' => $bike->id]))
+            ->assertOk()
+            ->assertSee($rental->rentalId);
+    }
+
     public function test_row_keeps_edit_and_delete_while_lock_lives_in_the_actions_dropdown(): void
     {
         $admin = $this->makeAdmin();
@@ -628,7 +806,7 @@ class AdminBicycleManagementTest extends TestCase
         $this->assertStringContainsString('Device Management', substr($cell, $menuStart, 2000));
     }
 
-    public function test_lock_can_be_queued_when_rented_for_expiry_recovery(): void
+    public function test_lock_is_refused_while_bicycle_is_rented(): void
     {
         $admin = $this->makeAdmin();
         $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
@@ -636,12 +814,11 @@ class AdminBicycleManagementTest extends TestCase
         $this->from(route('admin.bicycles.index'))
             ->actingAs($admin)
             ->post(route('admin.bicycles.lock', $bike->id), ['action' => 'lock'])
-            ->assertSessionHasNoErrors();
+            ->assertSessionHasErrors();
 
-        $this->assertDatabaseHas('device_commands', [
+        $this->assertDatabaseMissing('device_commands', [
             'bicycleId' => $bike->id,
             'command' => 'lock',
-            'status' => 'pending',
         ]);
     }
 

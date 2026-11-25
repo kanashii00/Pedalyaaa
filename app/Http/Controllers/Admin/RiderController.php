@@ -11,6 +11,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -46,6 +47,30 @@ class RiderController extends Controller
     public function create(): View
     {
         return view('admin.riders.create');
+    }
+
+    public function idDocument(int $id): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $rider = User::where('role', User::ROLE_RIDER)->findOrFail($id);
+        $verification = $rider->idVerification ?? [];
+        $path = $verification['id_path'] ?? null;
+
+        if (!is_string($path) || !str_starts_with($path, 'id-verifications/') || str_contains($path, '..')) {
+            abort(404);
+        }
+
+        $disk = $verification['id_disk'] ?? 'public';
+        if (!in_array($disk, ['public', 'id_verifications', 'id_verifications_s3'], true)) {
+            abort(404);
+        }
+
+        $storage = Storage::disk($disk);
+        abort_unless($storage->exists($path), 404);
+
+        return $storage->response($path, null, [
+            'Cache-Control' => 'private, no-store, max-age=0',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function store(Request $request): RedirectResponse
@@ -125,7 +150,7 @@ class RiderController extends Controller
             $rider->update([
                 'idVerification' => [
                     'id_path' => $stored['id_path'],
-                    'id_url' => $stored['id_url'],
+                    'id_disk' => $stored['id_disk'],
                     'status' => 'pending',
                     'submitted_at' => now()->toIso8601String(),
                     'submitted_by' => 'admin:' . auth()->id(),

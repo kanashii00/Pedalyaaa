@@ -18,7 +18,8 @@ class DocumentUploadServiceTest extends TestCase
     {
         parent::setUp();
         $this->service = new DocumentUploadService();
-        Storage::fake('public');
+        config(['services.id_verification_disk' => 'id_verifications']);
+        Storage::fake('id_verifications');
     }
 
     public function test_store_with_uploaded_file(): void
@@ -33,8 +34,9 @@ class DocumentUploadServiceTest extends TestCase
         $result = $this->service->storeIdVerification($request, 7);
 
         $this->assertNotNull($result);
-        $this->assertTrue(is_string($result['id_path']) && is_string($result['id_url']));
-        Storage::disk('public')->assertExists($result['id_path']);
+        $this->assertTrue(is_string($result['id_path']));
+        $this->assertSame('id_verifications', $result['id_disk']);
+        Storage::disk('id_verifications')->assertExists($result['id_path']);
 
         @unlink($tmp);
     }
@@ -51,7 +53,7 @@ class DocumentUploadServiceTest extends TestCase
 
         $this->assertNotNull($result);
         $this->assertStringEndsWith('.pdf', $result['id_path']);
-        Storage::disk('public')->assertExists($result['id_path']);
+        Storage::disk('id_verifications')->assertExists($result['id_path']);
     }
 
     public function test_store_with_invalid_base64_returns_null(): void

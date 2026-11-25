@@ -166,8 +166,8 @@ public function uploadIdVerification(Request $request): JsonResponse
     $request->validate([
         'id_image' => [
             'required_without:id_image_base64',
-            'image',
-            'mimes:jpeg,jpg,png',
+            'file',
+            'mimes:jpeg,jpg,png,pdf',
             'max:5120',
         ],
         'id_image_base64' => [
@@ -182,13 +182,14 @@ public function uploadIdVerification(Request $request): JsonResponse
 
     if ($stored === null) {
         return response()->json([
-            'message' => 'The provided document is not a valid JPEG, PNG or PDF image.',
+            'message' => 'The provided document is not a valid JPEG, PNG or PDF file.',
         ], 422);
     }
 
     $idVerification = $user->idVerification ?? [];
     $idVerification['id_path'] = $stored['id_path'];
-    $idVerification['id_url'] = $stored['id_url'];
+    $idVerification['id_disk'] = $stored['id_disk'];
+    unset($idVerification['id_url']);
     $idVerification['status'] = 'pending';
     $idVerification['submitted_at'] =
         now()->toIso8601String();

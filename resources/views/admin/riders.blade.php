@@ -65,7 +65,8 @@
                                     data-phone="{{ $rider->phoneNumber ?? '—' }}"
                                     data-address="{{ $rider->address ?? '—' }}"
                                     data-joined="{{ $rider->created_at->format('M d, Y') }}"
-                                    data-id-url="{{ $rider->idVerification['id_url'] ?? '' }}"
+                                    data-id-url="{{ !empty($rider->idVerification['id_path']) ? route('admin.riders.id-document', $rider->id) : '' }}"
+                                    data-id-type="{{ strtolower(pathinfo($rider->idVerification['id_path'] ?? '', PATHINFO_EXTENSION)) }}"
                                     data-id-status="{{ $rider->idVerification['status'] ?? 'pending' }}"
                                     data-id-submitted="{{ $rider->idVerification['submitted_at'] ?? '' }}"
                                     title="View customer details for {{ $rider->name }}"
@@ -222,6 +223,7 @@
                         <div class="vr-card__body vr-card__body--id">
                             <div id="vrIdWrap" class="vr-id-preview">
                                 <img id="vrIdImg" src="" alt="Submitted ID">
+                                <iframe id="vrIdDocument" class="d-none" title="Submitted ID document"></iframe>
                                 <p id="vrIdEmpty" class="vr-id-empty d-none">
                                     <i class="bi bi-file-earmark-image"></i>
                                     <span>No ID image submitted</span>
@@ -372,15 +374,22 @@ function openVerifyReview(btn) {
     statusEl.innerHTML = '<span class="vr-badge ' + badgeClass + '">' + badgeLabel + '</span>';
 
     const img = document.getElementById('vrIdImg');
+    const documentFrame = document.getElementById('vrIdDocument');
     const empty = document.getElementById('vrIdEmpty');
     const zoomBtn = document.getElementById('vrZoomBtn');
     if (d.idUrl) {
-        img.src = d.idUrl;
-        img.classList.remove('d-none');
+        const isPdf = d.idType === 'pdf';
+        img.classList.toggle('d-none', isPdf);
+        documentFrame.classList.toggle('d-none', !isPdf);
+        documentFrame.src = isPdf ? d.idUrl : 'about:blank';
+        if (!isPdf) img.src = d.idUrl;
         empty.classList.add('d-none');
         zoomBtn.classList.remove('d-none');
     } else {
+        img.src = '';
         img.classList.add('d-none');
+        documentFrame.src = 'about:blank';
+        documentFrame.classList.add('d-none');
         empty.classList.remove('d-none');
         zoomBtn.classList.add('d-none');
     }
@@ -393,6 +402,12 @@ function openVerifyReview(btn) {
 }
 
 document.getElementById('vrZoomBtn')?.addEventListener('click', function() {
+    const documentFrame = document.getElementById('vrIdDocument');
+    if (documentFrame && !documentFrame.classList.contains('d-none')) {
+        window.open(documentFrame.src, '_blank', 'noopener');
+        return;
+    }
+
     const img = document.getElementById('vrIdImg');
     if (img && img.src && !img.classList.contains('d-none')) {
         document.getElementById('vrLightboxImg').src = img.src;

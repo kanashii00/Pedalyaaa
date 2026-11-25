@@ -25,7 +25,6 @@ class PaymentWebhookTest extends TestCase
                 'webhook_secret' => 'test-webhook-secret',
             ],
         ]);
-        $this->admin = $this->makeAdmin();
     }
 
     private function webhook(string $event, array $data, array $previous = null): \Illuminate\Testing\TestResponse
@@ -42,9 +41,7 @@ class PaymentWebhookTest extends TestCase
 
         $signature = hash_hmac('sha256', $payload, 'test-webhook-secret');
 
-        return $this->actingAs($this->admin)
-            ->from('/admin')
-            ->postJson(route('admin.payments.webhook'), json_decode($payload, true), [
+        return $this->postJson(route('payments.webhook'), json_decode($payload, true), [
                 'Paymongo-Signature' => $signature,
             ]);
     }
@@ -53,9 +50,7 @@ class PaymentWebhookTest extends TestCase
     {
         $payload = json_encode(['data' => ['attributes' => ['event' => 'payment_intent.succeeded', 'data' => [], 'previous_data' => null]]]);
 
-        $response = $this->actingAs($this->admin)
-            ->from('/admin')
-            ->postJson(route('admin.payments.webhook'), json_decode($payload, true), [
+        $response = $this->postJson(route('payments.webhook'), json_decode($payload, true), [
                 'Paymongo-Signature' => 'wrong-signature',
             ]);
 
@@ -64,10 +59,15 @@ class PaymentWebhookTest extends TestCase
 
     public function test_missing_signature_rejected(): void
     {
-        $this->actingAs($this->admin)
-            ->from('/admin')
-            ->postJson(route('admin.payments.webhook'), ['data' => ['attributes' => ['event' => 'x', 'data' => []]]])
+        $this->postJson(route('payments.webhook'), ['data' => ['attributes' => ['event' => 'x', 'data' => []]]])
             ->assertStatus(401);
+    }
+
+    public function test_valid_webhook_does_not_require_an_admin_session_or_csrf_token(): void
+    {
+        $this->webhook('some.other.event', ['id' => 'x'])
+            ->assertOk()
+            ->assertJsonPath('message', 'Event acknowledged');
     }
 
     public function test_payment_intent_succeeded_marks_paid_and_creates_rental(): void

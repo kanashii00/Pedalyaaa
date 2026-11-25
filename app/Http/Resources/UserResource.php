@@ -22,7 +22,7 @@ class UserResource extends JsonResource
             'status' => $this->status,
             'verified' => (bool) $this->verified,
             'idUploaded' => (bool) $this->idUploaded,
-            'idVerification' => $this->idVerification,
+            'idVerification' => $this->safeIdVerification(),
             'totalRentals' => $this->totalRentals,
             'totalSpent' => $this->totalSpent,
             'isVerified' => (bool) $this->verified,
@@ -36,5 +36,18 @@ class UserResource extends JsonResource
     private function isCurrentUser(Request $request): bool
     {
         return $request->user() && $request->user()->id === $this->id;
+    }
+
+    private function safeIdVerification(): ?array
+    {
+        $verification = $this->idVerification;
+
+        if (!is_array($verification)) {
+            return null;
+        }
+
+        unset($verification['id_path'], $verification['id_disk'], $verification['id_url']);
+
+        return $verification;
     }
 }

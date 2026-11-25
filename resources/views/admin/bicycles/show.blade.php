@@ -14,6 +14,26 @@
 @endsection
 
 @section('content')
+@php
+    $gpsLog = $bicycle->latestGpsLog;
+    $gpsLatitude = $gpsLog?->lat;
+    $gpsLongitude = $gpsLog?->lng;
+    $hasGpsPosition = $gpsLatitude !== null
+        && $gpsLongitude !== null
+        && is_numeric($gpsLatitude)
+        && is_numeric($gpsLongitude)
+        && (float) $gpsLatitude >= -90
+        && (float) $gpsLatitude <= 90
+        && (float) $gpsLongitude >= -180
+        && (float) $gpsLongitude <= 180;
+    $gpsLatitude = $hasGpsPosition ? number_format((float) $gpsLatitude, 7, '.', '') : null;
+    $gpsLongitude = $hasGpsPosition ? number_format((float) $gpsLongitude, 7, '.', '') : null;
+    $gpsPositionFresh = $hasGpsPosition
+        && $gpsLog->created_at !== null
+        && $gpsLog->created_at->greaterThanOrEqualTo(
+            now()->subSeconds(\App\Services\GpsIngestService::FIX_FRESH_SECONDS)
+        );
+@endphp
 @if(session('success'))
     <div class="alert alert-success alert-dismissible fade show" role="alert">
         <i class="bi bi-check-circle me-1"></i>{{ session('success') }}
@@ -51,28 +71,39 @@
         <x-admin.card title="Remote Lock Control">
             @php($pendingLockCommand = \App\Models\DeviceCommand::where('bicycleId', $bicycle->id)->whereIn('command', ['lock', 'unlock'])->whereIn('status', ['pending', 'sent'])->latest('id')->first())
             @php($deviceOffline = !$bicycle->lastHeartbeat || $bicycle->lastHeartbeat->lt(now()->subMinutes(2)))
+            @php($canControlLock = $bicycle->isInService()
+                && !in_array($bicycle->status, [\App\Models\Bicycle::STATUS_MAINTENANCE, \App\Models\Bicycle::STATUS_RENTED], true)
+                && $bicycle->currentRentalId === null)
             @if($pendingLockCommand)
                 <div class="alert alert-warning py-2 mb-2"><i class="bi bi-hourglass-split me-1"></i>{{ ucfirst($pendingLockCommand->command) }}ing — pending ESP32 acknowledgement.</div>
-            @elseif($deviceOffline)
+            @elseif($canControlLock && $deviceOffline)
                 <div class="alert alert-secondary py-2 mb-2"><i class="bi bi-wifi-off me-1"></i>Device offline; command delivery waits for its next check-in.</div>
             @endif
-            <p class="bike-hint">Queue a command for the ESP32 smart lock. It applies when the device next checks in — the lock state below updates only after the device acknowledges.</p>
-            <div class="bike-lock-actions">
-                <form action="{{ route('admin.bicycles.lock', $bicycle->id) }}" method="POST">
-                    @csrf
-                    <input type="hidden" name="action" value="lock">
-                    <button type="submit" class="btn-admin btn-admin--danger bike-lock-btn" {{ $pendingLockCommand ? 'disabled' : '' }}>
-                        <i class="bi bi-lock-fill me-1"></i>Lock
-                    </button>
-                </form>
-                <form action="{{ route('admin.bicycles.lock', $bicycle->id) }}" method="POST">
-                    @csrf
-                    <input type="hidden" name="action" value="unlock">
-                    <button type="submit" class="btn-admin btn-admin--secondary bike-lock-btn" {{ $pendingLockCommand ? 'disabled' : '' }}>
-                        <i class="bi bi-unlock-fill me-1"></i>Unlock
-                    </button>
-                </form>
-            </div>
+            @if($canControlLock)
+                <p class="bike-hint">Queue a command for the ESP32 smart lock. It applies when the device next checks in — the lock state below updates only after the device acknowledges.</p>
+                <div class="bike-lock-actions">
+                    <form action="{{ route('admin.bicycles.lock', $bicycle->id) }}" method="POST">
+                        @csrf
+                        <input type="hidden" name="action" value="lock">
+                        <button type="submit" class="btn-admin btn-admin--danger bike-lock-btn" {{ $pendingLockCommand ? 'disabled' : '' }}>
+                            <i class="bi bi-lock-fill me-1"></i>Lock
+                        </button>
+                    </form>
+                    <form action="{{ route('admin.bicycles.lock', $bicycle->id) }}" method="POST">
+                        @csrf
+                        <input type="hidden" name="action" value="unlock">
+                        <button type="submit" class="btn-admin btn-admin--secondary bike-lock-btn" {{ $pendingLockCommand ? 'disabled' : '' }}>
+                            <i class="bi bi-unlock-fill me-1"></i>Unlock
+                        </button>
+                    </form>
+                </div>
+            @elseif(!$bicycle->isInService())
+                <div class="alert alert-secondary py-2 mb-0">No controllable IoT device is registered for this bicycle.</div>
+            @elseif($bicycle->status === \App\Models\Bicycle::STATUS_RENTED || $bicycle->currentRentalId !== null)
+                <div class="alert alert-secondary py-2 mb-0">Lock controls are unavailable while this bicycle has an active rental.</div>
+            @else
+                <div class="alert alert-secondary py-2 mb-0">Lock controls are unavailable while this bicycle is in maintenance.</div>
+            @endif
             <small class="bike-hint bike-hint--muted d-block mt-2">
                 Last hardware acknowledgement: {{ $bicycle->lastLockAction ? $bicycle->lastLockAction->diffForHumans() : 'Never' }}
                 @if($bicycle->lockActionBy) by #{{ $bicycle->lockActionBy }} @endif
@@ -88,7 +119,6 @@
                 $hasDevice = (bool) ($bicycle->iotEnabled ?? $t);
                 $freshCutoff = now()->subMinutes(5);
                 $heartbeatFresh = $bicycle->lastHeartbeat && $bicycle->lastHeartbeat->gte($freshCutoff);
-                $gpsFresh = $bicycle->lastGpsUpdate && $bicycle->lastGpsUpdate->gte($freshCutoff);
                 $batteryLevel = $t?->battery['level'] ?? $bicycle->batteryLevel;
                 $batteryShown = $hasDevice && $batteryLevel !== null;
                 $lockShown = $hasDevice;
@@ -154,18 +184,21 @@
                     <tr>
                         <th>Last GPS Update</th>
                         <td>
-                            {{ $bicycle->lastGpsUpdate ? $bicycle->lastGpsUpdate->diffForHumans() : '—' }}
-                            @if($bicycle->lastGpsUpdate && !$gpsFresh)
+                            {{ $gpsLog?->created_at?->diffForHumans() ?? '—' }}
+                            @if($gpsLog?->created_at && !$gpsPositionFresh)
                                 <span class="bike-stale">Stale</span>
-                            @elseif(!$bicycle->lastGpsUpdate)
+                            @elseif(!$gpsLog?->created_at)
                                 <span class="bike-unavailable">Unavailable</span>
                             @endif
                         </td>
                     </tr>
                     <tr><th>Current Location</th>
                         <td>
-                            @if($bicycle->currentLat && $bicycle->currentLng)
-                                {{ $bicycle->currentLat }}, {{ $bicycle->currentLng }}
+                            @if($hasGpsPosition)
+                                {{ $gpsLatitude }}, {{ $gpsLongitude }}
+                                @unless($gpsPositionFresh)
+                                    <span class="bike-stale">Last known</span>
+                                @endunless
                             @else
                                 <span class="bike-unavailable">—</span>
                             @endif
@@ -177,8 +210,19 @@
             </table>
         </x-admin.card>
 
-        <x-admin.card title="Live Position" :flush="true">
-            <div class="bike-map" id="bicycleDetailMap" role="application" aria-label="Live bicycle position map"></div>
+        <x-admin.card title="GPS Position" :flush="true">
+            @if($hasGpsPosition)
+                <div class="bike-map" id="bicycleDetailMap" data-lat="{{ $gpsLatitude }}"
+                     data-lng="{{ $gpsLongitude }}" role="application" aria-label="Bicycle GPS position map"></div>
+                <div class="p-3 small text-muted">
+                    Last recorded position: {{ $gpsLatitude }}, {{ $gpsLongitude }}
+                    @unless($gpsPositionFresh)
+                        <span class="bike-stale">Stale GPS report</span>
+                    @endunless
+                </div>
+            @else
+                <div class="p-4 text-muted">No GPS position has been reported for this bicycle.</div>
+            @endif
         </x-admin.card>
     </div>
 </div>
@@ -191,9 +235,10 @@
         if (!el || typeof maplibregl === 'undefined') return;
 
         const center = {
-            lat: parseFloat({{ $bicycle->currentLat ?? '7.0990' }}),
-            lng: parseFloat({{ $bicycle->currentLng ?? '125.6470' }})
+            lat: Number(el.dataset.lat),
+            lng: Number(el.dataset.lng)
         };
+        if (!Number.isFinite(center.lat) || !Number.isFinite(center.lng)) return;
 
         const map = new maplibregl.Map({
             container: el,
@@ -208,11 +253,20 @@
         map.addControl(new maplibregl.NavigationControl(), 'top-right');
         map.addControl(new maplibregl.FullscreenControl(), 'top-right');
 
+        const popupContent = document.createElement('div');
+        [
+            @json($bicycle->name),
+            '#' + @json($bicycle->serialNumber),
+            @json(ucfirst($bicycle->status)),
+        ].forEach(function (value) {
+            const line = document.createElement('div');
+            line.textContent = value;
+            popupContent.appendChild(line);
+        });
+
         new maplibregl.Marker({ color: '#e74c3c' })
             .setLngLat([center.lng, center.lat])
-            .setPopup(new maplibregl.Popup({ offset: 25 }).setHTML(
-                '<strong>{{ $bicycle->name }}</strong><br>#{{ $bicycle->serialNumber }}<br>{{ ucfirst($bicycle->status) }}'
-            ))
+            .setPopup(new maplibregl.Popup({ offset: 25 }).setDOMContent(popupContent))
             .addTo(map);
     });
 </script>

@@ -2128,6 +2128,7 @@ a.admin-pagination__item:hover { background: var(--surface-3); color: var(--text
   transition: transform 0.2s, box-shadow 0.2s;
 }
 .vr-id-preview img:hover { transform: scale(1.015); box-shadow: 0 8px 24px rgba(0,0,0,0.18); }
+.vr-id-preview iframe { width: 100%; min-height: 440px; border: 0; }
 .vr-id-empty {
   display: flex; flex-direction: column; align-items: center; gap: 10px;
   text-align: center; padding: 40px 20px; color: var(--text-3); margin: 0;

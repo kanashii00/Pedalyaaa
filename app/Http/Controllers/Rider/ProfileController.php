@@ -113,7 +113,7 @@ class ProfileController extends Controller
         $user = $request->user();
 
         $request->validate([
-            'id_image' => ['required_without:id_image_base64', 'image', 'mimes:jpeg,png,jpg,pdf', 'max:5120'],
+            'id_image' => ['required_without:id_image_base64', 'file', 'mimes:jpeg,png,jpg,pdf', 'max:5120'],
             'id_image_base64' => ['required_without:id_image', 'string'],
         ]);
 
@@ -126,7 +126,8 @@ class ProfileController extends Controller
 
         $idVerification = $user->idVerification ?? [];
         $idVerification['id_path'] = $stored['id_path'];
-        $idVerification['id_url'] = $stored['id_url'];
+        $idVerification['id_disk'] = $stored['id_disk'];
+        unset($idVerification['id_url']);
         $idVerification['status'] = 'pending';
         $idVerification['submitted_at'] = now()->toIso8601String();
 

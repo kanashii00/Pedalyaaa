@@ -219,9 +219,13 @@
                                     </a>
                                 @endif
                                 @if($payment->status === 'pending' || $payment->status === 'processing')
-                                    <a href="{{ route('admin.payments.verify', $payment) }}" class="btn-admin btn-admin--ghost btn-admin--sm" title="Verify with PayMongo" aria-label="Verify with PayMongo">
-                                        <i class="bi bi-arrow-clockwise"></i>
-                                    </a>
+                                    <form action="{{ route('admin.payments.verify', $payment) }}" method="POST" data-payment-verify>
+                                        @csrf
+                                        <button type="submit" class="btn-admin btn-admin--ghost btn-admin--sm"
+                                                title="Verify payment status" aria-label="Verify payment status">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                    </form>
                                 @endif
                             </div>
                         </td>

@@ -238,7 +238,7 @@ class AdminOpsTest extends TestCase
 
     public function test_outside_red_pin_creates_alert_no_duplicate_and_return_resolves(): void
     {
-        config(['services.device_api_key' => 'pedalya-iot-device-key-2024']);
+        config(['services.device_api_key' => 'test-device-key']);
         $this->adminAuth();
 
         // Create an explicit active geofence so this test is deterministic and

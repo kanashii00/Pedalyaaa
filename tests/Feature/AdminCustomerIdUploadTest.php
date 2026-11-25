@@ -49,6 +49,7 @@ class AdminCustomerIdUploadTest extends TestCase
 
     public function test_registration_with_valid_id_image_links_it_to_the_customer(): void
     {
+        Storage::fake('id_verifications');
         Storage::fake('public');
         $admin = $this->makeAdmin();
 
@@ -67,9 +68,10 @@ class AdminCustomerIdUploadTest extends TestCase
         $this->assertTrue((bool) $rider->idUploaded);
         $this->assertSame('pending', $rider->idVerification['status'] ?? null);
         $this->assertNotEmpty($rider->idVerification['id_path'] ?? null);
-        $this->assertNotEmpty($rider->idVerification['id_url'] ?? null);
+        $this->assertSame('id_verifications', $rider->idVerification['id_disk'] ?? null);
         $this->assertNotEmpty($rider->idVerification['submitted_at'] ?? null);
-        Storage::disk('public')->assertExists($rider->idVerification['id_path']);
+        Storage::disk('id_verifications')->assertExists($rider->idVerification['id_path']);
+        Storage::disk('public')->assertMissing($rider->idVerification['id_path']);
 
         $this->assertDatabaseHas('audit_logs', ['action' => 'rider_created']);
         $log = AuditLog::where('action', 'rider_created')->latest('id')->first();
@@ -78,7 +80,7 @@ class AdminCustomerIdUploadTest extends TestCase
 
     public function test_registration_without_id_image_still_succeeds(): void
     {
-        Storage::fake('public');
+        Storage::fake('id_verifications');
         $admin = $this->makeAdmin();
 
         $this->from(route('admin.riders.create'))
@@ -94,7 +96,7 @@ class AdminCustomerIdUploadTest extends TestCase
 
     public function test_registration_rejects_non_image_files_with_clear_message(): void
     {
-        Storage::fake('public');
+        Storage::fake('id_verifications');
         $admin = $this->makeAdmin();
 
         $this->from(route('admin.riders.create'))
@@ -111,7 +113,7 @@ class AdminCustomerIdUploadTest extends TestCase
 
     public function test_registration_rejects_oversized_images(): void
     {
-        Storage::fake('public');
+        Storage::fake('id_verifications');
         $admin = $this->makeAdmin();
 
         $this->from(route('admin.riders.create'))
@@ -127,16 +129,16 @@ class AdminCustomerIdUploadTest extends TestCase
 
     public function test_uploaded_id_appears_in_customer_verification_modal(): void
     {
-        Storage::fake('public');
+        Storage::fake('id_verifications');
         $admin = $this->makeAdmin();
         $rider = $this->makeRider(['verified' => false]);
 
-        $path = 'id-verifications/modal-id.png';
-        Storage::disk('public')->put($path, base64_decode(self::TINY_PNG_BASE64));
+        $path = 'id-verifications/modal-id.pdf';
+        Storage::disk('id_verifications')->put($path, '%PDF-1.4 modal ID document');
         $rider->update([
             'idVerification' => [
                 'id_path' => $path,
-                'id_url' => '/storage/' . $path,
+                'id_disk' => 'id_verifications',
                 'status' => 'pending',
                 'submitted_at' => now()->toIso8601String(),
             ],
@@ -146,12 +148,45 @@ class AdminCustomerIdUploadTest extends TestCase
         $html = $this->actingAs($admin)->get(route('admin.riders.index'))->assertOk()->getContent();
 
         $this->assertStringContainsString('data-id-url=', $html);
-        $this->assertStringContainsString($path, $html);
+        $this->assertStringContainsString('data-id-type="pdf"', $html);
+        $this->assertStringContainsString(route('admin.riders.id-document', $rider->id), $html);
+        $this->assertStringNotContainsString($path, $html);
+    }
+
+    public function test_verified_and_blacklisted_lists_use_the_protected_document_route(): void
+    {
+        Storage::fake('id_verifications');
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider(['verified' => true]);
+        $path = 'id-verifications/list-id.png';
+        Storage::disk('id_verifications')->put($path, base64_decode(self::TINY_PNG_BASE64));
+        $rider->update([
+            'idVerification' => [
+                'id_path' => $path,
+                'id_disk' => 'id_verifications',
+                'status' => 'approved',
+            ],
+        ]);
+
+        $url = route('admin.riders.id-document', $rider->id);
+        $verifiedHtml = $this->actingAs($admin)
+            ->get(route('admin.riders.verified'))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString($url, $verifiedHtml);
+
+        $rider->update(['status' => 'blacklisted']);
+        $blacklistedHtml = $this->get(route('admin.riders.blacklisted'))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString($url, $blacklistedHtml);
     }
 
     public function test_two_uploads_never_share_a_path(): void
     {
-        Storage::fake('public');
+        Storage::fake('id_verifications');
         $admin = $this->makeAdmin();
 
         $paths = [];
@@ -165,8 +200,32 @@ class AdminCustomerIdUploadTest extends TestCase
         }
 
         $this->assertNotSame($paths[0], $paths[1]);
-        Storage::disk('public')->assertExists($paths[0]);
-        Storage::disk('public')->assertExists($paths[1]);
+        Storage::disk('id_verifications')->assertExists($paths[0]);
+        Storage::disk('id_verifications')->assertExists($paths[1]);
+    }
+
+    public function test_id_document_requires_an_admin_session(): void
+    {
+        Storage::fake('id_verifications');
+        $admin = $this->makeAdmin();
+        $rider = $this->makeRider();
+        $path = 'id-verifications/private-id.pdf';
+        Storage::disk('id_verifications')->put($path, '%PDF-1.4 private ID test document');
+        $rider->update([
+            'idVerification' => [
+                'id_path' => $path,
+                'id_disk' => 'id_verifications',
+                'status' => 'pending',
+            ],
+        ]);
+
+        $url = route('admin.riders.id-document', $rider->id);
+
+        $this->get($url)->assertRedirect(route('login'));
+        $this->actingAs($this->makeRider())->get($url)->assertRedirect();
+        $this->actingAs($admin)->get($url)
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/pdf');
     }
 
     public function test_register_form_supports_file_uploads(): void

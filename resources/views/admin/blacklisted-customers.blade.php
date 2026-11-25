@@ -105,7 +105,8 @@
                                     data-joined="{{ $rider->created_at->format('M d, Y') }}"
                                     data-status="{{ $rider->status }}"
                                     data-blacklist-reason="{{ $rider->blacklistReason ?? '' }}"
-                                    data-id-url="{{ ($rider->idVerification['id_url'] ?? '') }}">
+                                    data-id-url="{{ !empty($rider->idVerification['id_path']) ? route('admin.riders.id-document', $rider->id) : '' }}"
+                                    data-id-type="{{ strtolower(pathinfo($rider->idVerification['id_path'] ?? '', PATHINFO_EXTENSION)) }}">
                                 <i class="bi bi-eye"></i>
                             </button>
 
@@ -246,6 +247,7 @@
                         <div class="vr-card__body vr-card__body--id">
                             <div class="vr-id-preview">
                                 <img id="bvIdImg" src="" alt="Submitted ID">
+                                <iframe id="bvIdDocument" class="d-none" title="Submitted ID document"></iframe>
                                 <p id="bvIdEmpty" class="vr-id-empty d-none">
                                     <i class="bi bi-file-earmark-image"></i>
                                     <span>No ID image submitted</span>
@@ -376,15 +378,22 @@ function openBlacklistedView(btn) {
     document.getElementById('bvReason').textContent = d.blacklistReason || 'No reason provided';
 
     const img = document.getElementById('bvIdImg');
+    const documentFrame = document.getElementById('bvIdDocument');
     const empty = document.getElementById('bvIdEmpty');
     const zoomBtn = document.getElementById('bvZoomBtn');
     if (d.idUrl) {
-        img.src = d.idUrl;
-        img.classList.remove('d-none');
+        const isPdf = d.idType === 'pdf';
+        img.classList.toggle('d-none', isPdf);
+        documentFrame.classList.toggle('d-none', !isPdf);
+        documentFrame.src = isPdf ? d.idUrl : 'about:blank';
+        if (!isPdf) img.src = d.idUrl;
         empty.classList.add('d-none');
         zoomBtn.classList.remove('d-none');
     } else {
+        img.src = '';
         img.classList.add('d-none');
+        documentFrame.src = 'about:blank';
+        documentFrame.classList.add('d-none');
         empty.classList.remove('d-none');
         zoomBtn.classList.add('d-none');
     }
@@ -409,6 +418,12 @@ function openBlacklistManage(btn) {
 }
 
 document.getElementById('bvZoomBtn')?.addEventListener('click', function() {
+    const documentFrame = document.getElementById('bvIdDocument');
+    if (documentFrame && !documentFrame.classList.contains('d-none')) {
+        window.open(documentFrame.src, '_blank', 'noopener');
+        return;
+    }
+
     const img = document.getElementById('bvIdImg');
     if (img && img.src && !img.classList.contains('d-none')) {
         document.getElementById('bvLightboxImg').src = img.src;

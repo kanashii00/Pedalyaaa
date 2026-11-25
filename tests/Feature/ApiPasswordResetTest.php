@@ -32,6 +32,19 @@ class ApiPasswordResetTest extends TestCase
         $this->postJson('/api/auth/forgot-password', ['email' => 'nobody@pedalya.test'])->assertStatus(422);
     }
 
+    public function test_production_does_not_store_a_reset_code_when_mailer_cannot_deliver(): void
+    {
+        $this->app['env'] = 'production';
+        config(['mail.default' => 'log']);
+        $this->makeRider(['email' => 'undelivered@pedalya.test']);
+
+        $this->postJson('/api/auth/forgot-password', ['email' => 'undelivered@pedalya.test'])
+            ->assertServiceUnavailable()
+            ->assertJsonPath('message', 'Password reset email is temporarily unavailable.');
+
+        $this->assertDatabaseMissing('password_reset_tokens', ['email' => 'undelivered@pedalya.test']);
+    }
+
     public function test_send_code_validation(): void
     {
         $this->postJson('/api/auth/forgot-password', ['email' => 'not-an-email'])->assertStatus(422);

@@ -284,6 +284,17 @@
     function boot() {
         initDropdowns();
         subscribe();
+        refreshBadge();
+
+        if (settings.unreadCountUrl) {
+            window.setInterval(function () {
+                if (!document.hidden) refreshBadge();
+            }, 30000);
+
+            document.addEventListener('visibilitychange', function () {
+                if (!document.hidden) refreshBadge();
+            });
+        }
     }
 
     if (document.readyState === 'loading') {

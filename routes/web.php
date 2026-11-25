@@ -9,7 +9,6 @@ use App\Http\Controllers\Admin\MaintenanceController as AdminMaintenance;
 use App\Http\Controllers\Admin\MonitoringController as AdminMonitoring;
 use App\Http\Controllers\Admin\NotificationController as AdminNotifications;
 use App\Http\Controllers\Admin\PaymentController as AdminPayment;
-use App\Http\Controllers\Admin\PaymentWebhookController as AdminPaymentWebhook;
 use App\Http\Controllers\Admin\RentalController as AdminRental;
 use App\Http\Controllers\Admin\ReportController as AdminReports;
 use App\Http\Controllers\Admin\RiderController as AdminRider;
@@ -64,6 +63,7 @@ Route::middleware(['auth', 'role:admin', 'no-cache'])->prefix('admin')->name('ad
     // Rider management
     Route::get('/riders', [AdminRider::class, 'index'])->name('riders.index');
     Route::get('/riders/create', [AdminRider::class, 'create'])->name('riders.create');
+    Route::get('/riders/{id}/id-document', [AdminRider::class, 'idDocument'])->name('riders.id-document');
     Route::post('/riders', [AdminRider::class, 'store'])->name('riders.store');
     Route::put('/riders/{id}/verify', [AdminRider::class, 'verify'])->name('riders.verify');
     Route::put('/riders/{id}/status', [AdminRider::class, 'updateStatus'])->name('riders.status');
@@ -160,9 +160,6 @@ Route::middleware(['auth', 'role:admin', 'no-cache'])->prefix('admin')->name('ad
         Route::post('/{payment}/verify', [AdminPayment::class, 'verify'])->name('verify');
         Route::get('/{payment}/receipt', [AdminPayment::class, 'receipt'])->name('receipt');
     });
-
-    // Payment Webhooks
-    Route::post('/payments/webhook', [AdminPaymentWebhook::class, 'handle'])->name('payments.webhook');
 });
 
 // Rider routes. no-cache: same back-after-logout protection as admin.

@@ -1,7 +1,8 @@
 <?php
 
 return [
-    'device_api_key' => env('DEVICE_API_KEY', 'pedalya-iot-device-key-2024'),
+    'device_api_key' => env('DEVICE_API_KEY'),
+    'id_verification_disk' => env('ID_VERIFICATION_DISK', 'id_verifications'),
 
     /*
      * Shared password for the demo admin/rider logins created by

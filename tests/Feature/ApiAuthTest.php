@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Services\DocumentUploadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Mockery;
 use Tests\Concerns\CreatesTestData;
@@ -152,17 +154,42 @@ class ApiAuthTest extends TestCase
         $documentService = Mockery::mock(DocumentUploadService::class);
         $documentService->shouldReceive('storeIdVerification')
             ->once()
-            ->andReturn(['id_path' => '/ids/abc.jpg', 'id_url' => '/storage/ids/abc.jpg']);
+            ->andReturn(['id_path' => '/ids/abc.jpg', 'id_disk' => 'id_verifications']);
         $this->app->instance(DocumentUploadService::class, $documentService);
 
         Sanctum::actingAs($rider);
 
         $this->postJson('/api/auth/id-verification', [
             'id_image_base64' => 'data:image/jpeg;base64,AAAA',
-        ])->assertOk()->assertJsonPath('verification_status', 'pending');
+        ])->assertOk()
+            ->assertJsonPath('verification_status', 'pending')
+            ->assertJsonMissingPath('user.idVerification.id_path')
+            ->assertJsonMissingPath('user.idVerification.id_disk');
 
         $rider->refresh();
         $this->assertTrue($rider->idUploaded);
         $this->assertSame('pending', $rider->idVerification['status']);
+    }
+
+    public function test_upload_id_verification_accepts_a_private_pdf_file(): void
+    {
+        $rider = $this->makeRider();
+        Storage::fake('id_verifications');
+        $pdfPath = tempnam(sys_get_temp_dir(), 'id-api-pdf');
+        file_put_contents($pdfPath, "%PDF-1.4\nAPI ID test document\n");
+
+        try {
+            Sanctum::actingAs($rider);
+            $this->postJson('/api/auth/id-verification', [
+                'id_image' => new UploadedFile($pdfPath, 'identity.pdf', 'application/pdf', null, true),
+            ])->assertOk()->assertJsonPath('verification_status', 'pending');
+        } finally {
+            @unlink($pdfPath);
+        }
+
+        $rider->refresh();
+        $this->assertSame('id_verifications', $rider->idVerification['id_disk']);
+        $this->assertSame('pdf', pathinfo($rider->idVerification['id_path'], PATHINFO_EXTENSION));
+        Storage::disk('id_verifications')->assertExists($rider->idVerification['id_path']);
     }
 }

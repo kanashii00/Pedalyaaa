@@ -1632,6 +1632,7 @@ public function startRental(
             $extraMinutes,
             $fee,
             $chargedHours,
+            $maxHours,
             $maxMinutes,
             $actor
         ) {

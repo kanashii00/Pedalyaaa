@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class PasswordResetController extends Controller
@@ -24,6 +25,18 @@ class PasswordResetController extends Controller
         ]);
 
         $email = $validated['email'];
+        $mailer = (string) config('mail.default');
+        $transport = config("mail.mailers.{$mailer}.transport");
+
+        if (app()->environment('production') && in_array($transport, ['log', 'array'], true)) {
+            Log::error('Password reset email was not sent because the configured mailer does not deliver email.', [
+                'mailer' => $mailer,
+            ]);
+
+            return response()->json([
+                'message' => 'Password reset email is temporarily unavailable.',
+            ], 503);
+        }
 
         $code = (string) random_int(100000, 999999);
 

@@ -635,7 +635,7 @@ class RentalInventoryLifecycleTest extends TestCase
         $html = $this->actingAs($admin)->get(route('admin.bicycles.index'))->getContent();
 
         $this->assertStringContainsString(
-            route('admin.rentals.index', ['bicycle_id' => $bicycle->id]),
+            route('admin.rentals.history', ['bicycle_id' => $bicycle->id]),
             $html,
             'every bicycle can be traced to its rental history'
         );
