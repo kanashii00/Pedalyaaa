@@ -244,7 +244,9 @@ class Bicycle extends Model
      */
     public function scopeRentable(Builder $query): Builder
     {
-        return $query->where('iotEnabled', true)->where('status', self::STATUS_AVAILABLE);
+        return $query->where('iotEnabled', true)
+            ->where('status', self::STATUS_AVAILABLE)
+            ->where('batteryLevel', '>=', 20);
     }
 
     /**
@@ -280,7 +282,10 @@ class Bicycle extends Model
     /** May a rider rent this bicycle right now? */
     public function isRentable(): bool
     {
-        return $this->isInService() && $this->status === self::STATUS_AVAILABLE;
+        return $this->isInService()
+            && $this->status === self::STATUS_AVAILABLE
+            && $this->batteryLevel !== null
+            && $this->batteryLevel >= 20;
     }
 
     /**
@@ -297,7 +302,9 @@ class Bicycle extends Model
         }
 
         return match ($this->status) {
-            self::STATUS_AVAILABLE => ['Available', true],
+            self::STATUS_AVAILABLE => $this->batteryLevel === null
+                ? ['Battery data unavailable', false]
+                : ($this->batteryLevel < 20 ? ['Low battery', false] : ['Available', true]),
             self::STATUS_RENTED => ['Rented', false],
             self::STATUS_MAINTENANCE => ['Maintenance', false],
             self::STATUS_OUT_OF_SERVICE => ['Unavailable', false],

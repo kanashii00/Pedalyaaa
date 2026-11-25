@@ -54,6 +54,24 @@ class ApiBicycleTest extends TestCase
             ->assertJsonPath('count', 0);
     }
 
+    public function test_nearby_excludes_available_bicycles_without_battery_telemetry(): void
+    {
+        $rider = $this->makeRider();
+        Sanctum::actingAs($rider);
+
+        $this->makeBicycle([
+            'serialNumber' => 'PDY-002',
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'batteryLevel' => null,
+            'currentLat' => 14.6,
+            'currentLng' => 120.99,
+        ]);
+
+        $this->getJson('/api/bicycles/nearby?lat=14.6&lng=120.99&radius=1000')
+            ->assertOk()
+            ->assertJsonPath('count', 0);
+    }
+
     public function test_index_with_filters(): void
     {
         $rider = $this->makeRider();

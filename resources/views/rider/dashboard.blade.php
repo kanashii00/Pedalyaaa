@@ -96,7 +96,10 @@
                                 @endif
                                 <div class="d-flex gap-3 flex-wrap">
                                     <span><i class="bi bi-clock text-primary"></i> <strong id="rentalTimer">0:00:00</strong></span>
-                                    <span><i class="bi bi-battery-three-quarters text-success"></i> {{ $activeRental->bicycle->batteryLevel ?? 0 }}%</span>
+                                    <span>
+                                        <i class="bi bi-battery-three-quarters text-success"></i>
+                                        {{ $activeRental->bicycle->batteryLevel !== null ? $activeRental->bicycle->batteryLevel . '%' : 'Battery not reported' }}
+                                    </span>
                                 </div>
                                 <div id="rentalWarning" class="mt-1" style="{{ $isReturnFlow ? '' : 'display:none;' }}">
                                     @if($activeRental->status === 'overdue_return')

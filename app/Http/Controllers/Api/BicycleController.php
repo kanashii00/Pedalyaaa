@@ -154,8 +154,6 @@ class BicycleController extends Controller
         ]);
 
         $validated['status'] = 'available';
-        $validated['batteryLevel'] = $validated['batteryLevel'] ?? 100;
-
         $bicycle = Bicycle::create($validated);
 
         return response()->json([

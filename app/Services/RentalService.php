@@ -83,6 +83,10 @@ public function startRental(
             );
         }
 
+        if ($bicycle->batteryLevel === null) {
+            throw new RentalException('Bicycle battery level has not been reported.');
+        }
+
         if ($bicycle->batteryLevel < 20) {
             throw new RentalException(
                 'Bicycle battery level is too low to rent.'
@@ -136,6 +140,10 @@ public function startRental(
                 throw new RentalException(
                     'That bicycle is no longer available for rent.'
                 );
+            }
+
+            if ($locked->batteryLevel === null) {
+                throw new RentalException('Bicycle battery level has not been reported.');
             }
 
             if ($locked->batteryLevel < 20) {

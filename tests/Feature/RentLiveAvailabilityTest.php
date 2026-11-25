@@ -246,7 +246,7 @@ class RentLiveAvailabilityTest extends TestCase
             'status' => Bicycle::STATUS_AVAILABLE,
             'serialNumber' => 'PDY-N1',
             'hourlyRate' => 0,
-            'batteryLevel' => 0,
+            'batteryLevel' => 90,
         ]);
 
         $html = $this->actingAs($rider)->get(route('rider.rentals.create'))->getContent();
@@ -255,8 +255,31 @@ class RentLiveAvailabilityTest extends TestCase
 
         $this->assertIsNumeric($payload['ratePerMinute'], 'the rate reaches the client as a number');
         $this->assertSame(RentalService::RENTAL_RATE_PER_MINUTE, (float) $payload['ratePerMinute']);
-        $this->assertSame(0, $payload['battery']);
+        $this->assertSame(90, $payload['battery']);
         $this->assertNoNonFinite($html);
+    }
+
+    public function test_bicycle_without_reported_battery_is_not_shown_as_rentable(): void
+    {
+        $rider = $this->rider();
+        $bicycle = $this->makeBicycle([
+            'status' => Bicycle::STATUS_AVAILABLE,
+            'serialNumber' => 'PDY-N5',
+            'batteryLevel' => null,
+            'lockStatus' => null,
+        ]);
+
+        $html = $this->actingAs($rider)->get(route('rider.rentals.create'))->getContent();
+
+        $this->assertStringContainsString('Battery data unavailable', $html);
+        $this->assertStringNotContainsString('data-bike-payload="{&quot;id&quot;:'.$bicycle->id, $html);
+        $this->actingAs($rider)->post(route('rider.rent.store'), [
+            'bicycleId' => $bicycle->id,
+            'paymentMethod' => 'cash',
+            'durationMinutes' => 60,
+        ])->assertSessionHasErrors('bicycleId');
+
+        $this->assertSame(0, Rental::count());
     }
 
     public function test_bicycle_hourly_rate_does_not_override_the_fixed_minute_estimate(): void

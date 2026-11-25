@@ -129,8 +129,10 @@
                             <small class="text-muted">Not applicable</small>
                         @elseif($bike->lockStatus === 'locked')
                             <x-admin.badge type="danger" label="Locked" />
-                        @else
+                        @elseif($bike->lockStatus === 'unlocked')
                             <x-admin.badge type="success" label="Unlocked" />
+                        @else
+                            <x-admin.badge type="neutral" label="Unknown" />
                         @endif
                     </td>
                     <td data-label="Condition">{{ ucfirst($bike->condition ?? 'good') }}</td>

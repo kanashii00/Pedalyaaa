@@ -89,7 +89,7 @@ class GpsIngestService
             $lng,
             [
                 'speed' => $data['speed'] ?? null,
-                'battery' => (int) ($data['battery'] ?? $bicycle->batteryLevel),
+                'battery' => $data['battery'] ?? $bicycle->batteryLevel,
                 'lock_status' => $bicycle->lockStatus,
                 'zone' => $geofence['level'] ?? null,
                 'zone_distance' => $geofence['distance'] ?? null,

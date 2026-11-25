@@ -25,10 +25,10 @@ class DeviceMonitoringTest extends TestCase
     use RefreshDatabase;
     use CreatesTestData;
 
-    private function devicesPage(User $admin): string
+    private function devicesPage(User $admin, string $section = 'devices'): string
     {
         return $this->actingAs($admin)
-            ->get(route('admin.monitoring.index', ['section' => 'devices']))
+            ->get(route('admin.monitoring.index', ['section' => $section]))
             ->assertOk()
             ->getContent();
     }
@@ -118,7 +118,27 @@ class DeviceMonitoringTest extends TestCase
         $this->assertStringContainsString('data-device-card="'.$silent->id.'"', $html);
         $this->assertStringContainsString('Never connected', $html);
         // Placeholders only: nothing fabricated for a device that never spoke.
+    }
+
+    public function test_missing_battery_and_lock_reports_are_rendered_as_unknown(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->register($this->makeBicycle([
+            'name' => 'Beach Cruiser 001',
+            'serialNumber' => 'PDY-001',
+            'batteryLevel' => null,
+            'lockStatus' => null,
+        ]));
+
+        $html = $this->devicesPage($admin);
+
+        $this->assertStringContainsString('data-device-card="'.$bike->id.'"', $html);
+        $this->assertStringContainsString('Unknown', $html);
         $this->assertStringContainsString('No lock commands recorded.', $html);
+
+        $locksHtml = $this->devicesPage($admin, 'locks');
+        $this->assertStringContainsString('Not reported', $locksHtml);
+        $this->assertStringContainsString('Unknown', $locksHtml);
     }
 
     public function test_rfid_appears_nowhere_in_monitoring(): void

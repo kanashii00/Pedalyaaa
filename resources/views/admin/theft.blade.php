@@ -644,8 +644,10 @@
                             <td class="theft-col-lock">
                                 @if($alert->bicycle?->lockStatus === 'locked')
                                     <span class="theft-badge theft-badge--critical"><i class="bi bi-lock-fill"></i>Locked</span>
-                                @else
+                                @elseif($alert->bicycle?->lockStatus === 'unlocked')
                                     <span class="theft-badge theft-badge--success"><i class="bi bi-unlock-fill"></i>Unlocked</span>
+                                @else
+                                    <span class="theft-badge theft-badge--neutral"><i class="bi bi-question-circle"></i>Unknown</span>
                                 @endif
                             </td>
                             <td class="theft-col-status">
@@ -925,7 +927,7 @@
         'last_gps_update' => $b->lastGpsUpdate?->toISOString() ?? $b->latestGpsLog?->recordedAt?->toISOString(),
         'status' => $b->status,
         'battery' => $b->batteryLevel,
-        'locked' => $b->lockStatus === 'locked',
+        'lockStatus' => $b->lockStatus,
         'heartbeat' => $b->lastHeartbeat?->toISOString(),
         'zone' => $b->zone['level'] ?? 'unknown',
         'distance' => $b->zone['distance'] ?? null,
@@ -957,10 +959,14 @@
         return map[status] || ('<span class="theft-badge theft-badge--neutral">' + (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown') + '</span>');
     }
 
-    function lockBadge(locked) {
-        return locked
-            ? '<span class="theft-badge theft-badge--critical"><i class="bi bi-lock-fill"></i>Locked</span>'
-            : '<span class="theft-badge theft-badge--success"><i class="bi bi-unlock-fill"></i>Unlocked</span>';
+    function lockBadge(lockStatus) {
+        if (lockStatus === true || lockStatus === 'locked') {
+            return '<span class="theft-badge theft-badge--critical"><i class="bi bi-lock-fill"></i>Locked</span>';
+        }
+        if (lockStatus === false || lockStatus === 'unlocked') {
+            return '<span class="theft-badge theft-badge--success"><i class="bi bi-unlock-fill"></i>Unlocked</span>';
+        }
+        return '<span class="theft-badge theft-badge--neutral"><i class="bi bi-question-circle"></i>Unknown</span>';
     }
 
     function ackBadge(ack) {
@@ -1009,7 +1015,7 @@
             '<td class="theft-col-rental">' + rentalChip + '</td>' +
             '<td class="theft-col-loc">' + fmtLatLng(a.lat, a.lng) + '</td>' +
             '<td class="theft-col-dist">' + fmtDist(a.distance) + '</td>' +
-            '<td class="theft-col-lock">' + (a.lock_status === 'locked' ? lockBadge(true) : lockBadge(false)) + '</td>' +
+            '<td class="theft-col-lock">' + lockBadge(a.lock_status) + '</td>' +
             '<td class="theft-col-status">' + statusBadge(a.status) + '</td>' +
             '<td class="theft-col-ack">' + ackBadge(a.acknowledged) + '</td>' +
             '<td class="theft-col-time">' + fmtTime(a.timestamp) + '</td>' +
@@ -1167,7 +1173,7 @@
             // Bicycle
             document.getElementById('modalBikeName').textContent = data.bicycle.name;
             document.getElementById('modalBikeSerial').textContent = data.bicycle.serialNumber;
-            document.getElementById('modalBikeLock').innerHTML = lockBadge(data.bicycle.lockStatus === 'locked');
+            document.getElementById('modalBikeLock').innerHTML = lockBadge(data.bicycle.lockStatus);
             document.getElementById('modalBikeBattery').textContent = data.bicycle.batteryLevel !== null ? (data.bicycle.batteryLevel + '%') : 'N/A';
             document.getElementById('modalBikeCondition').textContent = (data.bicycle.condition || 'N/A').toUpperCase();
             document.getElementById('modalBikeHeartbeat').textContent = data.bicycle.lastHeartbeat;
@@ -1443,9 +1449,7 @@
         var gpsIcon = isLive ? 'bi-broadcast' : 'bi-clock-history';
         var gpsStatusTitle = isLive ? 'Live GPS Fix' : 'Last Known Location';
 
-        var lockBadgeHtml = (data.bicycle.lockStatus === 'locked')
-            ? '<span class="theft-badge theft-badge--critical"><i class="bi bi-lock-fill"></i>Locked</span>'
-            : '<span class="theft-badge theft-badge--success"><i class="bi bi-unlock-fill"></i>Unlocked</span>';
+        var lockBadgeHtml = lockBadge(data.bicycle.lockStatus);
 
         var statusBadgeHtml = statusBadge(data.incident.status);
 
@@ -1611,7 +1615,9 @@
             var riderPart = data.rider.displayName === 'No Active Rental'
                 ? 'No Active Rental'
                 : 'Rider: ' + escapeHtml(data.rider.displayName);
-            var lockPart = data.bicycle.lockStatus === 'locked' ? 'Locked' : 'Unlocked';
+            var lockPart = data.bicycle.lockStatus === 'locked'
+                ? 'Locked'
+                : (data.bicycle.lockStatus === 'unlocked' ? 'Unlocked' : 'Lock status unknown');
             var gpsPart = isLive
                 ? '<span class="text-success"><i class="bi bi-broadcast me-1"></i>Live Fix</span>'
                 : '<span class="text-warning"><i class="bi bi-clock-history me-1"></i>Last Known (' + escapeHtml(data.incident.lastUpdateAgo) + ')</span>';

@@ -140,16 +140,17 @@
                         @endif
                     </td>
                     <td data-label="Battery">
-                        <div class="d-flex align-items-center gap-2">
-                            {{-- The bar flexes with the column so a narrow viewport
-                                 never pushes the row wider than the card; its height
-                                 comes from the stylesheet. --}}
-                            <div class="progress flex-grow-1">
-                                <div class="progress-bar bg-{{ $bike->batteryLevel <= 20 ? 'danger' : ($bike->batteryLevel <= 50 ? 'warning' : 'success') }}"
-                                     style="width:{{ $bike->batteryLevel }}%"></div>
+                        @if($bike->batteryLevel === null)
+                            <span class="text-muted">Not reported</span>
+                        @else
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="progress flex-grow-1">
+                                    <div class="progress-bar bg-{{ $bike->batteryLevel <= 20 ? 'danger' : ($bike->batteryLevel <= 50 ? 'warning' : 'success') }}"
+                                         style="width:{{ $bike->batteryLevel }}%"></div>
+                                </div>
+                                <small>{{ $bike->batteryLevel }}%</small>
                             </div>
-                            <small>{{ $bike->batteryLevel }}%</small>
-                        </div>
+                        @endif
                     </td>
                     <td data-label="Lock">
                         {{-- The recorded lock state of a parked bicycle is just where
@@ -158,8 +159,10 @@
                             <x-admin.badge type="neutral" label="No Device" />
                         @elseif($isLocked)
                             <x-admin.badge type="danger" label="Locked" />
-                        @else
+                        @elseif($bike->lockStatus === 'unlocked')
                             <x-admin.badge type="success" label="Unlocked" />
+                        @else
+                            <x-admin.badge type="neutral" label="Unknown" />
                         @endunless
                     </td>
                     <td data-label="Condition">

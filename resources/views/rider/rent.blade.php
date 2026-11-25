@@ -303,11 +303,9 @@
             $bikePayload = json_encode([
                 'id' => (int) $bicycle->id,
                 'name' => $bicycle->serialNumber . ' - ' . $bicycle->name,
-                // Coerced so a null column becomes a number the arithmetic in
-                // updateCost() can work with. The rate comes from the same
-                // accessor RentalService bills with, so the estimate shown here
-                // is the amount that actually gets charged.
-                'battery' => (int) ($bicycle->batteryLevel ?? 0),
+                'battery' => $bicycle->batteryLevel !== null
+                    ? (int) $bicycle->batteryLevel
+                    : null,
                 'ratePerMinute' => $rentalRatePerMinute,
             ], JSON_THROW_ON_ERROR);
         @endphp
@@ -328,14 +326,18 @@
                     </p>
                     <div class="card-details">
                         <span>
-                            @if($bicycle->batteryLevel >= 70)
-                                <i class="bi bi-battery-full text-success"></i>
-                            @elseif($bicycle->batteryLevel >= 40)
-                                <i class="bi bi-battery-three-quarters text-success"></i>
+                            @if($bicycle->batteryLevel === null)
+                                <i class="bi bi-battery"></i> Battery data unavailable
                             @else
-                                <i class="bi bi-battery-half text-warning"></i>
+                                @if($bicycle->batteryLevel >= 70)
+                                    <i class="bi bi-battery-full text-success"></i>
+                                @elseif($bicycle->batteryLevel >= 40)
+                                    <i class="bi bi-battery-three-quarters text-success"></i>
+                                @else
+                                    <i class="bi bi-battery-half text-warning"></i>
+                                @endif
+                                {{ (int) $bicycle->batteryLevel }}%
                             @endif
-                            {{ (int) ($bicycle->batteryLevel ?? 0) }}%
                         </span>
                         <span><strong>IoT-enabled:</strong> {{ $bicycle->isInService() ? 'Yes' : 'No' }}</span>
                         <span><strong>₱{{ number_format($rentalRatePerMinute, 2) }}/min</strong></span>
@@ -487,7 +489,10 @@
         currentRate = rate;
         document.getElementById('selectedBicycleId').value = payload.id;
         document.getElementById('modalBikeName').textContent = payload.name;
-        document.getElementById('modalBikeBattery').textContent = payload.battery + '%';
+        document.getElementById('modalBikeBattery').textContent =
+            payload.battery === null || payload.battery === undefined
+                ? 'Not reported'
+                : payload.battery + '%';
         document.getElementById('modalBikeRate').textContent = '₱' + rate.toFixed(2) + '/min';
         clearTermsError();
         updateCost();
@@ -687,7 +692,7 @@
                 'lat' => (float) $b->currentLat,
                 'lng' => (float) $b->currentLng,
                 'name' => $b->serialNumber . ' ' . $b->name,
-                'battery' => (int) ($b->batteryLevel ?? 0),
+                'battery' => $b->batteryLevel !== null ? (int) $b->batteryLevel : null,
                 'ratePerMinute' => $rentalRatePerMinute,
             ])) !!};
         var hasBikes = bicycles.length > 0;

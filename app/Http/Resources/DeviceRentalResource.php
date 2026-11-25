@@ -41,7 +41,9 @@ class DeviceRentalResource extends JsonResource
                 'lockStatus' => $this->bicycle->lockStatus,
                 'manualUnlockOverrideUntil' => $this->bicycle->manualUnlockOverrideUntil?->toIso8601String(),
                 'manualUnlockOverrideActive' => $this->bicycle->manualUnlockOverrideUntil?->isFuture() ?? false,
-                'batteryLevel' => (int) $this->bicycle->batteryLevel,
+                'batteryLevel' => $this->bicycle->batteryLevel !== null
+                    ? (int) $this->bicycle->batteryLevel
+                    : null,
             ],
 
             'rental' => $this->rental ? $this->rentalPayload() : null,

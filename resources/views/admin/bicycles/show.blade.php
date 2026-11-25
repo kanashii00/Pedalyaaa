@@ -33,8 +33,12 @@
                 <p class="bike-summary__model">{{ $bicycle->model ?? 'Standard Model' }}</p>
                 <div class="bike-summary__badges">
                     <x-admin.badge :type="match($bicycle->status) { 'available' => 'success', 'rented' => 'info', 'maintenance' => 'warning', default => 'neutral' }" :label="ucfirst($bicycle->status)" />
-                    <x-admin.badge :type="$bicycle->lockStatus === 'locked' ? 'danger' : 'success'" :label="$bicycle->lockStatus === 'locked' ? 'Locked' : 'Unlocked'" />
-                    <x-admin.badge :type="$bicycle->batteryLevel <= 20 ? 'danger' : 'success'" :label="$bicycle->batteryLevel . '%'" />
+                    <x-admin.badge
+                        :type="$bicycle->lockStatus === 'locked' ? 'danger' : ($bicycle->lockStatus === 'unlocked' ? 'success' : 'neutral')"
+                        :label="$bicycle->lockStatus ? ucfirst($bicycle->lockStatus) : 'Lock Unknown'" />
+                    <x-admin.badge
+                        :type="$bicycle->batteryLevel === null ? 'neutral' : ($bicycle->batteryLevel <= 20 ? 'danger' : 'success')"
+                        :label="$bicycle->batteryLevel === null ? 'Battery Unknown' : $bicycle->batteryLevel . '%'" />
                 </div>
                 <div class="bike-summary__stats">
                     <div class="bike-stat"><strong>{{ $bicycle->totalRentals }}</strong><small>Rentals</small></div>
@@ -106,7 +110,7 @@
                 <div class="col-6 col-md-3">
                     <div class="bike-tel-tile">
                         <small class="bike-tel-label">Lock</small>
-                        <strong class="bike-tel-value">{{ $lockShown ? ucfirst($t?->lockStatus ?? $bicycle->lockStatus) : '—' }}</strong>
+                        <strong class="bike-tel-value">{{ $lockShown ? (ucfirst($t?->lockStatus ?? $bicycle->lockStatus ?? 'unknown')) : '—' }}</strong>
                         @if(!$hasDevice)
                             <small class="bike-tel-note">No device</small>
                         @endif

@@ -98,8 +98,6 @@ class BicycleController extends Controller
             // riders with no way to unlock it. Identification uses the unique
             // serial number plus the IoT device credential, not a QR code.
             'status' => Bicycle::STATUS_OUT_OF_SERVICE,
-            'batteryLevel' => 100,
-            'lockStatus' => Bicycle::LOCK_LOCKED,
             'condition' => 'good',
             'currentLat' => $validated['currentLat'] ?? null,
             'currentLng' => $validated['currentLng'] ?? null,

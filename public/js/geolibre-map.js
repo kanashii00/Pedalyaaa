@@ -485,10 +485,15 @@
             }
 
             // 4. Lock badge
-            var isLocked = !!(bike.locked || bike.lock_status === 'locked');
-            var lockBadge = isLocked
+            var lockStatus = bike.lockStatus || bike.lock_status;
+            if (!lockStatus && typeof bike.locked === 'boolean') {
+                lockStatus = bike.locked ? 'locked' : 'unlocked';
+            }
+            var lockBadge = lockStatus === 'locked'
                 ? '<span class="theft-badge theft-badge--critical"><i class="bi bi-lock-fill"></i>Locked</span>'
-                : '<span class="theft-badge theft-badge--success"><i class="bi bi-unlock-fill"></i>Unlocked</span>';
+                : (lockStatus === 'unlocked'
+                    ? '<span class="theft-badge theft-badge--success"><i class="bi bi-unlock-fill"></i>Unlocked</span>'
+                    : '<span class="theft-badge theft-badge--neutral"><i class="bi bi-question-circle"></i>Unknown</span>');
 
             // 5. Distance formatting
             var distText = 'Inside';
@@ -577,7 +582,7 @@
                     '</div>' +
                     '<div class="pedalya-map-popup__grid-item">' +
                         '<span class="pedalya-map-popup__grid-label">Battery</span>' +
-                        '<span class="pedalya-map-popup__grid-value text-muted"><i class="bi bi-battery-charging me-1 text-success"></i>' + (bike.battery !== undefined ? bike.battery + '%' : '—') + '</span>' +
+                        '<span class="pedalya-map-popup__grid-value text-muted"><i class="bi bi-battery-charging me-1 text-success"></i>' + (bike.battery !== null && bike.battery !== undefined ? bike.battery + '%' : 'Not reported') + '</span>' +
                     '</div>' +
                 '</div>' +
                 riderHtml +
@@ -746,7 +751,7 @@
                     gps_speed: bike.gps_speed,
                     status: bike.status,
                     battery: bike.battery_level !== undefined ? bike.battery_level : bike.batteryLevel,
-                    locked: bike.lock_status === 'locked' || bike.lockStatus === 'locked',
+                    lockStatus: bike.lock_status !== undefined ? bike.lock_status : bike.lockStatus,
                     heartbeat: bike.last_heartbeat || bike.lastHeartbeat,
                     zone: bike.zone_level || (bike.zone ? bike.zone.level : null) || 'unknown',
                     distance: bike.zone_distance || (bike.zone ? bike.zone.distance : null) || null
@@ -877,7 +882,9 @@
                             lng: bike.lng !== undefined ? parseFloat(bike.lng) : bike.longitude,
                             status: bike.status,
                             battery: bike.battery !== undefined ? bike.battery : bike.battery_level,
-                            locked: bike.locked === true || bike.lockStatus === 'locked',
+                            lockStatus: bike.lockStatus !== undefined
+                                ? bike.lockStatus
+                                : (typeof bike.locked === 'boolean' ? (bike.locked ? 'locked' : 'unlocked') : null),
                             heartbeat: bike.updated_at || bike.last_heartbeat,
                             zone: zone,
                             distance: bike.zone_distance !== undefined ? parseFloat(bike.zone_distance) : (bike.distance !== undefined ? parseFloat(bike.distance) : null)
@@ -907,7 +914,9 @@
                             lng: b.lng !== undefined ? parseFloat(b.lng) : b.longitude,
                             status: b.status,
                             battery: b.battery !== undefined ? b.battery : b.battery_level,
-                            locked: b.locked === true || b.lockStatus === 'locked',
+                            lockStatus: b.lockStatus !== undefined
+                                ? b.lockStatus
+                                : (typeof b.locked === 'boolean' ? (b.locked ? 'locked' : 'unlocked') : null),
                             heartbeat: b.updated_at || b.last_heartbeat,
                             gps_status: 'fix',
                             last_gps_update: b.lastGpsUpdate || new Date().toISOString(),
@@ -943,7 +952,9 @@
             gps_speed: bike.gps_speed,
             status: bike.status,
             battery: bike.battery !== undefined ? bike.battery : bike.batteryLevel,
-            locked: bike.locked === true || bike.lockStatus === 'locked',
+            lockStatus: bike.lockStatus !== undefined
+                ? bike.lockStatus
+                : (typeof bike.locked === 'boolean' ? (bike.locked ? 'locked' : 'unlocked') : null),
             heartbeat: bike.heartbeat || bike.lastHeartbeat,
             zone: bike.zone,
             distance: bike.distance

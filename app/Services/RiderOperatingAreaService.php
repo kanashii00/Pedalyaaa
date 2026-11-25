@@ -128,7 +128,10 @@ class RiderOperatingAreaService
             'lng' => $bicycle->currentLng !== null ? (float) $bicycle->currentLng : null,
             'status' => $bicycle->status,
             'battery' => $bicycle->batteryLevel,
-            'locked' => $bicycle->lockStatus === Bicycle::LOCK_LOCKED,
+            'locked' => $bicycle->lockStatus === null
+                ? null
+                : $bicycle->lockStatus === Bicycle::LOCK_LOCKED,
+            'lockStatus' => $bicycle->lockStatus,
             'heartbeat' => $bicycle->lastHeartbeat,
             'zone' => $zone['level'],
             'distance' => $zone['distance'],

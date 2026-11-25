@@ -317,13 +317,15 @@
                     </div>
                     @if($bike->lockStatus === 'locked')
                         <x-admin.badge type="danger" label="Locked"/>
-                    @else
+                    @elseif($bike->lockStatus === 'unlocked')
                         <x-admin.badge type="success" label="Unlocked"/>
+                    @else
+                        <x-admin.badge type="neutral" label="Unknown"/>
                     @endif
                 </div>
 
                 <div class="d-flex align-items-center gap-2 mb-2" style="font-size:13px;">
-                    <i class="bi {{ $bike->lockStatus === 'locked' ? 'bi-lock-fill text-danger' : 'bi-unlock text-success' }}"></i>
+                    <i class="bi {{ $bike->lockStatus === 'locked' ? 'bi-lock-fill text-danger' : ($bike->lockStatus === 'unlocked' ? 'bi-unlock text-success' : 'bi-question-circle text-muted') }}"></i>
                     <span class="text-muted">Last action:</span>
                     <span class="fw-semibold">{{ $bike->lastLockAction?->diffForHumans() ?? 'Never' }}</span>
                 </div>
@@ -331,7 +333,7 @@
                 <div class="row g-1 mb-3">
                     <div class="col-6">
                         <small class="text-muted d-block">Battery</small>
-                        <small class="fw-semibold">{{ $bike->batteryLevel }}%</small>
+                        <small class="fw-semibold">{{ $bike->batteryLevel !== null ? $bike->batteryLevel . '%' : 'Not reported' }}</small>
                     </div>
                     <div class="col-6">
                         <small class="text-muted d-block">GPS</small>
@@ -421,8 +423,10 @@
                             <span data-dev="lock">
                                 @if($bike->lockStatus === 'locked')
                                     <small class="fw-semibold text-danger"><i class="bi bi-lock-fill me-1"></i>Locked</small>
-                                @else
+                                @elseif($bike->lockStatus === 'unlocked')
                                     <small class="fw-semibold text-success"><i class="bi bi-unlock me-1"></i>Unlocked</small>
+                                @else
+                                    <small class="fw-semibold text-muted"><i class="bi bi-question-circle me-1"></i>Unknown</small>
                                 @endif
                             </span>
                         </div>
@@ -506,7 +510,7 @@
         'gps_speed' => $b->gps_data['speed'],
         'status' => $b->status,
         'battery' => $b->batteryLevel,
-        'locked' => $b->lockStatus === 'locked',
+        'lockStatus' => $b->lockStatus,
         'heartbeat' => $b->lastHeartbeat?->toISOString(),
         'zone' => $b->zone['level'] ?? 'unknown',
         'distance' => $b->zone['distance'] ?? null,
@@ -719,11 +723,16 @@
             icon.className = 'bi bi-lock-fill me-1';
             small.appendChild(icon);
             small.appendChild(document.createTextNode('Locked'));
-        } else {
+        } else if (lockStatus === 'unlocked') {
             small.className = 'fw-semibold text-success';
             icon.className = 'bi bi-unlock me-1';
             small.appendChild(icon);
             small.appendChild(document.createTextNode('Unlocked'));
+        } else {
+            small.className = 'fw-semibold text-muted';
+            icon.className = 'bi bi-question-circle me-1';
+            small.appendChild(icon);
+            small.appendChild(document.createTextNode('Unknown'));
         }
         host.appendChild(small);
     }
