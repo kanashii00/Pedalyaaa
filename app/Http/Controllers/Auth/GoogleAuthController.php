@@ -10,13 +10,19 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\InvalidStateException;
 use Laravel\Socialite\Two\User as SocialiteUser;
 
 class GoogleAuthController extends Controller
 {
+    private const API_STATE_CACHE_PREFIX = 'google-oauth:api-state:';
+
+    private const API_STATE_TTL_MINUTES = 10;
+
     /**
      * Specific user-facing reason for the last failed Google exchange, if the
      * failure maps to one. Null means "use the generic message".
@@ -52,6 +58,12 @@ class GoogleAuthController extends Controller
         // denies consent. That is a decision, not a failure: say so instead
         // of reporting a broken sign-in.
         if ($request->filled('error')) {
+            if (! $this->consumeWebOAuthState($request)) {
+                return redirect()->route('login')->withErrors([
+                    'email' => 'Your Google sign-in session expired. Please try again from the login page.',
+                ]);
+            }
+
             return redirect()->route('login')->withErrors([
                 'email' => $request->input('error') === 'access_denied'
                     ? 'Google sign-in was cancelled. You can try again or use email login.'
@@ -68,7 +80,15 @@ class GoogleAuthController extends Controller
             ]);
         }
 
-        return $this->loginResponse($request, $googleUser, $this->findUser($googleUser));
+        $user = $this->findUser($googleUser);
+
+        if ($this->lastGoogleError !== null) {
+            return redirect()->route('login')->withErrors([
+                'email' => $this->lastGoogleError,
+            ]);
+        }
+
+        return $this->loginResponse($request, $googleUser, $user);
     }
 
     private function loginResponse(Request $request, SocialiteUser $googleUser, ?User $user): RedirectResponse
@@ -76,7 +96,7 @@ class GoogleAuthController extends Controller
         if ($user === null) {
             $request->session()->put('pending_oauth', [
                 'name' => $googleUser->getName() ?? $googleUser->getNickname() ?? 'Google User',
-                'email' => $googleUser->getEmail(),
+                'email' => strtolower(trim((string) $googleUser->getEmail())),
                 'avatar' => $googleUser->getAvatar(),
                 'google_id' => $googleUser->getId(),
             ]);
@@ -113,9 +133,34 @@ class GoogleAuthController extends Controller
 
     private function findUser(SocialiteUser $googleUser): ?User
     {
-        return User::where('google_id', $googleUser->getId())
-            ->orWhere('email', $googleUser->getEmail())
-            ->first();
+        $googleId = $googleUser->getId();
+        if (! is_string($googleId) || trim($googleId) === '') {
+            $this->lastGoogleError = 'Google did not return a valid account identifier. Please try again.';
+
+            return null;
+        }
+
+        $linkedUser = User::where('google_id', $googleId)->first();
+        if ($linkedUser) {
+            return $linkedUser;
+        }
+
+        $email = $googleUser->getEmail();
+        if (! is_string($email) || trim($email) === '' || ! $this->hasVerifiedGoogleEmail($googleUser)) {
+            $this->lastGoogleError = 'Google must provide a verified email address to continue.';
+
+            return null;
+        }
+
+        $user = User::whereRaw('LOWER(email) = ?', [strtolower(trim($email))])->first();
+        if ($user && $user->google_id !== null
+            && ! hash_equals((string) $user->google_id, $googleId)) {
+            $this->lastGoogleError = 'This email is linked to a different Google account. Sign in with that account or contact support.';
+
+            return null;
+        }
+
+        return $user;
     }
 
     /**
@@ -126,10 +171,20 @@ class GoogleAuthController extends Controller
     {
         $this->guardCredentials();
 
-        $url = $this->driver($this->apiCallbackUrl($request), true)
-            ->with(['prompt' => 'select_account'])
-            ->redirect()
-            ->getTargetUrl();
+        $state = Str::random(40);
+        if (! Cache::add($this->apiStateCacheKey($state), true, now()->addMinutes(self::API_STATE_TTL_MINUTES))) {
+            Log::error('Google API sign-in could not establish a unique OAuth state.');
+
+            abort(500, 'Google sign-in could not be started securely. Please try again.');
+        }
+
+        $response = $this->driver($this->apiCallbackUrl($request), true)
+            ->with([
+                'prompt' => 'select_account',
+                'state' => $state,
+            ])
+            ->redirect();
+        $url = $response->getTargetUrl();
 
         return response()->json(['url' => $url]);
     }
@@ -140,6 +195,21 @@ class GoogleAuthController extends Controller
      */
     public function apiCallback(Request $request): JsonResponse
     {
+        $state = $request->query('state');
+        if (! is_string($state) || $state === '' || Cache::pull($this->apiStateCacheKey($state)) !== true) {
+            return response()->json([
+                'message' => 'Your Google sign-in session expired. Please start again.',
+            ], 401);
+        }
+
+        if ($request->filled('error')) {
+            return response()->json([
+                'message' => $request->input('error') === 'access_denied'
+                    ? 'Google sign-in was cancelled.'
+                    : 'Google sign-in did not complete.',
+            ], 401);
+        }
+
         $googleUser = $this->resolveGoogleUser($this->apiCallbackUrl($request), true);
 
         if (! $googleUser) {
@@ -148,7 +218,15 @@ class GoogleAuthController extends Controller
             ], 401);
         }
 
-        return $this->apiLoginResponse($request, $googleUser, $this->findUser($googleUser));
+        $user = $this->findUser($googleUser);
+
+        if ($this->lastGoogleError !== null) {
+            return response()->json([
+                'message' => $this->lastGoogleError,
+            ], 409);
+        }
+
+        return $this->apiLoginResponse($request, $googleUser, $user);
     }
 
     private function apiLoginResponse(Request $request, SocialiteUser $googleUser, ?User $user): JsonResponse
@@ -184,7 +262,7 @@ class GoogleAuthController extends Controller
             'provider' => 'google',
             'profile' => [
                 'name' => $googleUser->getName() ?? $googleUser->getNickname() ?? 'Google User',
-                'email' => $googleUser->getEmail(),
+                'email' => strtolower(trim((string) $googleUser->getEmail())),
                 'avatar' => $googleUser->getAvatar(),
                 'google_id' => $googleUser->getId(),
             ],
@@ -196,12 +274,17 @@ class GoogleAuthController extends Controller
      */
     private function linkGoogleProfile(User $user, SocialiteUser $googleUser): void
     {
-        $user->update([
+        $attributes = [
             'google_id' => $user->google_id ?? $googleUser->getId(),
             'avatar' => $user->avatar ?? $googleUser->getAvatar(),
             'oauth_provider' => $user->oauth_provider ?? 'google',
-            'email_verified_at' => $user->email_verified_at ?? now(),
-        ]);
+        ];
+
+        if ($user->email_verified_at === null && $this->hasVerifiedGoogleEmail($googleUser)) {
+            $attributes['email_verified_at'] = now();
+        }
+
+        $user->update($attributes);
     }
 
     private function resolveGoogleUser(string $redirectUrl, bool $stateless = false): ?SocialiteUser
@@ -225,11 +308,10 @@ class GoogleAuthController extends Controller
             return null;
         } catch (\Throwable $e) {
             // Token-exchange failures (expired code, revoked grant, network
-            // fault). Only the exception class and provider message are
-            // logged: tokens and secrets never reach the log.
+            // fault). Only the exception class is logged so provider details,
+            // which can contain sensitive response data, do not reach logs.
             Log::warning('Google sign-in failed during token exchange.', [
                 'exception' => $e::class,
-                'message' => $e->getMessage(),
             ]);
 
             return null;
@@ -243,12 +325,69 @@ class GoogleAuthController extends Controller
 
     private function webCallbackUrl(Request $request): string
     {
-        return $request->root().'/auth/google/callback';
+        $redirect = config('services.google.redirect');
+
+        if (! is_string($redirect) || trim($redirect) === '' || $redirect === '/auth/google/callback') {
+            $root = $request->root();
+            if (app()->environment('production') && ! str_starts_with($root, 'https://')) {
+                abort(500, 'Google sign-in requires an HTTPS application URL in production.');
+            }
+
+            return $root.'/auth/google/callback';
+        }
+
+        $parts = parse_url($redirect);
+        if ($parts === false
+            || filter_var($redirect, FILTER_VALIDATE_URL) === false
+            || ! in_array($parts['scheme'] ?? null, ['http', 'https'], true)
+            || empty($parts['host'])
+            || ($parts['path'] ?? '') !== '/auth/google/callback'
+            || isset($parts['query'])
+            || isset($parts['fragment'])
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || (app()->environment('production') && ($parts['scheme'] ?? null) !== 'https')) {
+            abort(
+                500,
+                app()->environment('production')
+                    ? 'GOOGLE_REDIRECT_URI must be an absolute HTTPS URL ending in /auth/google/callback.'
+                    : 'GOOGLE_REDIRECT_URI must be an absolute HTTP(S) URL ending in /auth/google/callback.'
+            );
+        }
+
+        return $redirect;
     }
 
     private function apiCallbackUrl(Request $request): string
     {
-        return $request->root().'/api/auth/google/callback';
+        $parts = parse_url($this->webCallbackUrl($request));
+        $port = isset($parts['port']) ? ':'.$parts['port'] : '';
+
+        return $parts['scheme'].'://'.$parts['host'].$port.'/api/auth/google/callback';
+    }
+
+    private function consumeWebOAuthState(Request $request): bool
+    {
+        $expectedState = $request->session()->pull('state');
+        $receivedState = $request->query('state');
+
+        return is_string($expectedState)
+            && $expectedState !== ''
+            && is_string($receivedState)
+            && hash_equals($expectedState, $receivedState);
+    }
+
+    private function apiStateCacheKey(string $state): string
+    {
+        return self::API_STATE_CACHE_PREFIX.hash('sha256', $state);
+    }
+
+    private function hasVerifiedGoogleEmail(SocialiteUser $googleUser): bool
+    {
+        $rawUser = $googleUser->user;
+
+        return is_array($rawUser)
+            && (($rawUser['email_verified'] ?? $rawUser['verified_email'] ?? false) === true);
     }
 
     private function guardCredentials(): void

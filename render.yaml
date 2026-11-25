@@ -59,7 +59,8 @@ services:
       # Never generate or rotate it without coordinating a firmware update.
       - key: DEVICE_API_KEY
         sync: false
-      # Google OAuth credentials and redirect URI must match the provider setup.
+      # Use the exact web callback URI registered in Google Cloud; also register
+      # the /api/auth/google/callback URI on the same HTTPS host for mobile OAuth.
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET

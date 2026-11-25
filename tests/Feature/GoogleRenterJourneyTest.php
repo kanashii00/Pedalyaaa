@@ -24,14 +24,28 @@ class GoogleRenterJourneyTest extends TestCase
     use RefreshDatabase;
     use CreatesTestData;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->app->instance('env', 'testing');
+
+        config([
+            'cache.default' => 'array',
+            'session.driver' => 'array',
+            'services.google.client_id' => 'test-client-id',
+            'services.google.client_secret' => 'test-client-secret',
+        ]);
+    }
+
     public function test_full_new_renter_journey(): void
     {
         $googleUser = new SocialiteUser();
         $googleUser->id = '105412345678901234567';
-        $googleUser->email = 'newrenter@gmail.com';
+        $googleUser->email = 'NewRenter@Gmail.com';
         $googleUser->name = 'New Renter';
         $googleUser->nickname = null;
         $googleUser->avatar = 'https://lh3.googleusercontent.com/a/' . str_repeat('y', 400) . '=s96-c';
+        $googleUser->user = ['email_verified' => true];
 
         $provider = Mockery::mock(Provider::class);
         $provider->shouldReceive('redirectUrl')->andReturn($provider);
@@ -65,6 +79,7 @@ class GoogleRenterJourneyTest extends TestCase
         $this->assertDatabaseHas('users', [
             'email' => 'newrenter@gmail.com',
             'google_id' => '105412345678901234567',
+            'role' => 'rider',
         ]);
     }
 }

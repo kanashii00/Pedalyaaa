@@ -192,7 +192,7 @@ prints the library paths and sketch size as it goes. A successful run ends with
 [cfg] gps     UART1 (GPIO25, GPIO26)
 [cfg] EC20F UART2 (GPIO16, GPIO17) APN: <not set>
 [cfg] display I2C 0x27  SDA 21  SCL 22
-[wifi] connecting to "PLDTHOMEFIBRZ47rS"
+[wifi] connecting to "PLDTHOMEFIBRE5u4D"
 WiFi connected!
 ESP32 IP address: 192.168.1.115
 Gateway: 192.168.1.1
