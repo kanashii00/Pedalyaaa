@@ -44,6 +44,27 @@ class RiderActiveStatusTest extends TestCase
             ->assertJsonStructure(['rental' => ['deadline'], 'serverTime']);
     }
 
+    public function test_active_status_derives_deadline_for_legacy_rental(): void
+    {
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle(['status' => Bicycle::STATUS_AVAILABLE]);
+        $startTime = now()->subMinutes(20);
+        $expectedDeadline = $startTime->copy()->addMinutes(60);
+        $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_ACTIVE,
+            'startTime' => $startTime,
+            'endTime' => null,
+            'expectedEndTime' => null,
+            'durationMinutes' => 60,
+        ]);
+
+        $this->getStatus($rider)
+            ->assertOk()
+            ->assertJsonPath('rental.deadline', $expectedDeadline->toIso8601String());
+    }
+
     public function test_expired_rental_is_promoted_before_it_is_reported(): void
     {
         $rider = $this->makeRider();
@@ -117,6 +138,21 @@ class RiderActiveStatusTest extends TestCase
             $live->headers->get('Cache-Control', ''),
             'live operating-area payload must never be served stale'
         );
+    }
+
+    public function test_high_frequency_rider_read_polls_skip_lifecycle_sync(): void
+    {
+        $rider = $this->makeRider();
+        $this->mock(RentalService::class, function ($mock) {
+            $mock->shouldNotReceive('synchronizeLifecycle');
+        });
+
+        $this->actingAs($rider)
+            ->getJson(route('rider.operating-area.live'))
+            ->assertOk();
+        $this->actingAs($rider)
+            ->getJson(route('rider.dashboard.state'))
+            ->assertOk();
     }
 
     public function test_dashboard_renders_the_in_place_action_states(): void

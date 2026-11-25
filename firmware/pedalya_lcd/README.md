@@ -161,14 +161,22 @@ Everything else stays in `config.h`:
 Save the file. Only `secrets.h` is ever edited per unit; the rest of the sketch
 is shared.
 
+### Production Wi-Fi connectivity
+
+`config.h` defaults to `CONNECTIVITY_MODE_NORMAL` and the Render host
+`pedalyaaa.onrender.com` over HTTPS on port 443. A `SERVER_HOST` or
+`SERVER_ROOT_CA` definition in the gitignored `secrets.h` overrides these
+defaults, so keep the hostname and trusted certificate matched to the selected
+environment. For production, do not use a Dev Tunnel or its `-inspect` host.
+
 ### Temporary Wi-Fi API health test
 
-`config.h` defaults to `CONNECTIVITY_MODE_WIFI_HEALTH_TEST`. This mode joins
-the configured Wi-Fi network and sends only an unauthenticated, certificate-
-verified HTTPS `GET https://nfdfn4j8-8000.asse.devtunnels.ms:443/api/health`.
-It does not poll rental state, process server commands, or send heartbeat, GPS,
-or accident requests. The Serial Monitor reports Wi-Fi association, HTTP status,
-and health-response success separately.
+For a network-only diagnostic that does not poll rental state, process server
+commands, or send heartbeat, GPS, or accident requests, set
+`CONNECTIVITY_MODE` to `CONNECTIVITY_MODE_WIFI_HEALTH_TEST`. It sends only an
+unauthenticated, certificate-verified HTTPS request to `/api/health`. The
+Serial Monitor reports Wi-Fi association, HTTP status, and health-response
+success separately.
 
 For the EC20F/SIM deployment, change `CONNECTIVITY_MODE` in `config.h` to
 `CONNECTIVITY_MODE_EC20F_SIM`. `SIM_ONLY_MODE` remains independently

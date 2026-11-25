@@ -12,7 +12,6 @@ use App\Services\RentalService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * Read-only surface consumed by the ESP32 countdown display bolted to a
@@ -35,14 +34,20 @@ class DeviceRentalController extends Controller
      * Only LIVE_STATUSES count. A returned, completed or cancelled rental is
      * history and must not be resurrected onto the display.
      */
-    public function show(Request $request, Bicycle $bicycle): JsonResponse|JsonResource
+    public function show(Request $request, Bicycle $bicycle): JsonResponse
     {
         $rental = Rental::where('bicycleId', $bicycle->id)
             ->whereIn('status', Rental::LIVE_STATUSES)
             ->latest('id')
             ->first();
 
-        return new DeviceRentalResource($bicycle, $rental, $this->rentalService, Carbon::now());
+        return (new DeviceRentalResource($bicycle, $rental, $this->rentalService, Carbon::now()))
+            ->response()
+            ->withHeaders([
+                'Cache-Control' => 'private, no-store, no-cache, must-revalidate, max-age=0',
+                'Pragma' => 'no-cache',
+                'Expires' => '0',
+            ]);
     }
 
     /**

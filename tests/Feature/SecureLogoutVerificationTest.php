@@ -25,6 +25,18 @@ class SecureLogoutVerificationTest extends TestCase
         $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control', ''));
     }
 
+    public function test_guest_auth_pages_carry_no_store_headers(): void
+    {
+        foreach ([route('login'), route('register')] as $url) {
+            $response = $this->get($url)->assertOk();
+            $this->assertStringContainsString(
+                'no-store',
+                $response->headers->get('Cache-Control', ''),
+                'a cached CSRF form can submit a stale session token'
+            );
+        }
+    }
+
     public function test_logout_invalidates_session_and_redirects_to_login(): void
     {
         $rider = $this->makeRider();

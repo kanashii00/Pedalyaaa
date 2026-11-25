@@ -44,6 +44,11 @@ class DeviceRentalDisplayTest extends TestCase
         $response->assertJsonPath('data.rental', null);
         $response->assertJsonPath('data.bicycle.id', $this->bike->id);
         $response->assertJsonPath('data.bicycle.serialNumber', $this->bike->serialNumber);
+        $this->assertStringContainsString(
+            'no-store',
+            $response->headers->get('Cache-Control', ''),
+            'the device must always receive a fresh rental snapshot'
+        );
     }
 
     public function test_device_reads_and_acknowledges_its_existing_command_queue(): void
@@ -101,6 +106,29 @@ class DeviceRentalDisplayTest extends TestCase
         $response->assertJsonPath('data.rental.isOverdue', false);
         $response->assertJsonPath('data.rental.overdueSeconds', 0);
         $this->assertEqualsWithDelta(0.0, $response->json('data.rental.penalty.accrued'), 0.001);
+    }
+
+    public function test_device_derives_deadline_for_legacy_rental_without_deadline_columns(): void
+    {
+        $startTime = now()->subMinutes(20);
+        $expectedDeadline = $startTime->copy()->addMinutes(60);
+        $this->makeRental([
+            'bicycleId' => $this->bike->id,
+            'status' => Rental::STATUS_ACTIVE,
+            'startTime' => $startTime,
+            'endTime' => null,
+            'expectedEndTime' => null,
+            'durationMinutes' => 60,
+        ]);
+
+        $response = $this->getJson($this->endpoint($this->bike), $this->deviceHeaders())->assertOk();
+
+        $response->assertJsonPath('data.rental.deadlineBasis', 'duration_fallback');
+        $this->assertSame(
+            $expectedDeadline->timestamp,
+            $response->json('data.rental.returnDeadlineTimestamp')
+        );
+        $this->assertEqualsWithDelta(2400, $response->json('data.rental.remainingSeconds'), 5);
     }
 
     public function test_settled_rentals_are_never_presented_as_current(): void

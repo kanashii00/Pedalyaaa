@@ -204,7 +204,8 @@ class RentController extends Controller
         // countdown target, so every surface counts down to the same instant.
         $deadline = $rental->returnDeadline
             ?? $rental->expectedEndTime
-            ?? $rental->endTime;
+            ?? $rental->endTime
+            ?? ($rental->startTime?->copy()->addMinutes($rental->durationMinutes ?? 60));
 
         $returnSubmitted = $rental->returnRequestedAt !== null
             || in_array($rental->status, [

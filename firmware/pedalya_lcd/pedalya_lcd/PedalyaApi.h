@@ -215,7 +215,13 @@ public:
     bool checkHealth(String& detail);
 
 private:
-    bool parse(const String& body, RentalState& out, String& error);
+    bool parse(
+        const String& body,
+        RentalState& out,
+        String& error,
+        uint32_t requestStartedAtMs,
+        uint32_t responseReceivedAtMs
+    );
     bool parseCommands(const String& body, DeviceCommand* commands, size_t capacity, size_t& count, String& error);
 
     /**

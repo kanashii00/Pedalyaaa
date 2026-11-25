@@ -28,8 +28,11 @@ services:
         value: stderr
       - key: LOG_LEVEL
         value: warning
+      # Database sessions survive instance restarts/redeploys and are shared
+      # across web workers. Confirm the sessions table migration is applied
+      # before switching the existing Render service to this driver.
       - key: SESSION_DRIVER
-        value: file
+        value: database
       - key: CACHE_STORE
         value: file
       - key: QUEUE_CONNECTION

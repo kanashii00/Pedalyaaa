@@ -744,7 +744,8 @@ public function startRental(
      *
      * The countdown targets the administrator-set return deadline once one
      * exists, and the expected end time before that, so the rider always sees
-     * the deadline that is actually in force.
+     * the deadline that is actually in force. Legacy rows without either
+     * value fall back to their end time or start time plus stored duration.
      *
      * The projected penalty intentionally reuses the same branches
      * processReturn() charges from: the deadline rule when an administrator set
@@ -760,7 +761,10 @@ public function startRental(
         // sign is unambiguous regardless of the installed Carbon version.
         $startTimestamp = $rental->startTime?->getTimestamp() ?? $asOf->getTimestamp();
         $asOfTimestamp = $asOf->getTimestamp();
-        $deadline = $rental->returnDeadline ?? $rental->expectedEndTime;
+        $deadline = $rental->returnDeadline
+            ?? $rental->expectedEndTime
+            ?? $rental->endTime
+            ?? ($rental->startTime?->copy()->addMinutes($rental->durationMinutes ?? 60));
         $deadlineTimestamp = $deadline?->getTimestamp();
 
         $elapsedSeconds = max(0, $asOfTimestamp - $startTimestamp);
@@ -797,7 +801,11 @@ public function startRental(
             'effectiveDeadline' => $deadline,
             'deadlineBasis' => $deadlineTimestamp === null
                 ? 'none'
-                : ($rental->returnDeadline !== null ? 'return_deadline' : 'expected_end_time'),
+                : ($rental->returnDeadline !== null
+                    ? 'return_deadline'
+                    : ($rental->expectedEndTime !== null
+                        ? 'expected_end_time'
+                        : ($rental->endTime !== null ? 'legacy_end_time' : 'duration_fallback'))),
             'elapsedSeconds' => $elapsedSeconds,
             'remainingSeconds' => $remainingSeconds,
             'overdueSeconds' => $remainingSeconds === null ? 0 : max(0, -$remainingSeconds),

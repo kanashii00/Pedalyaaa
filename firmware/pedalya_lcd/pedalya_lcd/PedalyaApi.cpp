@@ -402,6 +402,7 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
     }
 
     ensureTime();
+    const uint32_t requestStartedAtMs = millis();
 
     // Second route to the same endpoint. The Wi-Fi request below is untouched
     // and runs whenever an association exists; this only runs when it does not.
@@ -410,6 +411,7 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
         if (!cellularRequest("GET", SERVER_PATH, String(), body, error)) {
             return false;
         }
+        const uint32_t responseReceivedAtMs = millis();
 
         // Temporary wire-level diagnostic, identical in both routes: response
         // body only, never the request headers.
@@ -423,7 +425,7 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
         }
 
         Serial.printf("[api] 200 OK over cellular from %s%s\n", SERVER_HOST, SERVER_PATH);
-        return parse(body, out, error);
+        return parse(body, out, error, requestStartedAtMs, responseReceivedAtMs);
     }
 
 #if USE_HTTPS
@@ -452,6 +454,7 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
 
     int status = http.GET();
     String body = http.getString();
+    const uint32_t responseReceivedAtMs = millis();
 
     if (status <= 0) {
         // Log TLS/transport error from WiFiClientSecure before http.end()
@@ -485,7 +488,7 @@ bool PedalyaApi::poll(RentalState& out, String& error) {
         return false;
     }
 
-    return parse(body, out, error);
+    return parse(body, out, error, requestStartedAtMs, responseReceivedAtMs);
 }
 
 bool PedalyaApi::pollCommands(DeviceCommand* commands, size_t capacity, size_t& count, String& error) {
@@ -946,7 +949,13 @@ bool PedalyaApi::checkHealth(String& detail) {
     return true;
 }
 
-bool PedalyaApi::parse(const String& body, RentalState& out, String& error) {
+bool PedalyaApi::parse(
+    const String& body,
+    RentalState& out,
+    String& error,
+    uint32_t requestStartedAtMs,
+    uint32_t responseReceivedAtMs
+) {
     JsonDocument doc;
     if (deserializeJson(doc, body)) {
         error = "bad json";
@@ -979,7 +988,11 @@ bool PedalyaApi::parse(const String& body, RentalState& out, String& error) {
             Serial.printf("[clock] synchronized from server: %s\n", stamp);
         }
     }
-    out.syncedAtMs = millis();
+    // The server timestamp was sampled while handling the request, not when
+    // this device finished receiving it. Anchor it to the request midpoint so
+    // network/server latency does not become a countdown jump on every poll.
+    out.syncedAtMs = requestStartedAtMs
+        + (uint32_t)(responseReceivedAtMs - requestStartedAtMs) / 2UL;
 
     // Adopt the server's own UTC offset so local time and the log timestamps
     // match Asia/Manila without hardcoding the timezone on the device.
