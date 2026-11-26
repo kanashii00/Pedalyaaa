@@ -80,6 +80,7 @@ class BicycleController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'model' => ['nullable', 'string', 'max:255'],
             'hourlyRate' => ['required', 'numeric', 'min:0'],
+            'wheelCircumferenceM' => ['nullable', 'numeric', 'between:0.5,4'],
             'description' => ['nullable', 'string', 'max:1000'],
             'currentLat' => ['nullable', 'numeric'],
             'currentLng' => ['nullable', 'numeric'],
@@ -93,6 +94,7 @@ class BicycleController extends Controller
             'model' => $validated['model'] ?? 'Beach Cruiser',
             'description' => $validated['description'] ?? null,
             'hourlyRate' => $validated['hourlyRate'],
+            'wheelCircumferenceM' => $validated['wheelCircumferenceM'] ?? null,
             // A newly added unit is parked, not deployed: it has no smart lock
             // fitted, so it starts out of service and cannot be rented until it
             // is explicitly provisioned. `available` here would advertise it to
@@ -165,6 +167,7 @@ class BicycleController extends Controller
             'batteryLevel' => ['sometimes', 'integer', 'min:0', 'max:100'],
             'status' => ['sometimes', Rule::in(Bicycle::STATUSES)],
             'hourlyRate' => ['sometimes', 'numeric', 'min:0'],
+            'wheelCircumferenceM' => ['sometimes', 'nullable', 'numeric', 'between:0.5,4'],
             'description' => ['nullable', 'string', 'max:1000'],
             'currentLat' => ['nullable', 'numeric'],
             'currentLng' => ['nullable', 'numeric'],
@@ -242,7 +245,7 @@ class BicycleController extends Controller
 
         $before = $bicycle->only([
             'name', 'serialNumber', 'model', 'batteryLevel', 'status',
-            'hourlyRate', 'description', 'currentLat', 'currentLng', 'lockStatus',
+            'hourlyRate', 'wheelCircumferenceM', 'description', 'currentLat', 'currentLng', 'lockStatus',
         ]);
 
         $bicycle->update($validated);
@@ -257,7 +260,7 @@ class BicycleController extends Controller
             'outcome' => 'success',
             'changes' => AuditLogger::changes($before, $bicycle->fresh()->only([
                 'name', 'serialNumber', 'model', 'batteryLevel', 'status',
-                'hourlyRate', 'description', 'currentLat', 'currentLng', 'lockStatus',
+                'hourlyRate', 'wheelCircumferenceM', 'description', 'currentLat', 'currentLng', 'lockStatus',
             ])),
         ]);
 

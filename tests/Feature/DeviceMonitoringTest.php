@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Bicycle;
 use App\Models\DeviceCommand;
 use App\Models\DeviceStatus;
+use App\Models\GpsLog;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
@@ -189,6 +190,73 @@ class DeviceMonitoringTest extends TestCase
         $this->assertSame('executed', $deployedRow['last_command']['status']);
         $this->assertSame('executed', $deployedRow['last_command']['response']);
         $this->assertFalse($parkedRow['has_registered_device']);
+    }
+
+    public function test_monitoring_prefers_hall_speed_and_reports_stopped_as_zero(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->makeBicycle([
+            'wheelCircumferenceM' => 2.1,
+            'serialNumber' => 'PDY-HALL-001',
+        ]);
+        DeviceStatus::create([
+            'bicycleId' => $bike->id,
+            'type' => 'heartbeat',
+            'eventTimestamp' => now(),
+            'speedKmh' => 0,
+            'wheelCircumferenceM' => 2.1,
+            'hallPulseCount' => 48,
+            'speedSensorStatus' => 'stopped',
+        ]);
+        GpsLog::create([
+            'bicycleId' => $bike->id,
+            'lat' => 14.6,
+            'lng' => 120.99,
+            'speed' => 18.5,
+            'timestamp' => now(),
+        ]);
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.monitoring.index', ['section' => 'gps']))
+            ->assertOk()
+            ->getContent();
+        $this->assertStringContainsString('0.00 km/h', $html);
+        $this->assertStringContainsString('Hall Effect sensor', $html);
+
+        $rows = $this->actingAs($admin)->getJson(route('admin.monitoring.live'))
+            ->assertOk()
+            ->json('bicycles');
+        $row = collect($rows)->firstWhere('id', $bike->id);
+        $this->assertSame('hall', $row['speed_source']);
+        $this->assertEquals(0.0, $row['speed_kmh']);
+        $this->assertSame('stopped', $row['speed_sensor_status']);
+    }
+
+    public function test_monitoring_labels_legacy_gps_speed_as_fallback(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->makeBicycle(['serialNumber' => 'PDY-GPS-001']);
+        GpsLog::create([
+            'bicycleId' => $bike->id,
+            'lat' => 14.6,
+            'lng' => 120.99,
+            'speed' => 12.34,
+            'timestamp' => now(),
+        ]);
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.monitoring.index', ['section' => 'gps']))
+            ->assertOk()
+            ->getContent();
+        $this->assertStringContainsString('12.34 km/h', $html);
+        $this->assertStringContainsString('GPS fallback', $html);
+
+        $rows = $this->actingAs($admin)->getJson(route('admin.monitoring.live'))
+            ->assertOk()
+            ->json('bicycles');
+        $row = collect($rows)->firstWhere('id', $bike->id);
+        $this->assertSame('gps_fallback', $row['speed_source']);
+        $this->assertSame(12.34, $row['speed_kmh']);
     }
 
     public function test_reconcile_warns_when_deployed_unit_has_no_credential(): void

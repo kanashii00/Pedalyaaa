@@ -60,6 +60,7 @@ class Bicycle extends Model
         'description',
         'status',
         'hourlyRate',
+        'wheelCircumferenceM',
         'currentLat',
         'currentLng',
         'batteryLevel',
@@ -118,6 +119,7 @@ class Bicycle extends Model
             'totalRentals' => 'integer',
             'iotEnabled' => 'boolean',
             'hourlyRate' => 'decimal:2',
+            'wheelCircumferenceM' => 'decimal:3',
             'currentLat' => 'decimal:7',
             'currentLng' => 'decimal:7',
             'totalDistance' => 'decimal:2',
@@ -162,6 +164,13 @@ class Bicycle extends Model
     public function latestTelemetry()
     {
         return $this->hasOne(DeviceStatus::class, 'bicycleId')->latestOfMany('eventTimestamp');
+    }
+
+    public function latestHeartbeatTelemetry()
+    {
+        return $this->hasOne(DeviceStatus::class, 'bicycleId')
+            ->where('type', 'heartbeat')
+            ->latestOfMany('eventTimestamp');
     }
 
     public function latestGpsLog()

@@ -205,10 +205,8 @@
 #endif
 
 // LED_BUILTIN is not defined on every ESP32 core/board pairing, so the pin is
-// named explicitly. 2 is the onboard RGB LED on the DevKit V1.
+// named explicitly. GPIO2 is a boot-strapping pin and stays disabled.
 #ifndef STATUS_LED_PIN
-// GPIO2 is free now that the GPS moved off it onto GPIO25/GPIO26, but the LED
-// stays off (-1) exactly as in the prototype; set it in secrets.h to use it.
 #define STATUS_LED_PIN -1
 #endif
 
@@ -287,9 +285,9 @@
 #define BUZZER_PIN 19
 #endif
 
-// NEO-6M on UART1: the module's TXD feeds ESP32 RX (GPIO25), the module's RXD
-// is driven by ESP32 TX (GPIO26). GPIO1/GPIO3 stay reserved for the USB-UART0
-// monitor, and GPIO4/GPIO2 are released by this move.
+// NEO-6M on UART1: the module's TXD feeds ESP32 RX (GPIO26), the module's RXD
+// is driven by ESP32 TX (GPIO27). GPIO1/GPIO3 stay reserved for the USB-UART0
+// monitor.
 #ifndef GPS_RX_PIN
 #define GPS_RX_PIN 26
 #endif
@@ -310,6 +308,38 @@
 #define GPS_FIX_STALE_MS 30000UL
 #endif
 
+#ifndef HALL_SENSOR_PIN
+#define HALL_SENSOR_PIN 32
+#endif
+
+#ifndef HALL_PULSES_PER_REVOLUTION
+#define HALL_PULSES_PER_REVOLUTION 1
+#endif
+
+#ifndef HALL_DEBOUNCE_US
+#define HALL_DEBOUNCE_US 5000UL
+#endif
+
+#ifndef HALL_STOP_TIMEOUT_MS
+#define HALL_STOP_TIMEOUT_MS 3000UL
+#endif
+
+#ifndef HALL_TELEMETRY_INTERVAL_MS
+#define HALL_TELEMETRY_INTERVAL_MS 15000UL
+#endif
+
+#ifndef HALL_MIN_WHEEL_CIRCUMFERENCE_M
+#define HALL_MIN_WHEEL_CIRCUMFERENCE_M 0.5f
+#endif
+
+#ifndef HALL_MAX_WHEEL_CIRCUMFERENCE_M
+#define HALL_MAX_WHEEL_CIRCUMFERENCE_M 4.0f
+#endif
+
+#ifndef HALL_MAX_SPEED_KMH
+#define HALL_MAX_SPEED_KMH 60.0f
+#endif
+
 /* ------------------------------------------------------------------------
  *  Quectel EC20F cellular modem (UART2)
  *
@@ -323,7 +353,7 @@
  *      EC20F RXD -> ESP32 GPIO17 (SIM_TX_PIN)
  *      EC20F GND -> ESP32 GND
  *
- *  GPS lives on UART1 (GPIO25/26), so no pin is shared with the modem.
+ * GPS lives on UART1 (GPIO26/27), so no pin is shared with the modem.
  *
  *  Every timeout below bounds one blocking AT exchange, so a modem that is
  *  absent or dead costs one bounded wait instead of parking the main loop.

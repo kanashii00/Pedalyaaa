@@ -70,6 +70,43 @@ class IoTServiceTest extends TestCase
         $this->assertNotNull($bike->lastHeartbeat);
         $this->assertSame(true, $result['received']);
         $this->assertCount(1, DeviceStatus::where('bicycleId', $bike->id)->get());
+        $this->assertNull(DeviceStatus::where('bicycleId', $bike->id)->first()->speedKmh);
+    }
+
+    public function test_process_heartbeat_stores_hall_speed_for_its_bicycle(): void
+    {
+        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.1]);
+
+        $this->service->processHeartbeat([
+            'bicycle_id' => $bike->id,
+            'speedKmh' => 7.56,
+            'wheelCircumferenceM' => 2.1,
+            'hallPulseCount' => 12,
+            'speedSensorStatus' => 'active',
+        ]);
+
+        $telemetry = DeviceStatus::where('bicycleId', $bike->id)->firstOrFail();
+        $this->assertSame(7.56, (float) $telemetry->speedKmh);
+        $this->assertSame(2.1, (float) $telemetry->wheelCircumferenceM);
+        $this->assertSame(12, $telemetry->hallPulseCount);
+        $this->assertSame('active', $telemetry->speedSensorStatus);
+    }
+
+    public function test_process_heartbeat_rejects_speed_when_wheel_circumference_differs(): void
+    {
+        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.1]);
+
+        $this->service->processHeartbeat([
+            'bicycle_id' => $bike->id,
+            'speedKmh' => 7.56,
+            'wheelCircumferenceM' => 2.0,
+            'hallPulseCount' => 12,
+            'speedSensorStatus' => 'active',
+        ]);
+
+        $telemetry = DeviceStatus::where('bicycleId', $bike->id)->firstOrFail();
+        $this->assertNull($telemetry->speedKmh);
+        $this->assertSame('configuration_mismatch', $telemetry->speedSensorStatus);
     }
 
     public function test_process_heartbeat_with_unknown_bicycle_still_returns_received(): void

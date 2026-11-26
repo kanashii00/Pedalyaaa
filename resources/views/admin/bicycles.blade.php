@@ -381,6 +381,11 @@
                                 <input type="number" name="hourlyRate" class="form-control" value="{{ $bike->hourlyRate }}" step="0.01" min="0" required>
                             </div>
                             <div class="col-md-6">
+                                <label class="form-label">Wheel Circumference (m)</label>
+                                <input type="number" name="wheelCircumferenceM" class="form-control" value="{{ $bike->wheelCircumferenceM }}" step="0.001" min="0.5" max="4">
+                                <small class="form-text text-muted">Measure one full wheel rotation; required for Hall speed.</small>
+                            </div>
+                            <div class="col-md-6">
                                 <label class="form-label">Latitude</label>
                                 <input type="number" name="currentLat" class="form-control" value="{{ $bike->currentLat }}" step="any">
                             </div>

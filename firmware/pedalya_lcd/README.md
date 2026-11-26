@@ -197,7 +197,7 @@ prints the library paths and sketch size as it goes. A successful run ends with
 [api] API key configured: YES
 [api] fleet key configured: YES (heartbeat, accident-report)
 [api] API key header configured: YES (X-API-Key)
-[cfg] gps     UART1 (GPIO25, GPIO26)
+[cfg] gps     UART1 (GPIO26, GPIO27)
 [cfg] EC20F UART2 (GPIO16, GPIO17) APN: <not set>
 [cfg] display I2C 0x27  SDA 21  SCL 22
 [wifi] connecting to "PLDTHOMEFIBRE5u4D"
@@ -356,21 +356,22 @@ in `config.h`.
 ### GPS, SIM7600 and device telemetry
 
 The controller reads checksummed NMEA RMC sentences on UART1 at 9600 baud. The
-NEO-6M module's TXD feeds ESP32 RX **GPIO25**, and ESP32 TX **GPIO26** drives
+NEO-6M module's TXD feeds ESP32 RX **GPIO26**, and ESP32 TX **GPIO27** drives
 the module's RXD (with common GND, power at 3V3):
 
 | GPS module | ESP32 | Note |
 | --- | --- | --- |
 | `VCC` | `3V3` | |
 | `GND` | `GND` | common ground |
-| `TXD` | `GPIO25` | `GPS_RX_PIN` (ESP32 UART RX) |
-| `RXD` | `GPIO26` | `GPS_TX_PIN` (ESP32 UART TX) |
+| `TXD` | `GPIO26` | `GPS_RX_PIN` (ESP32 UART RX) |
+| `RXD` | `GPIO27` | `GPS_TX_PIN` (ESP32 UART TX) |
 
 It uploads a valid fix every 15 seconds to `GPS_PATH`; no GPS fix means no
 location request. A fleet-authenticated heartbeat reports the commanded lock
-state and uptime at the rental polling interval. `GPS_PATH` (with `SERVER_PATH`
-and `/commands`) carries the bicycle's own `DEVICE_API_KEY`; the heartbeat and
-the accident report carry the fleet `PEDALYA_API_KEY` instead.
+state and uptime at the rental polling interval, and carries Hall telemetry
+when configured (capped at `HALL_TELEMETRY_INTERVAL_MS`). `GPS_PATH` (with
+`SERVER_PATH` and `/commands`) carries the bicycle's own `DEVICE_API_KEY`; the
+heartbeat and the accident report carry the fleet `PEDALYA_API_KEY` instead.
 
 The GPS endpoint records the fix in the existing `gps_logs` table and runs the
 existing geofence checks. The heartbeat reports lock state only when the servo
@@ -380,6 +381,41 @@ Every accepted RMC sentence prints one `[GPS] Latitude: ...` / `[GPS]
 Longitude: ...` pair (~1 Hz). Moving GPS off GPIO2 is deliberate: that pin is
 also an ESP32 boot strapping pin, and TX GPIO4 was hiding under the LCD's I2C
 address scan on some benches.
+
+#### Hall Effect wheel speed
+
+The Hall sensor uses the otherwise-unused **GPIO32** on the configured ESP32
+Dev Module. One magnet per wheel revolution produces one active-low pulse. The
+input uses `INPUT_PULLUP`; for a reliable signal, wire an external 10 kOhm
+pull-up from the signal to ESP32 **3V3**:
+
+| Hall sensor | ESP32 | Note |
+| --- | --- | --- |
+| `OUT` | `GPIO32` | `HALL_SENSOR_PIN`, active-low digital output |
+| `GND` | `GND` | common ground |
+| `VCC` | sensor datasheet | Power only at a supported voltage |
+| pull-up | `3V3` to `OUT` | 10 kOhm; keep the ESP32 input at or below 3.3 V |
+
+Direct wiring is supported only for an open-collector/open-drain output pulled
+up to 3.3 V, or an output explicitly rated for ESP32 3.3 V logic. If the sensor
+module drives a 5 V high level, use a suitable level shifter; never connect its
+5 V output directly to an ESP32 pin.
+
+Set the actual wheel circumference in **Admin → Bicycles → Edit**. Measure one
+complete wheel revolution; no circumference is assumed by the firmware. The
+on-board rental poll sends that per-bicycle value to the ESP32, and the existing
+fleet heartbeat stores `speedKmh`, `wheelCircumferenceM`, `hallPulseCount` and
+`speedSensorStatus` with the matching bicycle. GPS logs continue to hold GPS
+speed separately.
+
+The interrupt rejects pulses faster than the configured maximum of 60 km/h and
+uses the greater of that limit and a 5 ms debounce interval. A speed becomes
+available after two valid pulses; after `HALL_STOP_TIMEOUT_MS` (3 seconds by
+default) without another valid pulse it reports 0.00 km/h. The heartbeat is
+sent at most every 15 seconds while circumference is configured. Before the
+first measured revolution the sensor reports `waiting`; a simple
+open-collector sensor cannot distinguish a disconnected wire from a stationary
+wheel.
 
 #### Cellular fallback (EC20F)
 

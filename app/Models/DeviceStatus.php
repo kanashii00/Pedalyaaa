@@ -17,6 +17,10 @@ class DeviceStatus extends Model
     protected $fillable = [
         'bicycleId',
         'gps',
+        'speedKmh',
+        'wheelCircumferenceM',
+        'hallPulseCount',
+        'speedSensorStatus',
         'accelerometer',
         'battery',
         'lockStatus',
@@ -52,6 +56,9 @@ class DeviceStatus extends Model
             'acknowledgedAt' => 'datetime',
             'completedAt' => 'datetime',
             'uptime' => 'integer',
+            'speedKmh' => 'decimal:2',
+            'wheelCircumferenceM' => 'decimal:3',
+            'hallPulseCount' => 'integer',
         ];
     }
 

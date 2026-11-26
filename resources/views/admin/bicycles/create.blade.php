@@ -117,6 +117,13 @@
                             @error('hourlyRate')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
                         <div class="col-md-6">
+                            <label class="form-label">Wheel Circumference (m)</label>
+                            <input type="number" name="wheelCircumferenceM" class="form-control @error('wheelCircumferenceM') is-invalid @enderror"
+                                   value="{{ old('wheelCircumferenceM') }}" step="0.001" min="0.5" max="4" placeholder="Measure the wheel">
+                            @error('wheelCircumferenceM')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                            <small class="text-muted">Optional; measure one full wheel rotation to enable Hall speed.</small>
+                        </div>
+                        <div class="col-md-6">
                             <label class="form-label">Description</label>
                             <input type="text" name="description" class="form-control @error('description') is-invalid @enderror"
                                    value="{{ old('description') }}" placeholder="Optional notes...">

@@ -664,7 +664,8 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
     return true;
 }
 
-bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptimeSeconds, String& error) {
+bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptimeSeconds,
+                               const HallSpeedReading& speed, String& error) {
     JsonDocument payload;
     // The fleet endpoint requires both: without them every heartbeat is a
     // 422 and the unit looks dead on the dashboard while the link is fine.
@@ -673,6 +674,14 @@ bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptime
     if (lockStateKnown) payload["locked"] = locked;
     payload["uptime"] = uptimeSeconds;
     payload["firmware"] = "pedalya-esp32-v1";
+    payload["speedSensorStatus"] = speed.status;
+    payload["hallPulseCount"] = speed.pulseCount;
+    if (speed.wheelCircumferenceM > 0.0f) {
+        payload["wheelCircumferenceM"] = speed.wheelCircumferenceM;
+    }
+    if (speed.speedAvailable) {
+        payload["speedKmh"] = speed.speedKmh;
+    }
 
     // Keep the admin and rider maps live even while the modem or GPS receiver
     // is not producing a fresh fix. The backend treats heartbeat lat/lng as the
@@ -1011,6 +1020,7 @@ bool PedalyaApi::parse(
     out.pollAfterSeconds = requested < 5 ? 5 : requested;
 
     JsonObjectConst bicycle = data["bicycle"].as<JsonObjectConst>();
+    out.wheelCircumferenceM = 0.0f;
     if (!bicycle.isNull()) {
         out.bicycleLockStatus = bicycle["lockStatus"] | "locked";
         out.bicycleStatus = bicycle["status"] | "available";
@@ -1018,6 +1028,9 @@ bool PedalyaApi::parse(
         out.bicycleSerial = bicycle["serialNumber"] | "";
         if (bicycle["batteryLevel"].is<int>()) {
             out.bicycleBatteryLevel = bicycle["batteryLevel"].as<int>();
+        }
+        if (bicycle["wheelCircumferenceM"].is<float>()) {
+            out.wheelCircumferenceM = bicycle["wheelCircumferenceM"].as<float>();
         }
     }
 

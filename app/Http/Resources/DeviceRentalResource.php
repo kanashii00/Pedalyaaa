@@ -45,6 +45,9 @@ class DeviceRentalResource extends JsonResource
                 'batteryLevel' => $this->bicycle->batteryLevel !== null
                     ? (int) $this->bicycle->batteryLevel
                     : null,
+                'wheelCircumferenceM' => $this->bicycle->wheelCircumferenceM !== null
+                    ? (float) $this->bicycle->wheelCircumferenceM
+                    : null,
             ],
 
             'rental' => $this->rental ? $this->rentalPayload() : null,

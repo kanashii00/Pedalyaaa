@@ -39,7 +39,7 @@ class MonitoringController extends Controller
         // deleted here); the devices section itself decides per row whether a
         // genuinely registered device backs it. The latest lock command rides
         // along so the "last command result" tile reads real ack state.
-        $bicycles = Bicycle::with(['latestTelemetry', 'latestGpsLog', 'currentRiderUser', 'currentRental', 'latestCommand'])
+        $bicycles = Bicycle::with(['latestTelemetry', 'latestHeartbeatTelemetry', 'latestGpsLog', 'currentRiderUser', 'currentRental', 'latestCommand'])
 
             ->where('status', '!=', 'removed')
             ->orderBy('id')
@@ -50,6 +50,7 @@ class MonitoringController extends Controller
         foreach ($bicycles as $bike) {
             $gps = $this->gpsSnapshot($bike);
             $bike->setAttribute('gps_data', $gps);
+            $bike->setAttribute('speed_data', $this->speedSnapshot($bike, $gps));
 
             if ($gps['status'] === 'fix') {
                 $bike->zone = $this->geofenceService->checkPoint($gps['latitude'], $gps['longitude'], $geofence);
@@ -160,7 +161,7 @@ class MonitoringController extends Controller
 
     public function live(): JsonResponse
     {
-        $bicycles = Bicycle::with(['latestGpsLog', 'latestTelemetry', 'currentRiderUser', 'currentRental'])
+        $bicycles = Bicycle::with(['latestGpsLog', 'latestTelemetry', 'latestHeartbeatTelemetry', 'currentRiderUser', 'currentRental'])
             ->where('status', '!=', 'removed')
             ->orderBy('id')
             ->get();
@@ -178,6 +179,7 @@ class MonitoringController extends Controller
         $data = [];
         foreach ($bicycles as $bike) {
             $gps = $this->gpsSnapshot($bike);
+            $speed = $this->speedSnapshot($bike, $gps);
 
             if ($gps['status'] === 'fix') {
                 $zone = $this->geofenceService->checkPoint($gps['latitude'], $gps['longitude'], $geofence);
@@ -200,6 +202,11 @@ class MonitoringController extends Controller
                 'gps_hdop' => $gps['hdop'],
                 'gps_satellites' => $gps['satellites'],
                 'gps_speed' => $gps['speed'],
+                'speed_kmh' => $speed['speed'],
+                'speed_source' => $speed['source'],
+                'speed_sensor_status' => $speed['sensor_status'],
+                'wheel_circumference_m' => $speed['wheel_circumference_m'],
+                'hall_pulse_count' => $speed['hall_pulse_count'],
                 'battery_level' => $bike->batteryLevel,
                 'lock_status' => $bike->lockStatus,
                 'last_lock_action' => $bike->lastLockAction?->toIso8601String(),
@@ -253,6 +260,56 @@ class MonitoringController extends Controller
             'hdop' => $log?->hdop !== null ? (float) $log->hdop : null,
             'satellites' => $log?->satellites,
             'speed' => $log?->speed !== null ? (float) $log->speed : null,
+        ];
+    }
+
+    private function speedSnapshot(Bicycle $bicycle, array $gps): array
+    {
+        $circumference = $bicycle->wheelCircumferenceM !== null
+            ? (float) $bicycle->wheelCircumferenceM
+            : null;
+        $telemetry = $bicycle->latestHeartbeatTelemetry;
+        $telemetryIsFresh = $telemetry?->eventTimestamp !== null
+            && $telemetry->eventTimestamp->greaterThanOrEqualTo(now()->subSeconds(45));
+
+        if ($circumference !== null) {
+            $status = $telemetryIsFresh
+                ? ($telemetry->speedSensorStatus ?? 'waiting')
+                : 'stale';
+            $speed = match ($status) {
+                'stopped' => 0.0,
+                'active' => $telemetry->speedKmh !== null ? (float) $telemetry->speedKmh : null,
+                default => null,
+            };
+
+            return [
+                'speed' => $speed,
+                'source' => 'hall',
+                'sensor_status' => $status,
+                'wheel_circumference_m' => $circumference,
+                'hall_pulse_count' => $telemetryIsFresh ? $telemetry->hallPulseCount : null,
+            ];
+        }
+
+        if ($telemetryIsFresh
+            && ! in_array($telemetry->speedSensorStatus, [null, 'unconfigured'], true)) {
+            return [
+                'speed' => null,
+                'source' => 'hall',
+                'sensor_status' => $telemetry->speedSensorStatus,
+                'wheel_circumference_m' => null,
+                'hall_pulse_count' => $telemetry->hallPulseCount,
+            ];
+        }
+
+        $hasFreshGpsSpeed = $gps['status'] === 'fix' && $gps['speed'] !== null;
+
+        return [
+            'speed' => $hasFreshGpsSpeed ? $gps['speed'] : null,
+            'source' => $hasFreshGpsSpeed ? 'gps_fallback' : 'unavailable',
+            'sensor_status' => $telemetryIsFresh ? $telemetry->speedSensorStatus : null,
+            'wheel_circumference_m' => null,
+            'hall_pulse_count' => $telemetryIsFresh ? $telemetry->hallPulseCount : null,
         ];
     }
 }

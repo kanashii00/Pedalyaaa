@@ -245,6 +245,25 @@
                         default => ['#95a5a6', 'No GPS'],
                     };
                     $gps = $bike->gps_data;
+                    $speed = $bike->speed_data;
+                    $speedSource = match ($speed['source']) {
+                        'hall' => 'Hall Effect sensor',
+                        'gps_fallback' => 'GPS fallback',
+                        default => 'Unavailable',
+                    };
+                    if ($speed['source'] === 'hall' && !in_array($speed['sensor_status'], ['active', 'stopped'], true)) {
+                        $speedSource .= ' · '.match ($speed['sensor_status']) {
+                            'waiting' => 'waiting for pulses',
+                            'stale' => 'no recent telemetry',
+                            'configuration_mismatch' => 'configuration mismatch',
+                            default => 'not available',
+                        };
+                    }
+                    $speedSourceClass = $speed['source'] === 'hall'
+                        ? (in_array($speed['sensor_status'], ['active', 'stopped'], true)
+                            ? 'badge-admin--brand'
+                            : 'badge-admin--warning')
+                        : ($speed['source'] === 'gps_fallback' ? 'badge-admin--warning' : 'badge-admin--neutral');
                 @endphp
                 <tr data-gps-bike-id="{{ $bike->id }}">
                     <td data-label="Bicycle">
@@ -277,7 +296,10 @@
                             <span class="dot" style="background: {{ $zoneStyle[0] }};"></span>{{ $zoneStyle[1] }}
                         </span>
                     </td>
-                    <td data-label="Speed" data-gps-field="speed">{{ $gps['speed'] !== null ? number_format($gps['speed'], 1) . ' km/h' : 'N/A' }}</td>
+                    <td data-label="Speed">
+                        <span data-gps-field="speed">{{ $speed['speed'] !== null ? number_format($speed['speed'], 2).' km/h' : 'N/A' }}</span>
+                        <small class="badge-admin {{ $speedSourceClass }} d-block mt-1" data-gps-field="speed-source">{{ $speedSource }}</small>
+                    </td>
                     <td data-label="Distance from center" data-gps-field="distance">{{ $bike->zone['distance'] !== null ? number_format($bike->zone['distance'], 0) . ' m' : 'N/A' }}</td>
                     <td data-label="Last GPS" data-gps-field="updated-at">
                         @if($gps['updated_at'])
@@ -510,6 +532,9 @@
         'gps_hdop' => $b->gps_data['hdop'],
         'gps_satellites' => $b->gps_data['satellites'],
         'gps_speed' => $b->gps_data['speed'],
+        'speed_kmh' => $b->speed_data['speed'],
+        'speed_source' => $b->speed_data['source'],
+        'speed_sensor_status' => $b->speed_data['sensor_status'],
         'status' => $b->status,
         'battery' => $b->batteryLevel,
         'lockStatus' => $b->lockStatus,
@@ -542,7 +567,6 @@
                     bike.gps_accuracy !== null && bike.gps_accuracy !== undefined ? Number(bike.gps_accuracy).toFixed(1) + ' m accuracy' : null,
                     bike.gps_hdop !== null && bike.gps_hdop !== undefined ? 'HDOP ' + Number(bike.gps_hdop).toFixed(2) : null
                 ].filter(Boolean).join(' · ') || 'N/A',
-                speed: bike.gps_speed !== null && bike.gps_speed !== undefined ? Number(bike.gps_speed).toFixed(1) + ' km/h' : 'N/A',
                 zone: bike.zone_level === 'breach' || bike.zone_level === 'outside'
                     ? 'Outside Zone'
                     : (bike.zone_level === 'warning' || bike.zone_level === 'approaching'
@@ -573,6 +597,38 @@
                     cell.textContent = fields[field];
                 }
             });
+
+            var speedValue = row.querySelector('[data-gps-field="speed"]');
+            var speedSource = row.querySelector('[data-gps-field="speed-source"]');
+            if (speedValue) {
+                speedValue.textContent = bike.speed_kmh !== null
+                    && bike.speed_kmh !== undefined
+                    && Number.isFinite(Number(bike.speed_kmh))
+                    ? Number(bike.speed_kmh).toFixed(2) + ' km/h'
+                    : 'N/A';
+            }
+            if (speedSource) {
+                var sourceLabel = bike.speed_source === 'hall'
+                    ? 'Hall Effect sensor'
+                    : (bike.speed_source === 'gps_fallback' ? 'GPS fallback' : 'Unavailable');
+                var sourceClass = bike.speed_source === 'hall'
+                    ? 'badge-admin--brand'
+                    : (bike.speed_source === 'gps_fallback' ? 'badge-admin--warning' : 'badge-admin--neutral');
+                var statusLabels = {
+                    waiting: 'waiting for pulses',
+                    stale: 'no recent telemetry',
+                    configuration_mismatch: 'configuration mismatch'
+                };
+                if (bike.speed_source === 'hall'
+                    && bike.speed_sensor_status
+                    && bike.speed_sensor_status !== 'active'
+                    && bike.speed_sensor_status !== 'stopped') {
+                    sourceLabel += ' · ' + (statusLabels[bike.speed_sensor_status] || 'not available');
+                    sourceClass = 'badge-admin--warning';
+                }
+                speedSource.textContent = sourceLabel;
+                speedSource.className = 'badge-admin d-block mt-1 ' + sourceClass;
+            }
 
             var updatedCell = row.querySelector('[data-gps-field="updated-at"]');
             if (updatedCell && bike.last_gps_update) {

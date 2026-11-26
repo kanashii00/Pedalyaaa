@@ -62,6 +62,43 @@ class ApiDeviceTest extends TestCase
         ], $this->deviceHeaders())->assertOk()->assertJsonPath('message', 'Heartbeat processed');
     }
 
+    public function test_heartbeat_validates_and_stores_hall_speed_telemetry(): void
+    {
+        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.1]);
+
+        $this->postJson('/api/iot/heartbeat', [
+            'bicycle_id' => $bike->id,
+            'device_id' => 'ESP-001',
+            'speedKmh' => 7.56,
+            'wheelCircumferenceM' => 2.1,
+            'hallPulseCount' => 12,
+            'speedSensorStatus' => 'active',
+        ], $this->deviceHeaders())->assertOk();
+
+        $this->assertDatabaseHas('device_status', [
+            'bicycleId' => $bike->id,
+            'speedKmh' => 7.56,
+            'wheelCircumferenceM' => 2.1,
+            'hallPulseCount' => 12,
+            'speedSensorStatus' => 'active',
+        ]);
+    }
+
+    public function test_heartbeat_rejects_unrealistic_hall_speed(): void
+    {
+        $bike = $this->makeBicycle();
+
+        $this->postJson('/api/iot/heartbeat', [
+            'bicycle_id' => $bike->id,
+            'device_id' => 'ESP-001',
+            'speedKmh' => 61,
+            'wheelCircumferenceM' => 2.1,
+            'hallPulseCount' => 12,
+            'speedSensorStatus' => 'active',
+        ], $this->deviceHeaders())->assertUnprocessable()
+            ->assertJsonValidationErrors('speedKmh');
+    }
+
     public function test_heartbeat_with_coordinates_updates_live_position(): void
     {
         $bike = $this->makeBicycle();

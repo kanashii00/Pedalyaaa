@@ -4,6 +4,7 @@
 
 #include "config.h"
 #include "GpsReceiver.h"
+#include "HallSpeedSensor.h"
 #include <ArduinoJson.h>
 
 struct RentalState {
@@ -18,6 +19,7 @@ struct RentalState {
     String  bicycleStatus;
     String  bicycleSerial;
     int     bicycleBatteryLevel = -1;
+    float   wheelCircumferenceM = 0.0f;
     bool    manualUnlockOverride = false;
 
     int64_t startTs          = 0;
@@ -176,7 +178,8 @@ public:
     bool poll(RentalState& out, String& error);
     bool pollCommands(DeviceCommand* commands, size_t capacity, size_t& count, String& error);
     bool acknowledgeCommand(uint32_t commandId, bool executed, const String& result, String& error);
-    bool sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptimeSeconds, String& error);
+    bool sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptimeSeconds,
+                       const HallSpeedReading& speed, String& error);
     bool sendGps(double latitude, double longitude, float speedKph, float heading, String& error);
 
     /**

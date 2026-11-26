@@ -125,6 +125,7 @@ class AdminBicycleManagementTest extends TestCase
                 'name' => 'New Bike',
                 'model' => 'Mountain',
                 'hourlyRate' => 25,
+                'wheelCircumferenceM' => 2.1,
                 'currentLat' => 14.6,
                 'currentLng' => 120.99,
             ])
@@ -137,6 +138,7 @@ class AdminBicycleManagementTest extends TestCase
             'name' => 'New Bike',
             'status' => Bicycle::STATUS_OUT_OF_SERVICE,
             'iotEnabled' => false,
+            'wheelCircumferenceM' => 2.1,
         ]);
 
         $created = Bicycle::where('name', 'New Bike')->firstOrFail();
@@ -206,6 +208,7 @@ class AdminBicycleManagementTest extends TestCase
                 'name' => 'Renamed',
                 'hourlyRate' => 20,
                 'batteryLevel' => 80,
+                'wheelCircumferenceM' => 2.25,
             ])
             ->assertRedirect(route('admin.bicycles.index'));
 
@@ -213,6 +216,7 @@ class AdminBicycleManagementTest extends TestCase
         $this->assertSame('Renamed', $fresh->name);
         $this->assertSame(20.0, (float) $fresh->hourlyRate);
         $this->assertSame(80, (int) $fresh->batteryLevel);
+        $this->assertSame(2.25, (float) $fresh->wheelCircumferenceM);
     }
 
     public function test_update_to_maintenance_places_bicycle_in_maintenance(): void

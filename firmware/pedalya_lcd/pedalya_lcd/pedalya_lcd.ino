@@ -7,6 +7,7 @@
 #include "Diagnostics.h"
 #include "Geofence.h"
 #include "GpsReceiver.h"
+#include "HallSpeedSensor.h"
 #include "LcdDisplay.h"
 #include "LockActuator.h"
 #include "PedalyaApi.h"
@@ -27,6 +28,7 @@
  *   RentalController expiry state machine and the actuator safety rule
  *   CommandHandler  the server command queue
  *   GpsReceiver     checksummed NMEA RMC reader
+ *   HallSpeedSensor interrupt-driven wheel rotation and speed
  *   AccidentDetector the MPU6050 on the shared I2C bus, and its verdict only
  *   Sim7600/EC20F   Quectel EC20F modem on UART2: cellular route to API
  *   PedalyaApi      WiFi + cellular HTTP, JSON, clock
@@ -42,6 +44,7 @@ static RentalTimer timer;
 static RentalController controller(lock, buzzer, timer);
 static CommandHandler commands(display, lock, controller, api);
 static GpsReceiver gps;
+static HallSpeedSensor hallSpeed;
 static AccidentDetector accidentDetector;
 
 // The single polled snapshot of the rental. Every module reads it; nothing else
@@ -356,12 +359,17 @@ static void connectWifi() {
 static void reportTelemetry() {
     const uint32_t now = millis();
     String error;
+    const uint32_t pollInterval = pollIntervalMs();
+    const uint32_t heartbeatInterval = hallSpeed.configured()
+        ? min(pollInterval, (uint32_t)HALL_TELEMETRY_INTERVAL_MS)
+        : pollInterval;
 
-    if (!heartbeatAttempted || now - lastHeartbeatMs >= pollIntervalMs()) {
+    if (!heartbeatAttempted || now - lastHeartbeatMs >= heartbeatInterval) {
         heartbeatAttempted = true;
         lastHeartbeatMs = now;
         setNetworkWait(true);
-        const bool sent = api.sendHeartbeat(lock.locked(), lock.ready(), now / 1000UL, error);
+        const bool sent = api.sendHeartbeat(
+            lock.locked(), lock.ready(), now / 1000UL, hallSpeed.reading(), error);
         setNetworkWait(false);
         if (!sent) {
             Serial.printf("[telemetry] heartbeat failed: %s\n", error.c_str());
@@ -755,6 +763,9 @@ void setup() {
     Diagnostics::printBanner();
 
     gps.begin();
+    hallSpeed.begin();
+    Serial.printf("[hall] input GPIO=%d, pull-up enabled, timeout=%lu ms\n",
+                  HALL_SENSOR_PIN, (unsigned long)HALL_STOP_TIMEOUT_MS);
 #if SIM_ONLY_MODE || CONNECTIVITY_MODE == CONNECTIVITY_MODE_EC20F_SIM
     // SIM-only build: power off the Wi-Fi radio so it never broadcasts, associates,
     // or draws RF power.
@@ -912,6 +923,7 @@ void loop() {
             Serial.printf("[loop] poll failed: %s (actuator state preserved)\n", error.c_str());
             display.setErrorLed(true);
         } else {
+            hallSpeed.setWheelCircumferenceM(state.wheelCircumferenceM);
             display.setErrorLed(false);
         }
     }
