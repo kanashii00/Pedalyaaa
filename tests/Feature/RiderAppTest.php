@@ -42,6 +42,57 @@ class RiderAppTest extends TestCase
         $this->get(route('login'))->assertOk();
     }
 
+    public function test_login_password_toggle_is_labeled_and_keyboard_reachable(): void
+    {
+        $html = $this->get(route('login'))->assertOk()->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/<button\b(?=[^>]*id="togglePassword")(?=[^>]*aria-label="Show password")(?=[^>]*aria-pressed="false")[^>]*>/',
+            $html,
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/<button\b(?=[^>]*id="togglePassword")[^>]*tabindex="-1"/',
+            $html,
+        );
+    }
+
+    public function test_home_navigation_toggle_has_accessible_name_and_state(): void
+    {
+        $html = $this->get(route('home'))->assertOk()->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/<button\b(?=[^>]*class="navbar-toggler")(?=[^>]*aria-controls="landingNavbar")(?=[^>]*aria-expanded="false")(?=[^>]*aria-label="Toggle navigation")[^>]*>/',
+            $html,
+        );
+    }
+
+    public function test_public_page_skips_unneeded_map_and_disabled_broadcast_assets(): void
+    {
+        $this->get(route('home'))
+            ->assertOk()
+            ->assertDontSee('maplibre-gl@4.7.1', false)
+            ->assertDontSee('laravel-echo@1.16.1', false)
+            ->assertDontSee('pusher-js@8.4.0', false);
+    }
+
+    public function test_map_page_loads_maplibre_and_enabled_broadcast_assets(): void
+    {
+        $this->riderAuth();
+
+        $this->get(route('rider.dashboard'))
+            ->assertOk()
+            ->assertSee('maplibre-gl@4.7.1', false)
+            ->assertDontSee('laravel-echo@1.16.1', false);
+
+        config(['broadcasting.default' => 'reverb']);
+
+        $this->get(route('rider.dashboard'))
+            ->assertOk()
+            ->assertSee('maplibre-gl@4.7.1', false)
+            ->assertSee('laravel-echo@1.16.1', false)
+            ->assertSee('pusher-js@8.4.0', false);
+    }
+
     public function test_login_page_uses_https_assets_behind_a_proxy(): void
     {
         $response = $this->withServerVariables([

@@ -646,8 +646,8 @@
             <div class="rv-summary__icon rv-summary__icon--accent"><i class="bi bi-clock-history"></i></div>
             <div>
                 <div class="rv-summary__label">Late Penalty</div>
-                <div class="rv-summary__value">&#8369;{{ number_format($summary['penaltyRate'] ?? 20, 2) }}/5 min</div>
-                <div class="rv-summary__sub">every 5 min after deadline</div>
+                <div class="rv-summary__value">&#8369;20/5 min</div>
+                <div class="rv-summary__sub">each completed block after original rental end</div>
             </div>
         </div>
     </div>
@@ -895,9 +895,6 @@
                                                 data-expected-end="{{ $rental->expectedEndTime?->toIso8601String() }}"
                                                 data-submitted="{{ $rental->returnRequestedAt?->format('M d, Y h:i A') ?? '' }}"
                                                 data-deadline="{{ $rental->expectedEndTime?->toIso8601String() }}"
-                                                data-penalty-rate="{{ (float) ($summary['penaltyRate'] ?? \App\Models\SystemSetting::getValue('lateReturnPenaltyPerHour', 20)) }}"
-                                                data-penalty-type="{{ $rental->penaltyType }}"
-                                                data-penalty-value="{{ $rental->penaltyValue }}"
                                                 data-purchased="{{ $rental->hasRideExtensions() ? (float) ($rental->totalFee ?? 0) : 0 }}"
                                                 data-payment-method="{{ $rental->paymentMethod ?? '' }}"
                                                 data-amount-paid="{{ number_format($paidSoFar, 2, '.', '') }}"
@@ -1622,9 +1619,6 @@ document.addEventListener('DOMContentLoaded', function () {
             prReturnTime.dataset.start = this.dataset.start || '';
             prReturnTime.dataset.expected = this.dataset.expectedEnd || '';
             prReturnTime.dataset.deadline = this.dataset.deadline || '';
-            prReturnTime.dataset.penaltyRate = this.dataset.penaltyRate;
-            prReturnTime.dataset.penaltyType = this.dataset.penaltyType || '';
-            prReturnTime.dataset.penaltyValue = this.dataset.penaltyValue;
             prReturnTime.dataset.purchased = this.dataset.purchased;
             prReturnTime.dataset.method = this.dataset.paymentMethod || '';
             prReturnTime.dataset.paid = this.dataset.amountPaid || '0';

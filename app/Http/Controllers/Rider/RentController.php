@@ -276,7 +276,6 @@ class RentController extends Controller
         $totalMinutes = $completedRentals->sum('durationMinutes');
         $totalTime = floor($totalMinutes / 60) . 'h ' . ($totalMinutes % 60) . 'm';
 
-        $lateReturnPenaltyPerHour = (float) SystemSetting::getValue('lateReturnPenaltyPerHour', 20);
         $currentPenalty = null;
         $overdueMinutes = null;
         if (
@@ -294,7 +293,6 @@ class RentController extends Controller
             'totalSpent',
             'totalTime',
             'activeRental',
-            'lateReturnPenaltyPerHour',
             'currentPenalty',
             'overdueMinutes'
         ));

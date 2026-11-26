@@ -86,8 +86,8 @@
                     <input type="password" class="form-control form-control-pedalya @error('password') is-invalid @enderror" id="password" name="password"
                            required autocomplete="new-password" minlength="8" maxlength="255"
                            aria-describedby="passwordError" aria-invalid="{{ $errors->has('password') ? 'true' : 'false' }}" placeholder="Min 8 characters">
-                    <button class="btn btn-outline-secondary" type="button" data-password-toggle="#password" tabindex="-1"
-                            aria-label="Show password">
+                    <button class="btn btn-outline-secondary" type="button" data-password-toggle="#password"
+                            aria-label="Show password" aria-pressed="false">
                         <i class="bi bi-eye"></i>
                     </button>
                 </div>
@@ -101,8 +101,8 @@
                     <input type="password" class="form-control form-control-pedalya" id="password_confirmation"
                            name="password_confirmation" required autocomplete="new-password" minlength="8" maxlength="255"
                            aria-describedby="passwordConfirmationError" aria-invalid="false" placeholder="Repeat password">
-                    <button class="btn btn-outline-secondary" type="button" data-password-toggle="#password_confirmation" tabindex="-1"
-                            aria-label="Show password">
+                    <button class="btn btn-outline-secondary" type="button" data-password-toggle="#password_confirmation"
+                            aria-label="Show password confirmation" aria-pressed="false">
                         <i class="bi bi-eye"></i>
                     </button>
                 </div>
@@ -157,11 +157,15 @@
             if (!field) {
                 return;
             }
+            const label = field.id === 'password_confirmation' ? 'password confirmation' : 'password';
             toggle.addEventListener('click', function() {
-                const type = field.getAttribute('type') === 'password' ? 'text' : 'password';
+                const isVisible = field.getAttribute('type') === 'password';
+                const type = isVisible ? 'text' : 'password';
                 field.setAttribute('type', type);
                 this.querySelector('i').classList.toggle('bi-eye');
                 this.querySelector('i').classList.toggle('bi-eye-slash');
+                this.setAttribute('aria-label', `${isVisible ? 'Hide' : 'Show'} ${label}`);
+                this.setAttribute('aria-pressed', String(isVisible));
             });
         });
 

@@ -247,7 +247,7 @@ class ReturnGraceDetectionTest extends TestCase
         $this->assertNull($rental->returnDeadline);
     }
 
-    public function test_a_lapsed_grace_window_accrues_the_global_late_penalty(): void
+    public function test_a_lapsed_grace_window_does_not_accrue_before_original_end(): void
     {
         $this->makeAdmin();
         $rider = $this->makeRider();
@@ -268,9 +268,8 @@ class ReturnGraceDetectionTest extends TestCase
 
         $this->assertSame(Rental::STATUS_AWAITING_RETURN, $rental->fresh()->status);
 
-        // Grace window (5 minutes) + 6 minutes overdue => one completed
-        // 5-minute interval, charged at the default PHP 20.00 global rate that
-        // resolvedPenaltyRule() falls back to when no per-rental rule was saved.
+        // The grace deadline has lapsed, but the original rental end is still
+        // in the future. The operational deadline does not start the fee.
         $this->travel(11)->minutes();
 
         Artisan::call('rentals:check-return-deadlines');
@@ -278,7 +277,36 @@ class ReturnGraceDetectionTest extends TestCase
         $rental = $rental->fresh();
 
         $this->assertSame(Rental::STATUS_OVERDUE_RETURN, $rental->status);
-        $this->assertSame(20.0, (float) $rental->penaltyAccrued);
+        $this->assertSame(0.0, (float) $rental->penaltyAccrued);
         $this->assertNotNull($rental->overdueReturnAt);
+    }
+
+    public function test_late_fee_accrues_from_original_end_during_return_grace(): void
+    {
+        $this->makeAdmin();
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle([
+            'status' => Bicycle::STATUS_RENTED,
+            'lockStatus' => Bicycle::LOCK_UNLOCKED,
+        ]);
+
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_ACTIVE,
+            'startTime' => now()->subMinutes(20),
+            'expectedEndTime' => now()->subMinutes(6),
+        ]);
+
+        $this->park(app(IoTService::class), $bike);
+        $this->travel(11)->minutes();
+
+        Artisan::call('rentals:check-return-deadlines');
+
+        $rental = $rental->fresh();
+
+        $this->assertSame(Rental::STATUS_OVERDUE_RETURN, $rental->status);
+        // 17 minutes past the original end = three completed blocks x PHP 20.
+        $this->assertSame(60.0, (float) $rental->penaltyAccrued);
     }
 }

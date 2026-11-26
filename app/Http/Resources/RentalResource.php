@@ -2,6 +2,8 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Rental;
+use App\Services\RentalService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -46,6 +48,11 @@ class RentalResource extends JsonResource
             'overdueReturnAt'   => $this->overdueReturnAt,
             'penaltyType'       => $this->penaltyType,
             'penaltyValue'      => $this->penaltyValue,
+            'penaltyPolicy'     => [
+                'type' => Rental::PENALTY_PER_5_MINUTES,
+                'value' => RentalService::LATE_PENALTY_PER_COMPLETED_FIVE_MINUTES,
+                'basis' => 'original_rental_end',
+            ],
             'penaltyAccrued'    => $this->penaltyAccrued,
             'overdueFee'        => $this->overdueFee,
             'finalFee'          => $this->finalFee,

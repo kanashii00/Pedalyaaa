@@ -26,16 +26,7 @@
 @section('content')
 @if($activeRental && in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true))
     @php
-        $penaltyRuleText = null;
-        if ($activeRental->penaltyType === 'per_5_minutes' || $activeRental->penaltyType === 'per_hour') {
-            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' every 5 minutes late';
-        } elseif ($activeRental->penaltyType === 'per_minute') {
-            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' per minute late';
-        } elseif ($activeRental->penaltyType === 'fixed') {
-            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' fixed late fee';
-        } else {
-            $penaltyRuleText = '₱' . number_format($lateReturnPenaltyPerHour ?? 20, 2) . ' every 5 minutes late';
-        }
+        $penaltyRuleText = '₱20 per completed 5-minute block after the original rental end time';
     @endphp
     <div class="card-pedalya mb-4" style="border-left:4px solid {{ $activeRental->status === 'overdue_return' ? '#C62828' : '#F57C00' }};">
         <div class="card-pedalya-body">

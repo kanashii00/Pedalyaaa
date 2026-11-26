@@ -1,6 +1,7 @@
 @extends('layouts.rider')
 
 @section('title', 'Rent Bicycle')
+@section('mapAssets', true)
 
 @section('styles')
 <style>

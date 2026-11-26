@@ -7,7 +7,6 @@ use App\Models\AuditLog;
 use App\Models\Bicycle;
 use App\Models\Payment;
 use App\Models\Rental;
-use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\IoTService;
 use App\Services\NotificationService;
@@ -179,7 +178,6 @@ class RentalController extends Controller
             'today' => Rental::whereIn('status', [Rental::STATUS_RETURNED, Rental::STATUS_COMPLETED])
                 ->whereDate('returnProcessedAt', today())
                 ->count(),
-            'penaltyRate' => (float) \App\Models\SystemSetting::getValue('lateReturnPenaltyPerHour', 20),
         ];
 
         return response()->view(
@@ -837,8 +835,8 @@ class RentalController extends Controller
         $validated = $request->validate([
             'minutes' => ['nullable', 'integer', 'min:1', 'max:1440'],
             'deadline' => ['nullable', 'date', 'after:now'],
-            'penaltyType' => ['nullable', Rule::in(Rental::PENALTY_TYPES)],
-            'penaltyValue' => ['nullable', 'numeric', 'min:0'],
+            'penaltyType' => ['prohibited'],
+            'penaltyValue' => ['prohibited'],
             'message' => ['nullable', 'string', 'max:500'],
         ]);
 
@@ -855,11 +853,6 @@ class RentalController extends Controller
             return back()->withErrors(['minutes' => 'Specify the allowed return time in minutes or an exact deadline.']);
         }
 
-        $penaltyType = $validated['penaltyType'] ?? Rental::PENALTY_PER_MINUTE;
-        $penaltyValue = ($validated['penaltyValue'] ?? '') !== ''
-            ? (float) $validated['penaltyValue']
-            : 10.00;
-
         // Exact deadline always comes from the server clock: minutes are added
         // to server time; an explicit deadline is only honoured as a fallback.
         $deadline = $minutes !== null
@@ -873,7 +866,6 @@ class RentalController extends Controller
                 $rental,
                 $request->user(),
                 $deadline,
-                ['type' => $penaltyType, 'value' => $penaltyValue],
                 $validated['message'] ?? null,
             );
         } catch (\Throwable $e) {
@@ -888,25 +880,16 @@ class RentalController extends Controller
                 'deadline' => $deadline->toDateTimeString(),
                 'previous_deadline' => $previousDeadline?->toDateTimeString(),
                 'allowed_minutes' => $minutes,
-                'penalty_type' => $penaltyType,
-                'penalty_value' => $penaltyValue,
+                'penalty_rule' => 'PHP 20 per completed 5-minute block after original rental end',
                 'message' => $validated['message'] ?? null,
             ]
         );
-
-        $rateLabel = match ($penaltyType) {
-            Rental::PENALTY_PER_MINUTE => 'per minute',
-            Rental::PENALTY_PER_HOUR => 'per hour',
-            Rental::PENALTY_PER_5_MINUTES => 'every 5 minutes',
-            Rental::PENALTY_FIXED => 'fixed',
-            default => 'per minute',
-        };
 
         return back()->with(
             'success',
             'Return deadline set to ' . $deadline->format('M d, Y g:i A')
             . ' for rental ' . ($rental->rentalId ?? $rental->id)
-            . ' · Penalty ' . number_format($penaltyValue, 2) . ' ' . $rateLabel . '.'
+            . ' · late fee is PHP 20 per completed 5-minute block after the original rental end time.'
         );
     }
 

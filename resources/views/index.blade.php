@@ -26,7 +26,8 @@
                 <img src="{{ asset('assets/img/Logo.png') }}" alt="Pedalya" style="width:84px;height:84px;border-radius:16px;object-fit:cover;margin-right:16px;">
                 <span>Peda<span style="color: var(--primary);">lya</span></span>
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#landingNavbar">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#landingNavbar"
+                    aria-controls="landingNavbar" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="landingNavbar">

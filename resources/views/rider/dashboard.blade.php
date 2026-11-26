@@ -1,6 +1,7 @@
 @extends('layouts.rider')
 
 @section('title', 'Rider Dashboard')
+@section('mapAssets', true)
 
 @section('styles')
 <style>
@@ -73,18 +74,7 @@
     // Bicycle button stays hidden so another request cannot be submitted.
     $returnSubmitted = $activeRental->returnRequestedAt !== null
         || in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true);
-    $penaltyRuleText = null;
-    if (in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true)) {
-        if ($activeRental->penaltyType === 'per_5_minutes' || $activeRental->penaltyType === 'per_hour') {
-            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' every 5 minutes late';
-        } elseif ($activeRental->penaltyType === 'per_minute') {
-            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' per minute late';
-        } elseif ($activeRental->penaltyType === 'fixed') {
-            $penaltyRuleText = '₱' . number_format((float) $activeRental->penaltyValue, 2) . ' fixed late fee';
-        } else {
-            $penaltyRuleText = '₱' . number_format($lateReturnPenaltyPerHour ?? 20, 2) . ' every 5 minutes late';
-        }
-    }
+    $penaltyRuleText = '₱20 per completed 5-minute block after the original rental end time';
 @endphp
                     <div class="active-rental-card">
                         <div class="rental-live-grid">

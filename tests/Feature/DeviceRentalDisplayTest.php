@@ -155,7 +155,7 @@ class DeviceRentalDisplayTest extends TestCase
         }
     }
 
-    public function test_admin_deadline_drives_the_countdown_instead_of_expected_end_time(): void
+    public function test_admin_deadline_drives_countdown_but_not_penalty_basis_or_rule(): void
     {
         $this->makeRental([
             'bicycleId' => $this->bike->id,
@@ -172,9 +172,10 @@ class DeviceRentalDisplayTest extends TestCase
         $response->assertJsonPath('data.rental.status', Rental::STATUS_AWAITING_RETURN);
         $response->assertJsonPath('data.rental.deadlineBasis', 'return_deadline');
         $this->assertEqualsWithDelta(900, $response->json('data.rental.remainingSeconds'), 5);
-        $response->assertJsonPath('data.rental.penalty.basis', 'return_deadline');
-        $response->assertJsonPath('data.rental.penalty.rule', Rental::PENALTY_PER_MINUTE);
-        $this->assertEqualsWithDelta(10.0, $response->json('data.rental.penalty.ruleValue'), 0.001);
+        $response->assertJsonPath('data.rental.penalty.basis', 'expected_end_time');
+        $response->assertJsonPath('data.rental.penalty.rule', Rental::PENALTY_PER_5_MINUTES);
+        $this->assertEqualsWithDelta(20.0, $response->json('data.rental.penalty.ruleValue'), 0.001);
+        $response->assertJsonPath('data.rental.penalty.isDefaultRate', true);
     }
 
     public function test_overdue_return_reports_accruing_penalty(): void
@@ -196,8 +197,8 @@ class DeviceRentalDisplayTest extends TestCase
         $response->assertJsonPath('data.rental.isOverdue', true);
         $this->assertEqualsWithDelta(1500, $response->json('data.rental.overdueSeconds'), 5);
         $this->assertLessThan(0, $response->json('data.rental.remainingSeconds'));
-        // 25 late minutes x PHP 10.00
-        $this->assertEqualsWithDelta(250.0, $response->json('data.rental.penalty.accrued'), 5.0);
+        // 60 late minutes from the original end = 12 completed blocks x PHP 20.
+        $this->assertEqualsWithDelta(240.0, $response->json('data.rental.penalty.accrued'), 5.0);
     }
 
     public function test_displayed_penalty_matches_what_process_return_charges(): void
@@ -219,8 +220,8 @@ class DeviceRentalDisplayTest extends TestCase
             ->assertOk()
             ->json('data.rental.penalty.accrued');
 
-        // ceil(90/60) = 2 hours x PHP 20.00
-        $this->assertEqualsWithDelta(40.0, $displayed, 5.0);
+        // 180 late minutes from the original end = 36 completed blocks x PHP 20.
+        $this->assertEqualsWithDelta(720.0, $displayed, 5.0);
 
         $this->app->make(\App\Services\RentalService::class)->processReturn(
             $rental,
@@ -232,7 +233,7 @@ class DeviceRentalDisplayTest extends TestCase
         $this->assertEqualsWithDelta($displayed, $rental->fresh()->overdueFee, 0.01);
     }
 
-    public function test_penalty_falls_back_to_global_setting_when_no_rule_saved(): void
+    public function test_penalty_ignores_legacy_global_setting_and_uses_fixed_rate(): void
     {
         SystemSetting::setValue('lateReturnPenaltyPerHour', 30);
 
@@ -248,8 +249,8 @@ class DeviceRentalDisplayTest extends TestCase
 
         $response->assertJsonPath('data.rental.penalty.rule', Rental::PENALTY_PER_5_MINUTES);
         $response->assertJsonPath('data.rental.penalty.isDefaultRate', true);
-        // floor(90/5) = 18 completed 5-minute intervals x the PHP 30 global rate.
-        $this->assertEqualsWithDelta(540.0, $response->json('data.rental.penalty.accrued'), 5.0);
+        // 120 late minutes from the original end = 24 completed blocks x PHP 20.
+        $this->assertEqualsWithDelta(480.0, $response->json('data.rental.penalty.accrued'), 5.0);
     }
 
     public function test_legacy_expected_end_time_surcharge_is_shown_before_a_deadline_exists(): void
@@ -265,8 +266,8 @@ class DeviceRentalDisplayTest extends TestCase
         $response = $this->getJson($this->endpoint($this->bike), $this->deviceHeaders())->assertOk();
 
         $response->assertJsonPath('data.rental.penalty.basis', 'expected_end_time');
-        // ceil(90/60) = 2 hours x PHP 15.00
-        $this->assertEqualsWithDelta(30.0, $response->json('data.rental.penalty.accrued'), 5.0);
+        // 90 late minutes = 18 completed blocks x PHP 20.
+        $this->assertEqualsWithDelta(360.0, $response->json('data.rental.penalty.accrued'), 5.0);
     }
 
     public function test_response_carries_the_server_clock_for_device_time_sync(): void

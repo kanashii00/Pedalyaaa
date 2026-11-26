@@ -59,7 +59,8 @@
                     <span class="input-group-text"><i class="bi bi-lock"></i></span>
                     <input type="password" class="form-control form-control-pedalya" id="password" name="password"
                            required autocomplete="current-password" placeholder="••••••••">
-                    <button class="btn btn-outline-secondary" type="button" id="togglePassword" tabindex="-1">
+                    <button class="btn btn-outline-secondary" type="button" id="togglePassword"
+                            aria-label="Show password" aria-pressed="false">
                         <i class="bi bi-eye"></i>
                     </button>
                 </div>
@@ -113,10 +114,13 @@
         const password = document.getElementById('password');
         if (toggle && password) {
             toggle.addEventListener('click', function() {
-                const type = password.getAttribute('type') === 'password' ? 'text' : 'password';
+                const isVisible = password.getAttribute('type') === 'password';
+                const type = isVisible ? 'text' : 'password';
                 password.setAttribute('type', type);
                 this.querySelector('i').classList.toggle('bi-eye');
                 this.querySelector('i').classList.toggle('bi-eye-slash');
+                this.setAttribute('aria-label', `${isVisible ? 'Hide' : 'Show'} password`);
+                this.setAttribute('aria-pressed', String(isVisible));
             });
         }
     });

@@ -134,9 +134,15 @@ class ApiRentalTest extends TestCase
             ->assertJsonPath('data.overdueFee', '60.00')
             ->assertJsonPath('data.penaltyAccrued', '60.00')
             ->assertJsonPath('data.penaltyType', Rental::PENALTY_PER_HOUR)
+            ->assertJsonPath('data.penaltyValue', '20.00')
+            ->assertJsonPath('data.penaltyPolicy.type', Rental::PENALTY_PER_5_MINUTES)
+            ->assertJsonPath('data.penaltyPolicy.value', 20)
+            ->assertJsonPath('data.penaltyPolicy.basis', 'original_rental_end')
             ->assertJsonPath('data.returnCondition', Rental::CONDITION_FAIR)
             ->assertJsonPath('data.returnInspectedBy', $admin->name)
             ->assertJsonPath('data.isOverdue', true);
+
+        $this->assertSame(Rental::PENALTY_PER_HOUR, $rental->fresh()->penaltyType);
     }
 
     public function test_show_own_rental_succeeds(): void

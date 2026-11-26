@@ -611,16 +611,7 @@
                             <td>
                                 <div class="rv-actions">
                                     @php
-                                        $detailPenalty = '';
-                                        if ($rental->penaltyType) {
-                                            if ($rental->penaltyType === \App\Models\Rental::PENALTY_FIXED) {
-                                                $detailPenalty = 'Fixed ₱' . number_format((float) $rental->penaltyValue, 2);
-                                            } elseif ($rental->penaltyType === \App\Models\Rental::PENALTY_PER_MINUTE) {
-                                                $detailPenalty = '₱' . number_format((float) $rental->penaltyValue, 2) . '/minute';
-                                            } else {
-                                                $detailPenalty = '₱' . number_format((float) $rental->penaltyValue, 2) . '/5 min';
-                                            }
-                                        }
+                                        $detailPenalty = '₱20 per completed 5-minute block after original rental end';
                                         $detailData = [
                                             'id'        => $rental->rentalId ?? ('REN-' . str_pad($rental->id, 4, '0', STR_PAD_LEFT)),
                                             'status'    => $rental->status,

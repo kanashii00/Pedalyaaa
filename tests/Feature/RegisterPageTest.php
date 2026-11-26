@@ -114,6 +114,21 @@ class RegisterPageTest extends TestCase
         $this->assertStringContainsString('name="password_confirmation"', $html);
     }
 
+    public function test_password_toggles_are_labeled_and_keyboard_reachable(): void
+    {
+        $html = $this->get('/register')->assertOk()->getContent();
+        preg_match_all('/<button\b[^>]*data-password-toggle="[^"]+"[^>]*>/s', $html, $matches);
+
+        $this->assertCount(2, $matches[0]);
+
+        foreach (['Show password', 'Show password confirmation'] as $index => $label) {
+            $button = $matches[0][$index];
+            $this->assertStringContainsString('aria-label="'.$label.'"', $button);
+            $this->assertStringContainsString('aria-pressed="false"', $button);
+            $this->assertStringNotContainsString('tabindex="-1"', $button);
+        }
+    }
+
     public function test_google_registration_page_keeps_google_details_and_asks_for_a_password(): void
     {
         $response = $this->withSession([

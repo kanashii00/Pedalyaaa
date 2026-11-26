@@ -65,12 +65,6 @@
                 <input type="number" class="form-control" name="depositAmount"
                     step="0.01" min="0" value="{{ old('depositAmount', $settings->depositAmount) }}">
             </div>
-            <div class="col-md-4">
-                <label class="form-label">Late Return Penalty (₱ every 5 minutes)</label>
-                <input type="number" class="form-control" name="lateReturnPenaltyPerHour"
-                    step="0.01" min="0" value="{{ old('lateReturnPenaltyPerHour', $settings->lateReturnPenaltyPerHour) }}">
-                <small class="text-muted">Charged for each completed 5-minute interval after the return deadline passes (1–4 min = ₱0, 5–9 min = 1×, 10–14 min = 2×).</small>
-            </div>
         </div>
     </x-admin.card>
 

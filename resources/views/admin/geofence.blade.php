@@ -1,6 +1,7 @@
 @extends('layouts.admin')
 
 @section('title', 'Geofence Management')
+@section('mapAssets', true)
 
 @section('styles')
 <style>

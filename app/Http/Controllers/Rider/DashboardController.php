@@ -52,8 +52,6 @@ class DashboardController extends Controller
 
         $warningMinutes = (int) SystemSetting::getValue('overdueBuzzerMinutes', 5);
 
-        $lateReturnPenaltyPerHour = (float) SystemSetting::getValue('lateReturnPenaltyPerHour', 20);
-
         $currentPenalty = null;
         $overdueMinutes = null;
         if (
@@ -73,7 +71,6 @@ class DashboardController extends Controller
             'mapBicycles' => $mapBicycles,
             'geofence' => $geofence,
             'warningMinutes' => $warningMinutes,
-            'lateReturnPenaltyPerHour' => $lateReturnPenaltyPerHour,
             'currentPenalty' => $currentPenalty,
             'overdueMinutes' => $overdueMinutes,
             'totalRentals' => $summary['totalRentals'],

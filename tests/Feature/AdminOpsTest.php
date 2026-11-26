@@ -45,7 +45,20 @@ class AdminOpsTest extends TestCase
     public function test_settings_index_renders(): void
     {
         $this->adminAuth();
-        $this->get(route('admin.settings.index'))->assertOk();
+        $this->get(route('admin.settings.index'))
+            ->assertOk()
+            ->assertDontSee('lateReturnPenaltyPerHour');
+    }
+
+    public function test_settings_rejects_retired_late_penalty_rate(): void
+    {
+        $this->adminAuth();
+
+        $this->putJson(route('admin.settings.update'), [
+            'lateReturnPenaltyPerHour' => 35,
+        ])->assertUnprocessable();
+
+        $this->assertDatabaseMissing('system_settings', ['key' => 'lateReturnPenaltyPerHour']);
     }
 
     public function test_settings_update_stores_values_and_updates_geofence(): void

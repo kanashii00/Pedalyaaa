@@ -119,8 +119,7 @@ class RiderDashboardCountdownTest extends TestCase
         app(RentalService::class)->setReturnDeadline(
             $rental,
             $admin,
-            Carbon::now()->addMinutes(20),
-            ['type' => Rental::PENALTY_PER_HOUR, 'value' => 25]
+            Carbon::now()->addMinutes(20)
         );
 
         $target = new Carbon($this->dashboardTarget($rider));

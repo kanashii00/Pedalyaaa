@@ -21,6 +21,7 @@
 @endphp
 
 @section('title', ($sectionTitles[$section] ?? 'Monitoring') . ' — Pedalya Admin')
+@section('mapAssets', true)
 
 @section('styles')
 <style>

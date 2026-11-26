@@ -1,6 +1,7 @@
 @extends('layouts.admin')
 
 @section('title', 'Bicycle Details')
+@section('mapAssets', true)
 
 @section('page-header')
     <h1>Bicycle Details</h1>

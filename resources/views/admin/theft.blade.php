@@ -1,6 +1,7 @@
 @extends('layouts.admin')
 
 @section('title', 'Theft Detection & Security Incidents')
+@section('mapAssets', true)
 
 @section('styles')
 <style>

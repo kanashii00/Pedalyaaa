@@ -483,7 +483,6 @@ public function startRental(
         Rental $rental,
         User $admin,
         Carbon $deadline,
-        array $penalty = [],
         ?string $message = null
     ): Rental {
         if (!in_array($rental->status, [
@@ -496,19 +495,8 @@ public function startRental(
 
         $deadline = $deadline->copy()->floorMinute();
 
-        $penaltyType = $penalty['type'] ?? null;
-        $penaltyValue = isset($penalty['value']) && is_numeric($penalty['value'])
-            ? round((float) $penalty['value'], 2)
-            : null;
-
-        if ($penaltyType !== null && !in_array($penaltyType, Rental::PENALTY_TYPES, true)) {
-            throw new RentalException('Invalid penalty type.');
-        }
-
         $unchanged = $rental->returnDeadline !== null
-            && $rental->returnDeadline->floorMinute()->eq($deadline)
-            && $rental->penaltyType === $penaltyType
-            && (float) $rental->penaltyValue === (float) $penaltyValue;
+            && $rental->returnDeadline->floorMinute()->eq($deadline);
 
         if ($unchanged) {
             return $rental->fresh();
@@ -518,8 +506,6 @@ public function startRental(
             'status' => Rental::STATUS_AWAITING_RETURN,
             'returnDeadline' => $deadline,
             'returnDeadlineSetBy' => (string) ($admin->name ?? $admin->id),
-            'penaltyType' => $penaltyType,
-            'penaltyValue' => $penaltyValue,
         ];
 
         if ($message !== null && trim($message) !== '') {
@@ -531,11 +517,9 @@ public function startRental(
 
         $rental->update($attributes);
 
-        $penaltyLine = $this->penaltyRuleDescription($penaltyType, $penaltyValue);
-
         $notificationMessage = "Your rental period for bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}) has ended. "
             . "Please return the bicycle by {$deadline->format('M d, Y g:i A')}."
-            . ($penaltyLine ? " {$penaltyLine}." : '')
+            . ' Late fees are PHP 20 for each completed 5-minute block after the original rental end time; this return deadline does not reset that time.'
             . ($message ? " Message from Pedalya: {$message}" : '');
 
         $this->notificationService->create(
@@ -559,8 +543,8 @@ public function startRental(
      * mirrors the firmware's RETURN_GRACE_SECONDS (300 seconds, i.e. five
      * minutes, by default). No administrator is involved: the deadline is
      * computed from the authoritative server clock and the penalty rule is
-     * deliberately left unset so resolvedPenaltyRule() falls back to the global
-     * every-5-minutes late-return rate once the window lapses.
+     * deliberately left unset. The fixed late fee is always measured from the
+     * original rental end time, not from this operational grace deadline.
      *
      * Idempotent by state: a rental that already carries a deadline keeps it,
      * so a repeated heartbeat can neither shorten nor restart a window, and the
@@ -618,7 +602,7 @@ public function startRental(
             'Return Grace Started',
             "Bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}) was detected parked and locked. "
                 . "Return rental {$rental->rentalId} by {$deadlineLabel} - a {$graceLabel} grace window. "
-                . 'The late-return penalty starts to apply once it lapses.',
+                . 'Late fees remain PHP 20 per completed 5-minute block after the original rental end time; this grace window does not reset that time.',
             'rental_deadline',
             ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
         );
@@ -631,7 +615,7 @@ public function startRental(
                 'Return Deadline Auto-Set',
                 "Bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}) was detected parked, so rental "
                     . "{$rental->rentalId} automatically has until {$deadlineLabel} to be returned "
-                    . "({$graceLabel} grace, no manual deadline needed). Confirm the return to settle it.",
+                    . "({$graceLabel} grace, no manual deadline needed). Late fees are PHP 20 per completed 5-minute block after the original rental end time.",
                 'rental_deadline',
                 ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
             );
@@ -658,53 +642,24 @@ public function startRental(
     }
 
     /**
-     * Human-readable description of the saved late-return penalty rule, used
-     * in renter notifications and admin summaries. Returns '' when no rule is
-     * configured (global every-5-minutes setting is then the source of truth).
-     */
-    private function penaltyRuleDescription(?string $type, ?float $value): string
-    {
-        if ($type === null || $value === null || $value <= 0) {
-            return '';
-        }
-
-        $amount = number_format($value, 2);
-
-        return match ($type) {
-            Rental::PENALTY_FIXED => "A fixed late-return penalty of PHP {$amount} will apply after the deadline",
-            Rental::PENALTY_PER_MINUTE => "A PHP {$amount} per minute late-return penalty will apply after the deadline",
-            Rental::PENALTY_PER_5_MINUTES => "A PHP {$amount} every 5 minutes late-return penalty will apply after the deadline",
-            default => "A PHP {$amount} per hour late-return penalty will apply after the deadline",
-        };
-    }
-
-    /**
-     * Resolve the penalty rule that actually applies to a rental, substituting
-     * the global every-5-minutes setting whenever the rental itself has no
-     * saved rule. This is the single place the fallback is decided, so the
-     * amount shown on a bicycle display can never drift from the amount
-     * charged at return.
+     * Resolve the fixed late-return penalty used for every rental. Legacy
+     * per-rental values and the retired global setting are not charge inputs.
      *
      * @return array{type: string, value: float, isDefaultRate: bool}
      */
     public function resolvedPenaltyRule(?Rental $rental): array
     {
-        $value = $rental?->penaltyValue !== null
-            ? (float) $rental->penaltyValue
-            : (float) SystemSetting::getValue('lateReturnPenaltyPerHour', 20);
-
         return [
-            'type' => $rental?->penaltyType ?? Rental::PENALTY_PER_5_MINUTES,
-            'value' => round(max($value, 0), 2),
-            'isDefaultRate' => $rental === null || $rental->penaltyValue === null,
+            'type' => Rental::PENALTY_PER_5_MINUTES,
+            'value' => self::LATE_PENALTY_PER_COMPLETED_FIVE_MINUTES,
+            'isDefaultRate' => true,
         ];
     }
 
     /**
      * Penalty accrued for a rental as of the given server time, computed from
-     * the administrator-set deadline and the saved penalty rule. Rentals with a
-     * deadline but no saved rule fall back to the global every-5-minutes
-     * setting, so a lapsed automatic grace window charges the same rate.
+     * the original rental end time. The return deadline is operational only;
+     * it does not delay or reset the fixed per-five-minute penalty.
      *
      * Nothing is ever charged while the deadline is still in the future.
      */
@@ -747,11 +702,10 @@ public function startRental(
      * the deadline that is actually in force. Legacy rows without either
      * value fall back to their end time or start time plus stored duration.
      *
-     * The projected penalty intentionally reuses the same branches
-     * processReturn() charges from: the deadline rule when an administrator set
-     * a deadline, otherwise the legacy expected-end-time surcharge. The figure
-     * a rider watches climb on the LCD is therefore the figure that lands on
-     * the final fee.
+     * The projected penalty uses the same fixed policy processReturn() settles:
+     * PHP 20 per completed five-minute block after the original rental end.
+     * An administrative or automatic return deadline affects the countdown,
+     * not the penalty boundary.
      */
     public function rentalClockFor(Rental $rental, ?Carbon $asOf = null): array
     {
@@ -778,10 +732,10 @@ public function startRental(
             (float) $rental->ratePerHour
         );
 
-        if ($rental->returnDeadline !== null) {
-            $penaltyBasis = 'return_deadline';
-        } elseif ($rental->expectedEndTime !== null) {
+        if ($rental->expectedEndTime !== null) {
             $penaltyBasis = 'expected_end_time';
+        } elseif ($rental->returnDeadline !== null) {
+            $penaltyBasis = 'return_deadline';
         } else {
             $penaltyBasis = 'none';
         }
@@ -1883,22 +1837,9 @@ public function startRental(
             return 'PHP ' . number_format((float) $rental->penaltyAccrued, 2) . ' accrued so far';
         }
 
-        if ($rental->penaltyType === Rental::PENALTY_FIXED) {
-            return 'PHP ' . number_format((float) ($rental->penaltyValue ?? 0), 2) . ' fixed penalty';
-        }
-
-        if ($rental->penaltyValue !== null) {
-            $per = match ($rental->penaltyType) {
-                Rental::PENALTY_PER_MINUTE => 'minute',
-                Rental::PENALTY_PER_5_MINUTES => '5 minutes',
-                default => 'hour',
-            };
-            $prep = $rental->penaltyType === Rental::PENALTY_PER_5_MINUTES ? 'every ' : 'per ';
-
-            return 'PHP ' . number_format((float) $rental->penaltyValue, 2) . ' ' . $prep . $per;
-        }
-
-        return '';
+        return 'PHP '
+            . number_format(self::LATE_PENALTY_PER_COMPLETED_FIVE_MINUTES, 2)
+            . ' per completed 5-minute block after the original rental end time';
     }
 
     /**
