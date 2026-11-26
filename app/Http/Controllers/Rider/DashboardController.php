@@ -28,8 +28,8 @@ class DashboardController extends Controller
         $user = $request->user();
 
         // Live data — never cached: the current rental drives the on-page
-        // countdown (ride end or return deadline) and battery reading. Any
-        // rental the rider must still act on is shown for the return workflow.
+        // countdown (ride end or return deadline). Any rental the rider must
+        // still act on is shown for the return workflow.
         // The status list is shared with the operating-area endpoint so the map
         // and the countdown always track the same rental.
         $activeRental = $this->operatingArea->liveRentalFor($user);
@@ -54,19 +54,24 @@ class DashboardController extends Controller
 
         $currentPenalty = null;
         $overdueMinutes = null;
+        $countdownDeadline = null;
+        if ($activeRental) {
+            $rentalService = app(RentalService::class);
+            $countdownDeadline = $rentalService->riderCountdownDeadline($activeRental);
+            $currentPenalty = $rentalService->calculatePenaltyForRental($activeRental, now());
+        }
         if (
             $activeRental
             && $activeRental->status === Rental::STATUS_OVERDUE_RETURN
             && $activeRental->returnDeadline
         ) {
-            $rentalService = app(RentalService::class);
-            $currentPenalty = $rentalService->calculatePenaltyForRental($activeRental, now());
             $overdueMinutes = abs((int) now()->diffInMinutes($activeRental->returnDeadline));
         }
 
         return view('rider.dashboard', [
             'user' => $user,
             'activeRental' => $activeRental,
+            'countdownDeadline' => $countdownDeadline,
             'recentRentals' => $recentRentals,
             'mapBicycles' => $mapBicycles,
             'geofence' => $geofence,
@@ -113,6 +118,8 @@ class DashboardController extends Controller
             ->latest('id')
             ->first();
 
+        $rentalService = app(RentalService::class);
+
         return response()->json([
             'activeRental' => $activeRental ? [
                 'id' => $activeRental->id,
@@ -122,6 +129,8 @@ class DashboardController extends Controller
                         Rental::STATUS_AWAITING_RETURN,
                         Rental::STATUS_OVERDUE_RETURN,
                     ], true),
+                'deadline' => $rentalService->riderCountdownDeadline($activeRental)?->copy()->utc()->toIso8601String(),
+                'currentPenalty' => $rentalService->calculatePenaltyForRental($activeRental, $now),
             ] : null,
             'stats' => [
                 'totalRentals' => $user->rentals()->count(),
@@ -140,9 +149,11 @@ class DashboardController extends Controller
             ])->values(),
             'lastSettled' => $lastSettled ? [
                 'rentalId' => $lastSettled->rentalId,
+                'baseFee' => (float) ($lastSettled->totalFee ?? 0),
+                'finalPenalty' => (float) ($lastSettled->overdueFee ?? 0),
                 'finalFee' => (float) ($lastSettled->finalFee ?? $lastSettled->totalFee ?? 0),
             ] : null,
-            'serverTime' => $now->toIso8601String(),
+            'serverTime' => $now->copy()->utc()->toIso8601String(),
         ])->withHeaders([
             'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
             'Pragma' => 'no-cache',

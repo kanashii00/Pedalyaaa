@@ -593,9 +593,8 @@
 #define EXPIRED_BEEP_INTERVAL_MS 0
 #endif
 
-// Once a rental expires, the on-device overdue timer counts upward from the
-// local expiry transition. The first five minutes are free; each started
-// interval thereafter adds the configured peso amount.
+// The return-grace period used by the local alarm. Financial penalties are
+// calculated by the server from the authoritative return deadline.
 #ifndef RETURN_GRACE_SECONDS
 #define RETURN_GRACE_SECONDS 300
 #endif
@@ -637,14 +636,6 @@
 
 #ifndef RETURN_COUNTDOWN_GAP_END_MS
 #define RETURN_COUNTDOWN_GAP_END_MS 250UL
-#endif
-
-#ifndef PENALTY_INTERVAL_SECONDS
-#define PENALTY_INTERVAL_SECONDS 300
-#endif
-
-#ifndef PENALTY_PER_INTERVAL
-#define PENALTY_PER_INTERVAL 30.0f
 #endif
 
 // Safety calibration is opt-in. Enable only while the bicycle is stationary,

@@ -3,7 +3,6 @@
 #include "config.h"
 
 #include <LiquidCrystal_I2C.h>
-#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -12,48 +11,31 @@ static LiquidCrystal_I2C lcd(I2C_ADDRESS, LCD_COLUMNS, LCD_ROWS);
 
 static char previousRow[LCD_ROWS][LCD_COLUMNS + 1] = {{0}};
 
-/**
- * Whole hours charged for a given lateness, minimum one.
- *
- * Mirrors the server: the minutes are truncated to whole minutes first and only
- * then rounded up to hours, so 150 minutes late bills 3 hours, not 2.5.
- */
-static long long chargedHours(int64_t overdueSeconds) {
-    long long minutes = (long long)(overdueSeconds / 60);
-    long long hours = (long long)ceil((double)minutes / 60.0);
-    return hours < 1 ? 1 : hours;
+LcdDisplay::DisplayGuard::DisplayGuard(LcdDisplay& display) : display_(display) {
+    display_.lockDisplay();
 }
 
-/**
- * Penalty the rider is accruing right now.
- *
- * Reproduces RentalService on the device so the figure moves every second
- * between polls. It is a projection, not an authority: the next poll overwrites
- * it with the server's own number, so a display can never settle on a total the
- * server would not charge.
- */
-static float projectPenalty(const RentalState& state, int64_t overdueSeconds) {
-    if (overdueSeconds <= 0) {
-        return 0.0f;
-    }
+LcdDisplay::DisplayGuard::~DisplayGuard() {
+    display_.unlockDisplay();
+}
 
-    if (state.penaltyBasis == "expected_end_time") {
-        return (float)chargedHours(overdueSeconds) * (state.ratePerHour > 0 ? state.ratePerHour : 0.0f);
+void LcdDisplay::lockDisplay() {
+    if (displayMutex_ != nullptr) {
+        xSemaphoreTakeRecursive(displayMutex_, portMAX_DELAY);
     }
+}
 
-    float value = state.penaltyRuleValue > 0 ? state.penaltyRuleValue : 0.0f;
-
-    if (state.penaltyRule == "fixed") {
-        return value;
+void LcdDisplay::unlockDisplay() {
+    if (displayMutex_ != nullptr) {
+        xSemaphoreGiveRecursive(displayMutex_);
     }
-    if (state.penaltyRule == "per_minute") {
-        return (float)(overdueSeconds / 60) * value;
-    }
-
-    return (float)chargedHours(overdueSeconds) * value;
 }
 
 void LcdDisplay::begin() {
+    displayMutex_ = xSemaphoreCreateRecursiveMutex();
+    if (displayMutex_ == nullptr) {
+        Serial.println("[lcd] failed to create display mutex");
+    }
     lcd.init();
 #if BACKLIGHT_PIN >= 0
     pinMode(BACKLIGHT_PIN, OUTPUT);
@@ -174,10 +156,20 @@ void LcdDisplay::showReady(const char* bicycleId, bool wifiUp, bool simReady, bo
 }
 
 void LcdDisplay::showRental(const RentalState& state, bool locked) {
+    DisplayGuard guard(*this);
     if (messageActive()) return;
 
     int64_t remaining = state.remainingSeconds();
     int64_t overdue = state.overdueSeconds();
+
+    if (state.status == "awaiting_return" && remaining > 0) {
+        row(0, locked ? "RETURN  LOCKED  " : "RETURN  UNLOCKED");
+        long long h = (long long)(remaining / 3600);
+        long long m = (long long)((remaining % 3600) / 60);
+        long long s = (long long)(remaining % 60);
+        rowf(1, "LEFT    %02lld:%02lld:%02lld", h % 100, m, s);
+        return;
+    }
 
     // Row 0: Rental status + Lock state (e.g. "RENTAL    UNLCKD" or "EXPIRING  UNLCKD")
     const char* lckStr = locked ? "LOCKED" : "UNLCKD";
@@ -191,8 +183,7 @@ void LcdDisplay::showRental(const RentalState& state, bool locked) {
 
     // Row 1: Remaining time in HH:MM:SS or overdue status
     if (overdue > 0) {
-        float pen = projectPenalty(state, overdue);
-        rowf(1, "LATE    PHP%.2f", pen);
+        rowf(1, "LATE    PHP%.2f", state.penaltyAccrued);
         return;
     }
 
@@ -208,16 +199,14 @@ void LcdDisplay::showRental(const RentalState& state, bool locked) {
     rowf(1, "LEFT    %02lld:%02lld:%02lld", h % 100, m, s);
 }
 
-void LcdDisplay::showExpiredPhase(uint32_t secondsSinceExpiry, float penalty, bool locked) {
+void LcdDisplay::showExpiredPhase(uint32_t secondsSinceExpiry, float serverPenalty, bool locked,
+                                  bool penaltyCurrent) {
+    DisplayGuard guard(*this);
     if (messageActive()) return;
 
-    // Row 0: Expired status + Lock state
-    const char* lckStr = locked ? "LOCKED" : "UNLCKD";
-    char r0[17];
-    snprintf(r0, sizeof(r0), "EXPIRED   %-6s", lckStr);
-    row(0, r0);
+    if (secondsSinceExpiry < RETURN_GRACE_SECONDS) {
+        row(0, locked ? "RETURN  LOCKED  " : "RETURN  UNLOCKED");
 
-    if (secondsSinceExpiry <= RETURN_GRACE_SECONDS) {
         const uint32_t graceLeft = RETURN_GRACE_SECONDS - secondsSinceExpiry;
         unsigned long m = (unsigned long)(graceLeft / 60);
         unsigned long s = (unsigned long)(graceLeft % 60);
@@ -227,13 +216,52 @@ void LcdDisplay::showExpiredPhase(uint32_t secondsSinceExpiry, float penalty, bo
 
     const uint32_t lateSeconds = secondsSinceExpiry - RETURN_GRACE_SECONDS;
     if (((lateSeconds / 2) % 2) == 0) {
-        unsigned long h = (unsigned long)(lateSeconds / 3600);
-        unsigned long m = (unsigned long)((lateSeconds % 3600) / 60);
-        unsigned long s = (unsigned long)(lateSeconds % 60);
-        rowf(1, "LATE    %02lu:%02lu:%02lu", h % 100, m, s);
+        row(0, locked ? "OVERDUE LOCKED  " : "OVERDUE UNLOCKED");
     } else {
-        rowf(1, "FEE     PHP%.2f", penalty);
+        if (penaltyCurrent) {
+            rowf(0, "FEE PHP%.2f", serverPenalty);
+        } else {
+            row(0, "FEE SYNCING...  ");
+        }
     }
+
+    unsigned long h = (unsigned long)(lateSeconds / 3600);
+    unsigned long m = (unsigned long)((lateSeconds % 3600) / 60);
+    unsigned long s = (unsigned long)(lateSeconds % 60);
+    rowf(1, "LATE    %02lu:%02lu:%02lu", h % 100, m, s);
+}
+
+void LcdDisplay::showExpiredDeadline(int64_t graceSecondsLeft, int64_t overdueSeconds,
+                                     float serverPenalty, bool locked, bool penaltyCurrent) {
+    DisplayGuard guard(*this);
+    if (messageActive()) return;
+
+    if (graceSecondsLeft > 0) {
+        row(0, locked ? "RETURN  LOCKED  " : "RETURN  UNLOCKED");
+
+        const unsigned long m = (unsigned long)(graceSecondsLeft / 60);
+        const unsigned long s = (unsigned long)(graceSecondsLeft % 60);
+        rowf(1, "GRACE   %02lu:%02lu   ", m, s);
+        return;
+    }
+
+    const uint32_t lateSeconds = overdueSeconds > 0
+        ? (uint32_t)overdueSeconds
+        : 0;
+    if (((lateSeconds / 2) % 2) == 0) {
+        row(0, locked ? "OVERDUE LOCKED  " : "OVERDUE UNLOCKED");
+    } else {
+        if (penaltyCurrent) {
+            rowf(0, "FEE PHP%.2f", serverPenalty);
+        } else {
+            row(0, "FEE SYNCING...  ");
+        }
+    }
+
+    const unsigned long h = (unsigned long)(lateSeconds / 3600);
+    const unsigned long m = (unsigned long)((lateSeconds % 3600) / 60);
+    const unsigned long s = (unsigned long)(lateSeconds % 60);
+    rowf(1, "LATE    %02lu:%02lu:%02lu", h % 100, m, s);
 }
 
 void LcdDisplay::showConnectionError(const char* line1, const char* line2) {
@@ -243,6 +271,7 @@ void LcdDisplay::showConnectionError(const char* line1, const char* line2) {
 }
 
 void LcdDisplay::showAccidentAlert(bool reported, bool hasGps) {
+    DisplayGuard guard(*this);
     row(0, "! ACCIDENT ALERT");
     if (reported) {
         row(1, hasGps ? "ADMIN NOTIF +GPS" : "ADMIN NOTIFIED  ");
@@ -357,11 +386,13 @@ void LcdDisplay::showExpired() {
 }
 
 void LcdDisplay::showMessage(const String& line1, const String& line2) {
+    DisplayGuard guard(*this);
     row(0, line1.c_str());
     row(1, line2.c_str());
 }
 
 void LcdDisplay::showMessageFor(uint32_t durationMs, const String& line1, const String& line2) {
+    DisplayGuard guard(*this);
     messageUntilMs_ = millis() + durationMs;
     showMessage(line1, line2);
 }

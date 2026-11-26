@@ -13,8 +13,11 @@
     .rental-live-main { min-width: 0; }
     .rental-live-side { min-width: 0; margin-top: 12px; display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
     .rental-live-side .countdown-timer { flex-wrap: wrap; justify-content: flex-start; }
+    .bike-return-countdown { width: 100%; max-width: 420px; border: 1px solid #FFE0B2; border-radius: 10px; background: #FFF8E1; padding: 14px; }
+    .bike-return-countdown-time { color: #E65100; font-size: clamp(1.7rem, 5vw, 2.2rem); font-weight: 700; line-height: 1.15; }
     @media (max-width: 420px) {
         .rental-live-side .countdown-item .countdown-value { padding: 8px 10px; min-width: 48px; }
+        .bike-return-countdown { padding: 12px; }
     }
 </style>
 @endsection
@@ -74,7 +77,27 @@
     // Bicycle button stays hidden so another request cannot be submitted.
     $returnSubmitted = $activeRental->returnRequestedAt !== null
         || in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true);
-    $penaltyRuleText = '₱20 per completed 5-minute block after the original rental end time';
+    $penaltyRuleText = '₱20 per completed 5-minute block after the return period';
+    $countdownIso = $countdownDeadline ? $countdownDeadline->copy()->utc()->toIso8601String() : null;
+    $showBikeReturnCountdown = in_array($activeRental->status, ['expired', 'awaiting_return', 'overdue_return'], true)
+        && $countdownDeadline !== null;
+    $overdueReturnFlag = $activeRental->status === 'overdue_return';
+    $warningSeconds = ($warningMinutes ?? 5) * 60;
+    $countdownServerTimeIso = now()->utc()->toIso8601String();
+    $countdownStatusUrl = route('rider.rentals.active-status');
+    $countdownInitialStatus = $activeRental->status;
+    $countdownReturnSubmitted = $activeRental->returnRequestedAt !== null;
+    $returnGraceSeconds = max(0, (int) \App\Models\SystemSetting::getValue('returnGraceSeconds', 300));
+    $returnGraceLabel = $returnGraceSeconds % 60 === 0
+        ? floor($returnGraceSeconds / 60) . ' Minute' . ($returnGraceSeconds === 60 ? '' : 's')
+        : $returnGraceSeconds . ' Seconds';
+    $returnCountdownRemaining = $countdownDeadline
+        ? max(0, $countdownDeadline->getTimestamp() - now()->getTimestamp())
+        : 0;
+    $returnCountdownExpired = $countdownDeadline !== null && now()->gte($countdownDeadline);
+    $returnOverdueSeconds = $countdownDeadline !== null
+        ? max(0, now()->getTimestamp() - $countdownDeadline->getTimestamp())
+        : 0;
 @endphp
                     <div class="active-rental-card">
                         <div class="rental-live-grid">
@@ -86,10 +109,6 @@
                                 @endif
                                 <div class="d-flex gap-3 flex-wrap">
                                     <span><i class="bi bi-clock text-primary"></i> <strong id="rentalTimer">0:00:00</strong></span>
-                                    <span>
-                                        <i class="bi bi-battery-three-quarters text-success"></i>
-                                        {{ $activeRental->bicycle->batteryLevel !== null ? $activeRental->bicycle->batteryLevel . '%' : 'Battery not reported' }}
-                                    </span>
                                 </div>
                                 <div id="rentalWarning" class="mt-1" style="{{ $isReturnFlow ? '' : 'display:none;' }}">
                                     @if($activeRental->status === 'overdue_return')
@@ -110,28 +129,37 @@
                                     <div style="margin-top:10px;background:#FDEBEB;border:1px solid #F5C6C6;border-radius:8px;padding:10px 12px;font-size:12.5px;">
                                         <div class="fw-bold" style="color:#C62828;margin-bottom:6px;"><i class="bi bi-exclamation-triangle-fill me-1"></i>Overdue Summary</div>
                                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;">
-                                            <span style="color:#6b6b6b;">Overdue Time</span><strong>{{ floor(($overdueMinutes ?? 0) / 60) }}h {{ ($overdueMinutes ?? 0) % 60 }}m</strong>
+                                            <span style="color:#6b6b6b;">Overdue Time</span><strong id="dashboardOverdueTime">{{ floor(($overdueMinutes ?? 0) / 60) }}h {{ ($overdueMinutes ?? 0) % 60 }}m</strong>
                                             <span style="color:#6b6b6b;">Penalty Rate</span><strong>{{ $penaltyRuleText }}</strong>
-                                            <span style="color:#6b6b6b;">Current Penalty</span><strong style="color:#C62828;">&#8369;{{ number_format($currentPenalty ?? 0, 2) }}</strong>
+                                            <span style="color:#6b6b6b;">Current Penalty</span><strong id="dashboardCurrentPenalty" style="color:#C62828;">&#8369;{{ number_format($currentPenalty ?? 0, 2) }}</strong>
                                             <span style="color:#6b6b6b;">Original Rental Fee</span><strong>&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</strong>
-                                            <span style="color:#6b6b6b;">Total Amount Due</span><strong style="color:#C62828;">&#8369;{{ number_format(($activeRental->totalFee ?? 0) + ($currentPenalty ?? 0), 2) }}</strong>
+                                            <span style="color:#6b6b6b;">Total Amount Due</span><strong id="dashboardTotalDue" style="color:#C62828;">&#8369;{{ number_format(($activeRental->totalFee ?? 0) + ($currentPenalty ?? 0), 2) }}</strong>
                                         </div>
                                     </div>
                                     @endif
                             </div>
                             <div class="rental-live-side">
-                                <div class="countdown-timer">
+                                <div class="countdown-timer" id="rentalClockCountdown"@if($showBikeReturnCountdown) hidden style="display:none;"@endif>
                                     <div class="countdown-item"><span class="countdown-value" id="cdHours">0</span><span class="countdown-label">Hrs</span></div>
                                     <div class="countdown-item"><span class="countdown-value" id="cdMins">0</span><span class="countdown-label">Min</span></div>
                                     <div class="countdown-item"><span class="countdown-value" id="cdSecs">00</span><span class="countdown-label">Sec</span></div>
                                 </div>
-                                @if($activeRental->status === 'expired')
-                                    <p class="mt-2 mb-0 fw-bold" id="deadlineNoteLine" style="color:#E65100;">Waiting for deadline</p>
-                                    <p class="mt-2 mb-0 fw-bold text-primary" id="rentalFeeLine" hidden style="display:none;">&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</p>
-                                @else
-                                    <p class="mt-2 mb-0 fw-bold" id="deadlineNoteLine" style="color:#E65100;display:none;" hidden>Waiting for deadline</p>
-                                    <p class="mt-2 mb-0 fw-bold text-primary" id="rentalFeeLine">&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</p>
-                                @endif
+                                <section class="bike-return-countdown" id="bikeReturnCountdown" aria-live="polite"@if(!$showBikeReturnCountdown) hidden style="display:none;"@endif>
+                                    <h6 class="mb-2"><i class="bi bi-bicycle text-warning me-2"></i>Bike Return Countdown</h6>
+                                    <div class="bike-return-countdown-time" id="bikeReturnCountdownValue">{{ $returnCountdownExpired ? '00:00' : sprintf('%02d:%02d Remaining', intdiv($returnCountdownRemaining, 60), $returnCountdownRemaining % 60) }}</div>
+                                    <div class="fw-semibold mt-2" id="bikeReturnCountdownStatus">{{ $returnCountdownExpired ? 'Overdue' : 'Awaiting Bike Return' }}</div>
+                                    <p class="mb-2 mt-1 text-muted" id="bikeReturnCountdownInstruction"@if($returnCountdownExpired) hidden style="display:none;"@endif>Please return your bike before the countdown expires.</p>
+                                    <p class="mb-1"><strong>Return Allowance:</strong> {{ $returnGraceLabel }}</p>
+                                    <p class="mb-1"><strong>Late Return Penalty:</strong> ₱20 per completed 5 minutes after this period</p>
+                                    <small class="text-muted">No penalty is charged during this return period.</small>
+                                    <div class="mt-2" id="bikeReturnOverdueDetails"@if(!$returnCountdownExpired) hidden style="display:none;"@endif>
+                                        <div>Overdue Duration: <strong id="bikeReturnOverdueValue">{{ sprintf('%02d:%02d:%02d', intdiv($returnOverdueSeconds, 3600), intdiv($returnOverdueSeconds % 3600, 60), $returnOverdueSeconds % 60) }}</strong></div>
+                                        <div>Current Penalty: <strong id="bikeReturnPenaltyValue">₱{{ number_format($currentPenalty ?? 0, 2) }}</strong></div>
+                                        <div>Penalty Rate: <strong>₱20 per completed 5 minutes</strong></div>
+                                        <div>Total Amount Due: <strong id="bikeReturnTotalDueValue">₱{{ number_format(($activeRental->totalFee ?? 0) + ($currentPenalty ?? 0), 2) }}</strong></div>
+                                    </div>
+                                </section>
+                                <p class="mt-2 mb-0 fw-bold text-primary" id="rentalFeeLine">Rental Cost: &#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</p>
                                 @if($activeRental->hasRideExtensions())
                                     <span class="badge-status mt-1" style="background:#E3F2FD;color:#1976D2;" title="This ride was extended {{ $activeRental->extensionCount }} time(s) by {{ $activeRental->extendedMinutes }} extra minutes ({{ $activeRental->extensionMinutesLabel() }}) worth &#8369;{{ number_format((float) $activeRental->extensionFee, 2) }}.">
                                         <i class="bi bi-plus-circle me-1" style="font-size:0.5rem;"></i>Extended &times;{{ $activeRental->extensionCount }} ({{ $activeRental->extensionMinutesLabel() }})
@@ -369,23 +397,20 @@
 <script src="{{ asset('js/geolibre-map.js') }}"></script>
 <script>
     (function() {
-        // Return watcher: while a return awaits admin confirmation the card
-        // would sit stale until a manual reload, because the confirmation
-        // happens in a separate (admin) session. Poll the authoritative
-        // dashboard state and swap to the normal UI in place when the rental
-        // settles. Singleton-guarded; fully torn down after settling.
+        // Poll while any rental is live. This keeps the penalty fresh and
+        // detects admin-confirmed returns without leaving a timer running.
         if (window.PedalyaReturnWatch) {
             window.PedalyaReturnWatch.destroy();
         }
         var stateUrl = @json(route('rider.dashboard.state'));
         var hasActiveRental = @json((bool) $activeRental);
-        var pending = @json($activeRental ? ($activeRental->returnRequestedAt !== null) : false);
+        var pending = hasActiveRental;
         var settled = false;
         var destroyed = false;
         var inflight = false;
         var pollTimer = 0;
         var echoConfirmSeen = false;
-        var POLL_MS = 12000;
+        var POLL_MS = 15000;
         var RENTAL_TYPES = ['rental_started', 'rental_approved', 'rental_returned',
             'return_requested', 'rental_completed', 'rental_expired',
             'rental_overdue_return', 'rental_deadline', 'rental_extended'];
@@ -447,6 +472,22 @@
             if (card && tpl && ('content' in tpl)) {
                 card.innerHTML = '';
                 card.appendChild(tpl.content.cloneNode(true));
+                var returnedNotice = document.createElement('div');
+                returnedNotice.className = 'alert alert-success mt-3 mb-0';
+                returnedNotice.setAttribute('role', 'status');
+                var heading = document.createElement('strong');
+                heading.className = 'd-block';
+                heading.textContent = 'Bike Successfully Returned';
+                returnedNotice.appendChild(heading);
+                if (data.lastSettled) {
+                    var breakdown = document.createElement('div');
+                    breakdown.className = 'mt-2';
+                    breakdown.textContent = 'Final rental charge: ' + money(data.lastSettled.baseFee)
+                        + ' · Penalty: ' + money(data.lastSettled.finalPenalty)
+                        + ' · Final total: ' + money(data.lastSettled.finalFee);
+                    returnedNotice.appendChild(breakdown);
+                }
+                card.prepend(returnedNotice);
             }
             // Stats: active count to 0, totals refreshed from the backend.
             setText('statTotalRentals', String(data.stats.totalRentals));
@@ -465,8 +506,8 @@
             if (!echoConfirmSeen && window.PedalyaNotifications && window.PedalyaNotifications.toast) {
                 var fee = data.lastSettled ? money(data.lastSettled.finalFee) : null;
                 var msg = data.lastSettled
-                    ? 'Your rental ' + data.lastSettled.rentalId + ' has been confirmed. Final fee: ' + fee + '.'
-                    : 'Your bicycle return has been confirmed by an administrator.';
+                    ? 'Bike Successfully Returned. Final charge: ' + fee + '; penalty: ' + money(data.lastSettled.finalPenalty) + '.'
+                    : 'Bike Successfully Returned.';
                 try { window.PedalyaNotifications.toast(msg, 'success', 'Return confirmed'); } catch (e) { /* toast is best-effort */ }
             }
         }
@@ -474,6 +515,10 @@
         function applyState(data) {
             inflight = false;
             if (destroyed || settled || !data) return;
+            if (data.activeRental && window.PedalyaRentalCountdown
+                    && typeof window.PedalyaRentalCountdown.syncState === 'function') {
+                window.PedalyaRentalCountdown.syncState(data.activeRental, data.serverTime);
+            }
             // Backend is the source of truth: only a settled (non-live)
             // rental may clear the card — never a clock or a guess.
             if (hasActiveRental && data.activeRental === null) {
@@ -481,14 +526,14 @@
             }
         }
 
-        function checkState() {
+        function checkState(force) {
             if (destroyed || settled || inflight || !stateUrl) return;
-            // Nothing to watch until a return is actually submitted; the
-            // countdown module owns the pre-return UI.
-            if (!pending) return;
+            // Live rentals keep polling; other rental events request one
+            // authoritative check even after the active card settles.
+            if (!pending && !force) return;
             // Keep the cadence alive no matter which path armed the watcher
             // (initial pending render, submit elsewhere, live event).
-            startPolling();
+            if (pending) startPolling();
             inflight = true;
             fetch(stateUrl + (stateUrl.indexOf('?') === -1 ? '?' : '&') + 't=' + Date.now(), {
                 headers: { Accept: 'application/json' },
@@ -535,7 +580,7 @@
             if (type && RENTAL_TYPES.indexOf(type) !== -1) {
                 // A return submitted from another tab still arms the watcher.
                 if (type === 'rental_returned' || type === 'return_requested') pending = true;
-                checkState();
+                checkState(true);
             }
         }
 
@@ -550,37 +595,15 @@
         document.addEventListener('visibilitychange', onVisibility);
         window.addEventListener('pageshow', onPageShow);
         window.addEventListener('pedalya:notifications-changed', onNotifications);
-        // Arm immediately when the page already renders the pending state;
-        // otherwise the watcher idles until a return is submitted.
-        if (hasActiveRental && pending) {
+        // Keep one authoritative dashboard poll alive for the lifetime of the
+        // rental, including the return period and overdue stage.
+        if (hasActiveRental) {
             checkState();
             startPolling();
         }
     })();
 </script>
 @if($activeRental)
-@php
-    $isReturnFlow = in_array($activeRental->status, ['expired', 'awaiting_return', 'overdue_return'], true);
-    $countdownIso = null;
-    $overdueReturnFlag = false;
-    if (in_array($activeRental->status, ['active', 'overdue'], true)) {
-        // Same precedence as RentalService::rentalClockFor() so this countdown
-        // can never disagree with the one the on-board LCD is showing.
-        $countdownTarget = $activeRental->returnDeadline
-            ?? $activeRental->expectedEndTime
-            ?? $activeRental->endTime
-            ?? optional($activeRental->startTime)->copy()->addMinutes($activeRental->durationMinutes ?? 60);
-        $countdownIso = optional($countdownTarget)->toIso8601String();
-    } elseif (in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true) && $activeRental->returnDeadline) {
-        $countdownIso = $activeRental->returnDeadline->toIso8601String();
-        $overdueReturnFlag = ($activeRental->status === 'overdue_return');
-    }
-    $warningSeconds = ($warningMinutes ?? 5) * 60;
-    $countdownServerTimeIso = now()->toIso8601String();
-    $countdownStatusUrl = route('rider.rentals.active-status');
-    $countdownInitialStatus = $activeRental->status;
-    $countdownReturnSubmitted = $activeRental->returnRequestedAt !== null;
-@endphp
 <script>
     (function() {
         // Singleton: a soft navigation can evaluate this block twice, and two
@@ -612,6 +635,7 @@
         var retryTimer = 0;
         var interval = 0;
         var destroyed = false;
+        var refreshQueued = false;
 
         function pad(n) { return String(n).padStart(2, '0'); }
         function nowMs() { return Date.now() + serverOffsetMs; }
@@ -621,7 +645,7 @@
 
         function remainingSeconds() {
             if (!endTime || isNaN(endTime.getTime())) return null;
-            return Math.max(0, Math.floor((endTime.getTime() - nowMs()) / 1000));
+            return Math.max(0, Math.ceil((endTime.getTime() - nowMs()) / 1000));
         }
 
         // Only an active/overdue ride with no submitted return can transition
@@ -629,7 +653,45 @@
         // actions server-side, so no refetch is ever needed for it.
         function needsSync() {
             if (synced || syncing || initialReturnSubmitted) return false;
-            return initialStatus === 'active' || initialStatus === 'overdue';
+            return initialStatus === 'active' || initialStatus === 'overdue' || initialStatus === 'expired';
+        }
+
+        function setCountdownPresentation(status) {
+            var grace = byId('bikeReturnCountdown');
+            var regular = byId('rentalClockCountdown');
+            if (['expired', 'awaiting_return', 'overdue_return'].indexOf(status) !== -1 && grace) {
+                show(grace);
+                hide(regular);
+            } else {
+                hide(grace);
+                show(regular);
+            }
+        }
+
+        function setCurrentPenalty(value) {
+            var penalty = byId('bikeReturnPenaltyValue');
+            var dashboardPenalty = byId('dashboardCurrentPenalty');
+            var amount = '₱' + Number(value || 0).toLocaleString('en-PH', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            });
+            if (penalty && value !== null && value !== undefined) {
+                penalty.textContent = amount;
+            }
+            if (dashboardPenalty && value !== null && value !== undefined) {
+                dashboardPenalty.textContent = amount;
+            }
+            var totalDue = byId('bikeReturnTotalDueValue');
+            var dashboardTotalDue = byId('dashboardTotalDue');
+            var rentalCost = Number(@json((float) ($activeRental->totalFee ?? 0)));
+            if (value !== null && value !== undefined) {
+                var formattedTotal = '₱' + (rentalCost + Number(value || 0)).toLocaleString('en-PH', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                });
+                if (totalDue) totalDue.textContent = formattedTotal;
+                if (dashboardTotalDue) dashboardTotalDue.textContent = formattedTotal;
+            }
         }
 
         function cloneTemplate(id) {
@@ -650,8 +712,8 @@
                 if (button) button.disabled = false;
             }
             if (status === 'expired') {
-                hide(byId('rentalFeeLine'));
-                show(byId('deadlineNoteLine'));
+                show(byId('rentalFeeLine'));
+                hide(byId('deadlineNoteLine'));
                 var warn = byId('rentalWarning');
                 if (warn) {
                     var frag = cloneTemplate('expiredWarningTemplate');
@@ -727,7 +789,14 @@
             if (!rental) {
                 // Nothing live anymore (settled elsewhere): freeze at zero.
                 synced = true;
+                initialStatus = 'returned';
+                initialReturnSubmitted = true;
+                overdueReturn = false;
+                endTime = new Date(nowMs());
+                target = endTime.toISOString();
+                expiredShown = false;
                 updateTimer();
+                drainRefreshQueue();
                 return;
             }
             if (rental.deadline) {
@@ -739,8 +808,17 @@
             }
             initialStatus = rental.status;
             initialReturnSubmitted = !!rental.returnSubmitted;
+            overdueReturn = rental.status === 'overdue_return';
+            setCountdownPresentation(rental.status);
+            setCurrentPenalty(rental.currentPenalty);
             if (rental.returnRequestedAt) setReturnSubmittedAt(rental.returnRequestedAt);
+            if (rental.returnSubmitted) {
+                showPendingBox();
+            }
             var remaining = remainingSeconds();
+            if (rental.status === 'expired' && !rental.returnSubmitted && rental.canReturn) {
+                showReturnForm(rental.status);
+            }
             if (remaining !== null && remaining > 0) {
                 // Extended in another tab, or the clock correction moved the
                 // deadline back into the future: keep counting and allow a
@@ -748,18 +826,24 @@
                 expiredShown = false;
                 synced = false;
                 updateTimer();
+                drainRefreshQueue();
                 return;
             }
             synced = true;
-            if (rental.returnSubmitted) {
-                showPendingBox();
-            } else if (rental.canReturn) {
+            if (!rental.returnSubmitted && rental.canReturn) {
                 showReturnForm(rental.status);
             }
             if (!rental.canExtend) {
                 hide(byId('extendActionWrap'));
             }
             updateTimer();
+            drainRefreshQueue();
+        }
+
+        function drainRefreshQueue() {
+            if (!refreshQueued || destroyed) return;
+            refreshQueued = false;
+            window.setTimeout(refreshStatus, 0);
         }
 
         function fetchStatus() {
@@ -775,6 +859,7 @@
                 .then(applyStatus)
                 .catch(function (err) {
                     syncing = false;
+                    refreshQueued = false;
                     if (typeof console !== 'undefined' && console.warn) {
                         console.warn('[pedalya] rental status sync failed, will retry once', err);
                     }
@@ -789,13 +874,32 @@
                 });
         }
 
+        function refreshStatus() {
+            if (destroyed) return;
+            synced = false;
+            if (retryTimer) {
+                clearTimeout(retryTimer);
+                retryTimer = 0;
+            }
+            if (syncing) {
+                refreshQueued = true;
+                return;
+            }
+            fetchStatus();
+        }
+
         function updateTimer() {
             var warn = byId('rentalWarning');
             var els = {
                 timer: byId('rentalTimer'),
                 h: byId('cdHours'),
                 m: byId('cdMins'),
-                s: byId('cdSecs')
+                s: byId('cdSecs'),
+                returnValue: byId('bikeReturnCountdownValue'),
+                returnStatus: byId('bikeReturnCountdownStatus'),
+                returnInstruction: byId('bikeReturnCountdownInstruction'),
+                returnOverdue: byId('bikeReturnOverdueDetails'),
+                returnOverdueValue: byId('bikeReturnOverdueValue'),
             };
 
             // A missing element used to throw a TypeError, which killed the
@@ -831,6 +935,31 @@
             els.h.textContent = h;
             els.m.textContent = m;
             els.s.textContent = pad(s);
+            if (els.returnValue) {
+                if (remaining > 0) {
+                    els.returnValue.textContent = pad(Math.floor(remaining / 60)) + ':' + pad(remaining % 60) + ' Remaining';
+                    if (els.returnStatus) els.returnStatus.textContent = 'Awaiting Bike Return';
+                    show(els.returnInstruction);
+                    hide(els.returnOverdue);
+                } else {
+                    var rawElapsed = Math.max(0, Math.floor((nowMs() - endTime.getTime()) / 1000));
+                    els.returnValue.textContent = '00:00';
+                    if (els.returnStatus) els.returnStatus.textContent = 'Overdue';
+                    hide(els.returnInstruction);
+                    show(els.returnOverdue);
+                    if (els.returnOverdueValue) {
+                        var overdueHours = Math.floor(rawElapsed / 3600);
+                        var overdueMinutes = Math.floor((rawElapsed % 3600) / 60);
+                        var overdueSeconds = rawElapsed % 60;
+                        els.returnOverdueValue.textContent = pad(overdueHours) + ':'
+                            + pad(overdueMinutes) + ':' + pad(overdueSeconds);
+                        var dashboardOverdueTime = byId('dashboardOverdueTime');
+                        if (dashboardOverdueTime) {
+                            dashboardOverdueTime.textContent = overdueHours + 'h ' + overdueMinutes + 'm';
+                        }
+                    }
+                }
+            }
 
             if (warn) {
                 if (overdueReturn) {
@@ -847,6 +976,10 @@
                     });
                 } else if (!expiredShown) {
                     warn.style.display = 'none';
+                    ['cdHours', 'cdMins', 'cdSecs'].forEach(function(id) {
+                        var node = byId(id);
+                        if (node) node.style.color = '';
+                    });
                 }
             }
 
@@ -861,14 +994,22 @@
         }
 
         function onPageShow(event) {
-            // Back-forward cache restores a frozen DOM with a stale clock: if
-            // the countdown already reads zero and a sync is still due, run it
-            // so the actions match the server without a manual refresh.
+            // A back-forward cache restore may have missed a deadline change.
             if (destroyed) return;
             updateTimer();
-            if (event && event.persisted && remainingSeconds() === 0 && needsSync()) {
-                fetchStatus();
+            if (event && event.persisted) {
+                refreshStatus();
             }
+        }
+
+        function onRentalNotification(event) {
+            var type = event && event.detail && event.detail.type;
+            var changeTypes = [
+                'rental_extended', 'rental_deadline', 'rental_expired',
+                'rental_overdue_return', 'rental_returned', 'return_requested',
+                'rental_completed', 'rental_cancelled',
+            ];
+            if (changeTypes.indexOf(type) !== -1) refreshStatus();
         }
 
         function destroy() {
@@ -876,12 +1017,32 @@
             if (interval) clearInterval(interval);
             if (retryTimer) clearTimeout(retryTimer);
             window.removeEventListener('pageshow', onPageShow);
+            window.removeEventListener('pedalya:notifications-changed', onRentalNotification);
             if (window.PedalyaRentalCountdown === api) window.PedalyaRentalCountdown = null;
         }
 
-        var api = { destroy: destroy, refresh: fetchStatus };
+        function syncState(rental, serverTime) {
+            if (destroyed || !rental) return;
+            var serverMs = Date.parse(serverTime || '');
+            if (!isNaN(serverMs)) serverOffsetMs = serverMs - Date.now();
+            if (rental.deadline) {
+                var next = new Date(rental.deadline);
+                if (!isNaN(next.getTime())) {
+                    endTime = next;
+                    target = rental.deadline;
+                }
+            }
+            initialStatus = rental.status;
+            overdueReturn = rental.status === 'overdue_return';
+            setCountdownPresentation(rental.status);
+            setCurrentPenalty(rental.currentPenalty);
+            updateTimer();
+        }
+
+        var api = { destroy: destroy, refresh: refreshStatus, syncState: syncState };
         window.PedalyaRentalCountdown = api;
         window.addEventListener('pageshow', onPageShow);
+        window.addEventListener('pedalya:notifications-changed', onRentalNotification);
         updateTimer();
         interval = setInterval(updateTimer, 1000);
         // No pagehide teardown: the back-forward cache suspends this interval

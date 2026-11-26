@@ -5,10 +5,8 @@
 /**
  * The on-device overdue clock.
  *
- * Starts the moment a rental expires and counts upward. The first
- * RETURN_GRACE_SECONDS are free; each started PENALTY_INTERVAL_SECONDS after
- * that adds PENALTY_PER_INTERVAL. It only ever projects a figure for the display
- * and the alarm: the next poll replaces it with the server's own numbers.
+ * Tracks the grace countdown used by the return alarm. Rental penalties are
+ * calculated by the server and are never projected by this timer.
  */
 class RentalTimer {
 public:
@@ -24,7 +22,7 @@ public:
 
     void reset();
 
-    /** Recomputes the elapsed seconds and the projected penalty. */
+    /** Recomputes elapsed seconds for the grace alarm. */
     void update();
 
     /** Seconds since the local expiry transition. */
@@ -41,11 +39,8 @@ public:
     /** Milliseconds since the transition, 0 while inactive. */
     uint32_t elapsedMs() const;
 
-    float penalty() const { return penalty_; }
-
 private:
     bool active_ = false;
     uint32_t startMs_ = 0;
     uint32_t seconds_ = 0;
-    float penalty_ = 0.0f;
 };

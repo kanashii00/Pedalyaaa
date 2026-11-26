@@ -192,7 +192,7 @@ class RentController extends Controller
         if ($rental === null) {
             return response()->json([
                 'rental' => null,
-                'serverTime' => $now->toIso8601String(),
+                'serverTime' => $now->copy()->utc()->toIso8601String(),
             ])->withHeaders([
                 'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
                 'Pragma' => 'no-cache',
@@ -202,10 +202,7 @@ class RentController extends Controller
 
         // Same precedence as RentalService::rentalClockFor() and the dashboard
         // countdown target, so every surface counts down to the same instant.
-        $deadline = $rental->returnDeadline
-            ?? $rental->expectedEndTime
-            ?? $rental->endTime
-            ?? ($rental->startTime?->copy()->addMinutes($rental->durationMinutes ?? 60));
+        $deadline = $this->rentalService->riderCountdownDeadline($rental);
 
         $returnSubmitted = $rental->returnRequestedAt !== null
             || in_array($rental->status, [
@@ -233,14 +230,15 @@ class RentController extends Controller
                 'rentalId' => $rental->rentalId,
                 'status' => $rental->status,
                 'returnRequestedAt' => optional($rental->returnRequestedAt)->toIso8601String(),
-                'deadline' => optional($deadline)->toIso8601String(),
+                'deadline' => $deadline?->copy()->utc()->toIso8601String(),
                 'returnDeadline' => optional($rental->returnDeadline)->toIso8601String(),
                 'expectedEndTime' => optional($rental->expectedEndTime)->toIso8601String(),
+                'currentPenalty' => $this->rentalService->calculatePenaltyForRental($rental, $now),
                 'canReturn' => $canReturn,
                 'canExtend' => $canExtend,
                 'returnSubmitted' => $returnSubmitted,
             ],
-            'serverTime' => $now->toIso8601String(),
+            'serverTime' => $now->copy()->utc()->toIso8601String(),
         ])->withHeaders([
             'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
             'Pragma' => 'no-cache',

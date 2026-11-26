@@ -106,6 +106,11 @@ class DeviceRentalDisplayTest extends TestCase
         $response->assertJsonPath('data.rental.isOverdue', false);
         $response->assertJsonPath('data.rental.overdueSeconds', 0);
         $this->assertEqualsWithDelta(0.0, $response->json('data.rental.penalty.accrued'), 0.001);
+        $unixSeconds = $response->json('data.clock.unix');
+        $unixMilliseconds = $response->json('data.clock.unixMilliseconds');
+        $this->assertIsInt($unixMilliseconds);
+        $this->assertGreaterThanOrEqual($unixSeconds * 1000, $unixMilliseconds);
+        $this->assertLessThan(($unixSeconds + 1) * 1000, $unixMilliseconds);
     }
 
     public function test_device_derives_deadline_for_legacy_rental_without_deadline_columns(): void
@@ -129,6 +134,60 @@ class DeviceRentalDisplayTest extends TestCase
             $response->json('data.rental.returnDeadlineTimestamp')
         );
         $this->assertEqualsWithDelta(2400, $response->json('data.rental.remainingSeconds'), 5);
+    }
+
+    public function test_device_receives_the_server_return_grace_deadline_after_expiry(): void
+    {
+        $expectedEnd = now()->subSecond();
+        $rental = $this->makeRental([
+            'bicycleId' => $this->bike->id,
+            'status' => Rental::STATUS_ACTIVE,
+            'startTime' => $expectedEnd->copy()->subHour(),
+            'expectedEndTime' => $expectedEnd,
+        ]);
+        app(\App\Services\RentalService::class)->expireDueRentals(now());
+
+        $rental->refresh();
+
+        $response = $this->getJson($this->endpoint($this->bike), $this->deviceHeaders())->assertOk();
+        $graceSeconds = (int) SystemSetting::getValue('returnGraceSeconds', 300);
+        $expectedGraceDeadline = $expectedEnd->copy()->addSeconds($graceSeconds);
+
+        $this->assertSame(
+            $expectedGraceDeadline->getTimestamp(),
+            $rental->returnGraceDeadline->getTimestamp()
+        );
+        $this->assertSame(
+            $expectedGraceDeadline->getTimestamp(),
+            $response->json('data.rental.returnCountdownDeadlineTimestamp')
+        );
+        $this->assertSame(
+            $expectedEnd->getTimestamp(),
+            $response->json('data.rental.returnGraceStartedAtTimestamp')
+        );
+        $this->assertSame(
+            $expectedGraceDeadline->copy()->utc()->toIso8601String(),
+            $response->json('data.rental.returnCountdownDeadlineUtc')
+        );
+    }
+
+    public function test_device_starts_grace_clock_even_before_expiry_status_sync_runs(): void
+    {
+        $expectedEnd = now()->subSecond();
+        $this->makeRental([
+            'bicycleId' => $this->bike->id,
+            'status' => Rental::STATUS_ACTIVE,
+            'startTime' => $expectedEnd->copy()->subHour(),
+            'expectedEndTime' => $expectedEnd,
+        ]);
+
+        $response = $this->getJson($this->endpoint($this->bike), $this->deviceHeaders())->assertOk();
+        $graceSeconds = (int) SystemSetting::getValue('returnGraceSeconds', 300);
+
+        $this->assertSame(
+            $expectedEnd->copy()->addSeconds($graceSeconds)->getTimestamp(),
+            $response->json('data.rental.returnCountdownDeadlineTimestamp')
+        );
     }
 
     public function test_settled_rentals_are_never_presented_as_current(): void
@@ -155,7 +214,7 @@ class DeviceRentalDisplayTest extends TestCase
         }
     }
 
-    public function test_admin_deadline_drives_countdown_but_not_penalty_basis_or_rule(): void
+    public function test_admin_deadline_drives_countdown_and_fixed_penalty_basis(): void
     {
         $this->makeRental([
             'bicycleId' => $this->bike->id,
@@ -172,7 +231,7 @@ class DeviceRentalDisplayTest extends TestCase
         $response->assertJsonPath('data.rental.status', Rental::STATUS_AWAITING_RETURN);
         $response->assertJsonPath('data.rental.deadlineBasis', 'return_deadline');
         $this->assertEqualsWithDelta(900, $response->json('data.rental.remainingSeconds'), 5);
-        $response->assertJsonPath('data.rental.penalty.basis', 'expected_end_time');
+        $response->assertJsonPath('data.rental.penalty.basis', 'return_deadline');
         $response->assertJsonPath('data.rental.penalty.rule', Rental::PENALTY_PER_5_MINUTES);
         $this->assertEqualsWithDelta(20.0, $response->json('data.rental.penalty.ruleValue'), 0.001);
         $response->assertJsonPath('data.rental.penalty.isDefaultRate', true);
@@ -197,8 +256,8 @@ class DeviceRentalDisplayTest extends TestCase
         $response->assertJsonPath('data.rental.isOverdue', true);
         $this->assertEqualsWithDelta(1500, $response->json('data.rental.overdueSeconds'), 5);
         $this->assertLessThan(0, $response->json('data.rental.remainingSeconds'));
-        // 60 late minutes from the original end = 12 completed blocks x PHP 20.
-        $this->assertEqualsWithDelta(240.0, $response->json('data.rental.penalty.accrued'), 5.0);
+        // 25 minutes past the return deadline = 5 completed blocks x PHP 20.
+        $this->assertEqualsWithDelta(100.0, $response->json('data.rental.penalty.accrued'), 5.0);
     }
 
     public function test_displayed_penalty_matches_what_process_return_charges(): void
@@ -220,8 +279,8 @@ class DeviceRentalDisplayTest extends TestCase
             ->assertOk()
             ->json('data.rental.penalty.accrued');
 
-        // 180 late minutes from the original end = 36 completed blocks x PHP 20.
-        $this->assertEqualsWithDelta(720.0, $displayed, 5.0);
+        // 90 minutes past the return deadline = 18 completed blocks x PHP 20.
+        $this->assertEqualsWithDelta(360.0, $displayed, 5.0);
 
         $this->app->make(\App\Services\RentalService::class)->processReturn(
             $rental,
@@ -249,11 +308,11 @@ class DeviceRentalDisplayTest extends TestCase
 
         $response->assertJsonPath('data.rental.penalty.rule', Rental::PENALTY_PER_5_MINUTES);
         $response->assertJsonPath('data.rental.penalty.isDefaultRate', true);
-        // 120 late minutes from the original end = 24 completed blocks x PHP 20.
-        $this->assertEqualsWithDelta(480.0, $response->json('data.rental.penalty.accrued'), 5.0);
+        // 90 minutes past the return deadline = 18 completed blocks x PHP 20.
+        $this->assertEqualsWithDelta(360.0, $response->json('data.rental.penalty.accrued'), 5.0);
     }
 
-    public function test_legacy_expected_end_time_surcharge_is_shown_before_a_deadline_exists(): void
+    public function test_legacy_expected_end_time_penalty_uses_return_grace_deadline(): void
     {
         $this->makeRental([
             'bicycleId' => $this->bike->id,
@@ -265,9 +324,9 @@ class DeviceRentalDisplayTest extends TestCase
 
         $response = $this->getJson($this->endpoint($this->bike), $this->deviceHeaders())->assertOk();
 
-        $response->assertJsonPath('data.rental.penalty.basis', 'expected_end_time');
-        // 90 late minutes = 18 completed blocks x PHP 20.
-        $this->assertEqualsWithDelta(360.0, $response->json('data.rental.penalty.accrued'), 5.0);
+        $response->assertJsonPath('data.rental.penalty.basis', 'expected_end_plus_return_grace');
+        // The five-minute grace leaves 85 minutes = 17 completed blocks.
+        $this->assertEqualsWithDelta(340.0, $response->json('data.rental.penalty.accrued'), 5.0);
     }
 
     public function test_response_carries_the_server_clock_for_device_time_sync(): void

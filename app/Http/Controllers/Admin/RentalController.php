@@ -880,7 +880,7 @@ class RentalController extends Controller
                 'deadline' => $deadline->toDateTimeString(),
                 'previous_deadline' => $previousDeadline?->toDateTimeString(),
                 'allowed_minutes' => $minutes,
-                'penalty_rule' => 'PHP 20 per completed 5-minute block after original rental end',
+                'penalty_rule' => 'PHP 20 per completed 5-minute block after the return deadline',
                 'message' => $validated['message'] ?? null,
             ]
         );
@@ -889,7 +889,7 @@ class RentalController extends Controller
             'success',
             'Return deadline set to ' . $deadline->format('M d, Y g:i A')
             . ' for rental ' . ($rental->rentalId ?? $rental->id)
-            . ' · late fee is PHP 20 per completed 5-minute block after the original rental end time.'
+            . ' · late fee is PHP 20 per completed 5-minute block after the return deadline.'
         );
     }
 

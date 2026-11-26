@@ -93,7 +93,7 @@ class RentalExpirationWorkflowTest extends TestCase
 
         $this->assertSame(1, Notification::where('userId', $rider->id)->where('type', 'rental_deadline')->count());
         $this->assertStringContainsString(
-            'PHP 20 for each completed 5-minute block after the original rental end time',
+            'PHP 20 for each completed 5-minute block after the return deadline',
             Notification::where('userId', $rider->id)->where('type', 'rental_deadline')->first()->message
         );
         $this->assertDatabaseHas('audit_logs', ['action' => 'rental_deadline_set']);
@@ -423,9 +423,6 @@ class RentalExpirationWorkflowTest extends TestCase
             'startTime' => $frozenNow->copy()->subHours(5),
             'expectedEndTime' => $frozenNow->copy()->subHours(4),
             'returnDeadline' => $deadline,
-            // A later operational grace deadline must not move the original
-            // rental deadline used for the late-penalty calculation.
-            'expectedEndTime' => $deadline,
             'returnDeadlineSetBy' => $admin->name,
             'overdueReturnAt' => $deadline,
             'ratePerHour' => 15.00,
@@ -519,7 +516,7 @@ class RentalExpirationWorkflowTest extends TestCase
         ]);
 
         // The modal preview is display-only: no fee/penalty/total field is sent,
-        // and the server derives every amount from the original rental end.
+        // and the server derives every amount from the return deadline.
         $this->actingAs($admin)
             ->from(route('admin.rentals.returns'))
             ->put(route('admin.rentals.process-return', $rental->id), [
@@ -549,15 +546,14 @@ class RentalExpirationWorkflowTest extends TestCase
         ]);
     }
 
-    public function test_process_return_without_return_deadline_uses_original_end_penalty(): void
+    public function test_process_return_without_return_deadline_uses_end_plus_return_grace_penalty(): void
     {
         $admin = $this->makeAdmin();
         $rider = $this->makeRider();
         $bike = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
 
-        // 4h ride, returned 2.5h past the expected end. The fixed penalty is
-        // 30 completed 5-minute blocks @ PHP 20 = 600; the stored base remains
-        // PHP 15, so the final fee is PHP 615.
+        // 4h ride, returned 2.5h past the expected end. After the five-minute
+        // return period, 29 completed blocks @ PHP 20 = 580; base remains PHP 15.
         $rental = $this->makeRental([
             'riderId' => $rider->id,
             'bicycleId' => $bike->id,
@@ -580,9 +576,9 @@ class RentalExpirationWorkflowTest extends TestCase
 
         $fresh = $rental->fresh();
         $this->assertSame(Rental::STATUS_RETURNED, $fresh->status);
-        $this->assertSame(600.0, (float) $fresh->overdueFee);
+        $this->assertSame(580.0, (float) $fresh->overdueFee);
         $this->assertSame(15.0, round((float) $fresh->finalFee - (float) $fresh->overdueFee, 2));
-        $this->assertSame(615.0, (float) $fresh->finalFee);
+        $this->assertSame(595.0, (float) $fresh->finalFee);
     }
 
     public function test_late_penalty_only_counts_completed_five_minute_intervals(): void
@@ -597,7 +593,8 @@ class RentalExpirationWorkflowTest extends TestCase
             'bicycleId' => $bike->id,
             'status' => Rental::STATUS_OVERDUE_RETURN,
             'returnDeadline' => $deadline,
-            'expectedEndTime' => $deadline,
+            'expectedEndTime' => $deadline->copy()->subMinutes(5),
+            'returnGraceDeadline' => $deadline,
             'penaltyType' => null,
             'penaltyValue' => null,
         ]);
@@ -612,6 +609,12 @@ class RentalExpirationWorkflowTest extends TestCase
         $this->assertSame(20.0, $service->calculatePenaltyForRental(
             $rental,
             $deadline->copy()->addMinutes(5)
+        ));
+
+        // 9:59 late is still only one completed interval.
+        $this->assertSame(20.0, $service->calculatePenaltyForRental(
+            $rental,
+            $deadline->copy()->addMinutes(9)->addSeconds(59)
         ));
 
         $this->assertSame(40.0, $service->calculatePenaltyForRental($rental, $deadline->copy()->addMinutes(10)));
@@ -778,7 +781,7 @@ class RentalExpirationWorkflowTest extends TestCase
         $rider = $this->makeRider();
         $bike = $this->makeBicycle();
 
-        // No per-rental rule configured => global rate is used.
+        // No per-rental rule configured => the fixed system policy is used.
         $rental = $this->makeRental([
             'riderId' => $rider->id,
             'bicycleId' => $bike->id,

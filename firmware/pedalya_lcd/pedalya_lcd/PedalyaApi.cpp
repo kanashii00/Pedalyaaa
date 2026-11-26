@@ -972,6 +972,10 @@ bool PedalyaApi::parse(
     JsonObjectConst clock = data["clock"].as<JsonObjectConst>();
     if (!clock.isNull()) {
         out.serverUnix = clock["unix"].as<int64_t>();
+        out.serverUnixMs = clock["unixMilliseconds"].as<int64_t>();
+        if (out.serverUnixMs <= 0) {
+            out.serverUnixMs = out.serverUnix * 1000;
+        }
         out.utcOffsetSeconds = clock["utcOffsetSeconds"] | DEFAULT_UTC_OFFSET_SECONDS;
 
         // If NTP has not yet synced, synchronize the system clock immediately
@@ -1038,6 +1042,8 @@ bool PedalyaApi::parse(
     out.deadlineBasis   = rental["deadlineBasis"] | "";
     out.startTs         = rental["startTimestamp"].as<int64_t>();
     out.deadlineTs      = rental["returnDeadlineTimestamp"].as<int64_t>();
+    out.returnGraceStartedAtTs = rental["returnGraceStartedAtTimestamp"].as<int64_t>();
+    out.returnCountdownDeadlineTs = rental["returnCountdownDeadlineTimestamp"].as<int64_t>();
     out.isOverdue       = rental["isOverdue"] | false;
     out.serverOverdueSeconds = rental["overdueSeconds"] | 0UL;
     out.ratePerHour     = rental["ratePerHour"] | 0.0f;

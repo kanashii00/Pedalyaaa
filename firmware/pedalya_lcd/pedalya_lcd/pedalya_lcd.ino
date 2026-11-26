@@ -23,7 +23,7 @@
  *   LcdDisplay      16x2 I2C screen
  *   LockActuator    the servo on SERVO_PIN
  *   BuzzerAlarm     every sound, the only writer of BUZZER_PIN
- *   RentalTimer     the overdue clock, grace window and projected penalty
+ *   RentalTimer     the overdue clock and grace window for the return alarm
  *   RentalController expiry state machine and the actuator safety rule
  *   CommandHandler  the server command queue
  *   GpsReceiver     checksummed NMEA RMC reader
@@ -47,6 +47,7 @@ static AccidentDetector accidentDetector;
 // The single polled snapshot of the rental. Every module reads it; nothing else
 // keeps a second copy.
 static RentalState state;
+static void setNetworkWait(bool waiting);
 
 /* ------------------------------------------------------------------------
  *  Accident reporting
@@ -81,9 +82,34 @@ struct PendingAccident {
 };
 
 static PendingAccident pendingAccident;
+struct CountdownDisplaySnapshot {
+    RentalState rental;
+    bool locked = false;
+    bool accidentPending = false;
+    bool accidentHasFix = false;
+};
+
+static CountdownDisplaySnapshot countdownDisplaySnapshot;
+static SemaphoreHandle_t countdownSnapshotMutex = nullptr;
+static volatile bool networkWaitInProgress = false;
+static bool countdownDisplayTaskStarted = false;
 #if ACCIDENT_ENABLED
 static uint32_t lastAccidentTraceMs = 0;
 #endif
+
+static void setNetworkWait(bool waiting) {
+    if (!countdownDisplayTaskStarted || countdownSnapshotMutex == nullptr) return;
+
+    if (waiting && xSemaphoreTake(countdownSnapshotMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        countdownDisplaySnapshot.rental = state;
+        countdownDisplaySnapshot.locked = lock.locked();
+        countdownDisplaySnapshot.accidentPending = pendingAccident.active;
+        countdownDisplaySnapshot.accidentHasFix = pendingAccident.hasFix;
+        xSemaphoreGive(countdownSnapshotMutex);
+    }
+
+    networkWaitInProgress = waiting;
+}
 
 /**
  * Latch a detected crash for delivery.
@@ -232,11 +258,16 @@ static void serviceAccidentReport() {
     pendingAccident.nextAttemptMs = now + ACCIDENT_REPORT_RETRY_MS;
 
     String error;
-    if (api.reportAccident(pendingAccident.latitude, pendingAccident.longitude,
-                           pendingAccident.hasFix, pendingAccident.impactG,
-                           pendingAccident.rotationDps, pendingAccident.tiltDegrees,
-                           pendingAccident.accelXG, pendingAccident.accelYG,
-                           pendingAccident.accelZG, error)) {
+    setNetworkWait(true);
+    const bool reported = api.reportAccident(
+        pendingAccident.latitude, pendingAccident.longitude,
+        pendingAccident.hasFix, pendingAccident.impactG,
+        pendingAccident.rotationDps, pendingAccident.tiltDegrees,
+        pendingAccident.accelXG, pendingAccident.accelYG,
+        pendingAccident.accelZG, error
+    );
+    setNetworkWait(false);
+    if (reported) {
         Serial.printf("[accident] admin notified (attempt %lu)%s\n",
                       (unsigned long)pendingAccident.attempts,
                       pendingAccident.hasFix ? " with GPS location" : " without GPS location");
@@ -298,6 +329,12 @@ static String lastError;
 
 static uint32_t pollIntervalMs() { return (uint32_t)state.pollAfterSeconds * 1000UL; }
 
+static bool penaltySnapshotCurrent(const RentalState& rental) {
+    if (rental.syncedAtMs == 0) return false;
+    const uint32_t maxAgeMs = (uint32_t)rental.pollAfterSeconds * 1000UL + REQUEST_TIMEOUT_MS;
+    return (uint32_t)(millis() - rental.syncedAtMs) <= maxAgeMs;
+}
+
 #if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST || !SIM_ONLY_MODE
 static void connectWifi() {
     api.begin();
@@ -319,7 +356,10 @@ static void reportTelemetry() {
     if (!heartbeatAttempted || now - lastHeartbeatMs >= pollIntervalMs()) {
         heartbeatAttempted = true;
         lastHeartbeatMs = now;
-        if (!api.sendHeartbeat(lock.locked(), lock.ready(), now / 1000UL, error)) {
+        setNetworkWait(true);
+        const bool sent = api.sendHeartbeat(lock.locked(), lock.ready(), now / 1000UL, error);
+        setNetworkWait(false);
+        if (!sent) {
             Serial.printf("[telemetry] heartbeat failed: %s\n", error.c_str());
         }
     }
@@ -331,22 +371,25 @@ static void reportTelemetry() {
     if (gps.hasFreshFix() && now - lastGpsReportMs >= GPS_REPORT_INTERVAL_MS) {
         lastGpsReportMs = now;
         const GpsFix& fix = gps.fix();
-        if (!api.sendGps(fix.latitude, fix.longitude, fix.speedKph, fix.heading, error)) {
+        setNetworkWait(true);
+        const bool sent = api.sendGps(fix.latitude, fix.longitude, fix.speedKph, fix.heading, error);
+        setNetworkWait(false);
+        if (!sent) {
             Serial.printf("[telemetry] GPS upload failed: %s\n", error.c_str());
         }
     }
 }
 
 /**
- * Truthful, nonblocking 16x2 LCD status state machine.
+ * Truthful 16x2 LCD status state machine.
  *
  * Shows distinct states: WIFI CONNECTING -> WIFI CONNECTED -> SERVER CHECK
  * -> SERVER ONLINE / SERVER OFFLINE -> rental countdown / expiry.
  *
  * Does NOT claim SERVER ONLINE just because Wi-Fi or DNS works. Requires
  * a successful /api/health HTTP 200 (serverVerified). Row writes are
- * deduplicated in LcdDisplay::row, so calling every pass costs nothing once
- * settled, and no other path may write the display.
+ * deduplicated in LcdDisplay::row. The separate countdown task uses a copied
+ * rental snapshot while this loop waits on HTTP.
  */
 static void paintScreen() {
     if (display.messageActive()) {
@@ -373,7 +416,20 @@ static void paintScreen() {
     // 2. Active Rental Screen (takes priority over idle screens)
     if (state.hasRental) {
         if (state.expired() || controller.rentalIsExpired(state)) {
-            display.showExpiredPhase(timer.seconds(), timer.penalty(), lock.locked());
+            if (state.returnCountdownDeadlineTs > 0) {
+                display.showExpiredDeadline(
+                    state.returnCountdownRemainingSeconds(),
+                    state.returnCountdownOverdueSeconds(),
+                    state.penaltyAccrued,
+                    lock.locked(),
+                    penaltySnapshotCurrent(state)
+                );
+            } else {
+                display.showExpiredPhase(
+                    timer.seconds(), state.penaltyAccrued, lock.locked(),
+                    penaltySnapshotCurrent(state)
+                );
+            }
         } else {
             display.showRental(state, lock.locked());
         }
@@ -426,6 +482,74 @@ static void paintScreen() {
     }
 
     display.showStatus(SystemStatus::WifiConnecting, serial);
+}
+
+static void countdownDisplayTask(void*) {
+    for (;;) {
+        if (networkWaitInProgress && countdownSnapshotMutex != nullptr &&
+            xSemaphoreTake(countdownSnapshotMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+            const CountdownDisplaySnapshot snapshot = countdownDisplaySnapshot;
+            xSemaphoreGive(countdownSnapshotMutex);
+
+            if (snapshot.rental.hasRental && !display.messageActive()) {
+                if (snapshot.accidentPending && ((millis() / 2000UL) % 2) == 0) {
+                    display.showAccidentAlert(false, snapshot.accidentHasFix);
+                } else if (snapshot.rental.expired()) {
+                    if (snapshot.rental.returnCountdownDeadlineTs > 0) {
+                        display.showExpiredDeadline(
+                            snapshot.rental.returnCountdownRemainingSeconds(),
+                            snapshot.rental.returnCountdownOverdueSeconds(),
+                            snapshot.rental.penaltyAccrued,
+                            snapshot.locked,
+                            penaltySnapshotCurrent(snapshot.rental)
+                        );
+                    } else {
+                        display.showExpiredPhase(
+                            snapshot.rental.serverOverdueSeconds,
+                            snapshot.rental.penaltyAccrued,
+                            snapshot.locked,
+                            penaltySnapshotCurrent(snapshot.rental)
+                        );
+                    }
+                } else {
+                    display.showRental(snapshot.rental, snapshot.locked);
+                }
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+}
+
+static void beginCountdownDisplayTask() {
+    if (!display.concurrentRenderReady()) {
+        Serial.println("[lcd] concurrent countdown refresh unavailable; display remains loop-driven");
+        return;
+    }
+
+    countdownSnapshotMutex = xSemaphoreCreateMutex();
+    if (countdownSnapshotMutex == nullptr) {
+        Serial.println("[lcd] failed to create countdown snapshot mutex");
+        return;
+    }
+
+    const BaseType_t created = xTaskCreatePinnedToCore(
+        countdownDisplayTask,
+        "rental-lcd",
+        4096,
+        nullptr,
+        1,
+        nullptr,
+        0
+    );
+    if (created == pdPASS) {
+        countdownDisplayTaskStarted = true;
+        Serial.println("[lcd] independent 200 ms countdown refresh enabled");
+    } else {
+        Serial.println("[lcd] failed to start independent countdown refresh task");
+        vSemaphoreDelete(countdownSnapshotMutex);
+        countdownSnapshotMutex = nullptr;
+    }
 }
 
 #if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
@@ -694,6 +818,7 @@ void setup() {
 #endif
     runBootHealthProbe();
 #endif
+    beginCountdownDisplayTask();
 }
 
 void loop() {
@@ -737,7 +862,9 @@ void loop() {
         if (SIM_ENABLED && !simIsReady() && (lastSimRetry == 0 ||
             now - lastSimRetry > SIM_RETRY_INTERVAL_MS)) {
             lastSimRetry = now;
+            setNetworkWait(true);
             simConnectInternet(SIM_APN);
+            setNetworkWait(false);
         }
 
         // No verified server link: the LCD returns to PEDALYA CONNECTING.
@@ -770,7 +897,9 @@ void loop() {
         polledThisPass = true;
 
         String error;
+        setNetworkWait(true);
         serverReachable = api.poll(state, error);
+        setNetworkWait(false);
         if (!serverReachable) {
             lastError = error;
             // A failed poll changes nothing: the actuators keep their last state.
@@ -799,7 +928,9 @@ void loop() {
     // the latch. No rental, lock, GPS or accident traffic decides this.
     if (!serverVerified && polledThisPass) {
         String healthVerdict;
+        setNetworkWait(true);
         const bool healthOk = api.checkHealth(healthVerdict);
+        setNetworkWait(false);
         serverVerified = (healthOk && api.lastStatus() == 200);
         Serial.printf("[loop] health re-check %s (%s)\n",
                       serverVerified ? "OK" : "FAILED", healthVerdict.c_str());
@@ -820,7 +951,11 @@ void loop() {
     controller.enforce(state, boundary);
 
     // 4. Process server commands.
-    if (polledThisPass) commands.pollAndExecute(state);
+    if (polledThisPass) {
+        setNetworkWait(true);
+        commands.pollAndExecute(state);
+        setNetworkWait(false);
+    }
 
     // 5. Apply actuator safety AGAIN, so no command can leave a timed-out wheel
     //    unlocked or silent, whatever it asked for.

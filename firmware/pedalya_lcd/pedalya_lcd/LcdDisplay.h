@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 #include "PedalyaApi.h"
 
@@ -38,8 +40,12 @@ public:
     // 3. Active rental screen: Rental status, remaining time (HH:MM:SS), lock state
     void showRental(const RentalState& state, bool locked = false);
 
-    // 4. Overdue / Expired screen: grace countdown, alternating overdue time & penalty, lock state
-    void showExpiredPhase(uint32_t secondsSinceExpiry, float penalty, bool locked = true);
+    // 4. Overdue / Expired screen: persistent overdue timer, alternating state / server fee
+    void showExpiredPhase(uint32_t secondsSinceExpiry, float serverPenalty, bool locked = true,
+                          bool penaltyCurrent = true);
+    void showExpiredDeadline(int64_t graceSecondsLeft, int64_t overdueSeconds,
+                             float serverPenalty, bool locked = true,
+                             bool penaltyCurrent = true);
 
     // 5. Connection / Error screen: Network & Server state, concise error message, recovery status
     void showConnectionError(const char* line1, const char* line2);
@@ -62,12 +68,25 @@ public:
     void showMessage(const String& line1, const String& line2);
     void showMessageFor(uint32_t durationMs, const String& line1, const String& line2);
     bool messageActive() const;
+    bool concurrentRenderReady() const { return displayMutex_ != nullptr; }
 
     void setErrorLed(bool on);
 
 private:
+    class DisplayGuard {
+    public:
+        explicit DisplayGuard(LcdDisplay& display);
+        ~DisplayGuard();
+
+    private:
+        LcdDisplay& display_;
+    };
+
+    void lockDisplay();
+    void unlockDisplay();
     void row(uint8_t index, const char* text);
     void rowf(uint8_t index, const char* format, ...);
 
-    uint32_t messageUntilMs_ = 0;
+    SemaphoreHandle_t displayMutex_ = nullptr;
+    volatile uint32_t messageUntilMs_ = 0;
 };

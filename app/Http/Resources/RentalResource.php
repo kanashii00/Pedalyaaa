@@ -44,6 +44,8 @@ class RentalResource extends JsonResource
             // found, and what it settled for. Without these an API client cannot
             // tell a pending return from a settled one, nor reconcile the amount
             // it was charged against the bicycle condition it left behind.
+            'returnGraceStartedAt' => $this->returnGraceStartedAt,
+            'returnGraceDeadline' => $this->returnGraceDeadline,
             'returnDeadline'    => $this->returnDeadline,
             'overdueReturnAt'   => $this->overdueReturnAt,
             'penaltyType'       => $this->penaltyType,

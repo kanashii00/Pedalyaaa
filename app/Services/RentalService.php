@@ -519,7 +519,7 @@ public function startRental(
 
         $notificationMessage = "Your rental period for bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}) has ended. "
             . "Please return the bicycle by {$deadline->format('M d, Y g:i A')}."
-            . ' Late fees are PHP 20 for each completed 5-minute block after the original rental end time; this return deadline does not reset that time.'
+            . ' Late fees are PHP 20 for each completed 5-minute block after the return deadline.'
             . ($message ? " Message from Pedalya: {$message}" : '');
 
         $this->notificationService->create(
@@ -543,13 +543,13 @@ public function startRental(
      * mirrors the firmware's RETURN_GRACE_SECONDS (300 seconds, i.e. five
      * minutes, by default). No administrator is involved: the deadline is
      * computed from the authoritative server clock and the penalty rule is
-     * deliberately left unset. The fixed late fee is always measured from the
-     * original rental end time, not from this operational grace deadline.
+     * deliberately left unset. The five-minute return period is anchored to
+     * the scheduled rental end, not the time a delayed park report arrives.
      *
-     * Idempotent by state: a rental that already carries a deadline keeps it,
-     * so a repeated heartbeat can neither shorten nor restart a window, and the
-     * manual setReturnDeadline() path still wins whenever an administrator used
-     * it first.
+     * Idempotent by state: a deadline established at rental expiry is reused
+     * when the bicycle is parked, so a later heartbeat cannot restart the
+     * window. The manual setReturnDeadline() path still wins whenever an
+     * administrator used it first.
      *
      * @return Rental|null the refreshed rental when a window was opened, or
      *                     null when there was nothing to do
@@ -572,15 +572,21 @@ public function startRental(
         }
 
         $graceSeconds = max(0, (int) SystemSetting::getValue('returnGraceSeconds', 300));
-
-        if ($graceSeconds === 0) {
-            return null;
+        $graceStartedAt = $rental->returnGraceStartedAt?->copy()
+            ?? $rental->expectedEndTime?->copy()
+            ?? $asOf->copy();
+        $deadline = $rental->returnGraceDeadline?->copy();
+        if ($deadline === null) {
+            if ($graceSeconds === 0) {
+                return null;
+            }
+            $deadline = $graceStartedAt->copy()->addSeconds($graceSeconds);
         }
-
-        $deadline = $asOf->copy()->addSeconds($graceSeconds);
 
         $attributes = [
             'status' => Rental::STATUS_AWAITING_RETURN,
+            'returnGraceStartedAt' => $graceStartedAt,
+            'returnGraceDeadline' => $deadline,
             'returnDeadline' => $deadline,
             'returnDeadlineSetBy' => 'IoT park detection',
         ];
@@ -602,7 +608,7 @@ public function startRental(
             'Return Grace Started',
             "Bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}) was detected parked and locked. "
                 . "Return rental {$rental->rentalId} by {$deadlineLabel} - a {$graceLabel} grace window. "
-                . 'Late fees remain PHP 20 per completed 5-minute block after the original rental end time; this grace window does not reset that time.',
+                . 'Late fees are PHP 20 per completed 5-minute block after the return deadline.',
             'rental_deadline',
             ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
         );
@@ -615,7 +621,7 @@ public function startRental(
                 'Return Deadline Auto-Set',
                 "Bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}) was detected parked, so rental "
                     . "{$rental->rentalId} automatically has until {$deadlineLabel} to be returned "
-                    . "({$graceLabel} grace, no manual deadline needed). Late fees are PHP 20 per completed 5-minute block after the original rental end time.",
+                    . "({$graceLabel} grace, no manual deadline needed). Late fees are PHP 20 per completed 5-minute block after the return deadline.",
                 'rental_deadline',
                 ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
             );
@@ -657,15 +663,15 @@ public function startRental(
     }
 
     /**
-     * Penalty accrued for a rental as of the given server time, computed from
-     * the original rental end time. The return deadline is operational only;
-     * it does not delay or reset the fixed per-five-minute penalty.
+     * Penalty accrued as of server time, beginning at the authoritative return
+     * deadline. Legacy rentals derive that deadline from the scheduled end
+     * plus the configured return-grace period.
      *
      * Nothing is ever charged while the deadline is still in the future.
      */
     public function calculatePenaltyForRental(Rental $rental, Carbon $asOf): float
     {
-        $deadline = $this->originalRentalDeadline($rental);
+        $deadline = $this->penaltyDeadlineForRental($rental);
 
         if ($deadline === null || $asOf->lte($deadline)) {
             return 0.0;
@@ -682,15 +688,26 @@ public function startRental(
         );
     }
 
-    /**
-     * The rental's original deadline is immutable for penalty purposes.
-     * returnDeadline is an operational grace/inspection deadline and must not
-     * move the charge boundary. Old rows without expectedEndTime retain their
-     * stored returnDeadline as the only available historical fallback.
-     */
-    private function originalRentalDeadline(Rental $rental): ?Carbon
+    private function penaltyDeadlineForRental(Rental $rental): ?Carbon
     {
-        return $rental->expectedEndTime ?? $rental->returnDeadline;
+        if ($rental->returnDeadline !== null) {
+            return $rental->returnDeadline->copy();
+        }
+
+        if ($rental->returnGraceDeadline !== null) {
+            return $rental->returnGraceDeadline->copy();
+        }
+
+        $rentalEnd = $rental->expectedEndTime
+            ?? ($rental->startTime?->copy()->addMinutes($rental->durationMinutes ?? 60));
+
+        if ($rentalEnd === null) {
+            return null;
+        }
+
+        $graceSeconds = max(0, (int) SystemSetting::getValue('returnGraceSeconds', 300));
+
+        return $rentalEnd->copy()->addSeconds($graceSeconds);
     }
 
     /**
@@ -703,9 +720,7 @@ public function startRental(
      * value fall back to their end time or start time plus stored duration.
      *
      * The projected penalty uses the same fixed policy processReturn() settles:
-     * PHP 20 per completed five-minute block after the original rental end.
-     * An administrative or automatic return deadline affects the countdown,
-     * not the penalty boundary.
+     * PHP 20 per completed five-minute block after the return deadline.
      */
     public function rentalClockFor(Rental $rental, ?Carbon $asOf = null): array
     {
@@ -732,10 +747,14 @@ public function startRental(
             (float) $rental->ratePerHour
         );
 
-        if ($rental->expectedEndTime !== null) {
-            $penaltyBasis = 'expected_end_time';
-        } elseif ($rental->returnDeadline !== null) {
+        if ($rental->returnDeadline !== null) {
             $penaltyBasis = 'return_deadline';
+        } elseif ($rental->returnGraceDeadline !== null) {
+            $penaltyBasis = 'return_grace_deadline';
+        } elseif ($rental->expectedEndTime !== null) {
+            $penaltyBasis = 'expected_end_plus_return_grace';
+        } elseif ($rental->startTime !== null) {
+            $penaltyBasis = 'duration_plus_return_grace';
         } else {
             $penaltyBasis = 'none';
         }
@@ -774,6 +793,71 @@ public function startRental(
             'projectedTotal' => round($projectedBase + $projectedPenalty, 2),
             'rule' => $this->resolvedPenaltyRule($rental),
         ];
+    }
+
+    /**
+     * Deadline shown for the rider-facing return countdown.
+     *
+     * Once the rental expires, the LCD's grace deadline is persisted on the
+     * rental and shared with the dashboard. Legacy rows derive the same value
+     * from their stored rental end and grace setting.
+     */
+    public function riderCountdownDeadline(Rental $rental): ?Carbon
+    {
+        return $this->countdownDeadlineFor(
+            $rental,
+            in_array($rental->status, [
+                Rental::STATUS_EXPIRED,
+                Rental::STATUS_OVERDUE,
+            ], true)
+        );
+    }
+
+    /**
+     * The device may observe the scheduled end before the lifecycle scheduler
+     * has changed the rental status. It still needs the same grace deadline
+     * the server will return once the status transition is persisted.
+     */
+    public function deviceCountdownDeadline(Rental $rental, Carbon $asOf): ?Carbon
+    {
+        $baseDeadline = $rental->returnDeadline
+            ?? $rental->returnGraceDeadline
+            ?? $rental->expectedEndTime
+            ?? $rental->endTime
+            ?? ($rental->startTime?->copy()->addMinutes($rental->durationMinutes ?? 60));
+
+        $expired = in_array($rental->status, [
+            Rental::STATUS_EXPIRED,
+            Rental::STATUS_OVERDUE,
+        ], true) || ($baseDeadline !== null && $asOf->gte($baseDeadline));
+
+        return $this->countdownDeadlineFor($rental, $expired);
+    }
+
+    private function countdownDeadlineFor(Rental $rental, bool $expired): ?Carbon
+    {
+        if ($rental->returnDeadline !== null) {
+            return $rental->returnDeadline->copy();
+        }
+        if ($rental->returnGraceDeadline !== null) {
+            return $rental->returnGraceDeadline->copy();
+        }
+
+        $deadline = $rental->expectedEndTime
+            ?? $rental->endTime
+            ?? ($rental->startTime?->copy()->addMinutes($rental->durationMinutes ?? 60));
+
+        if ($deadline === null) {
+            return null;
+        }
+
+        if ($expired) {
+            $graceSeconds = max(0, (int) SystemSetting::getValue('returnGraceSeconds', 300));
+
+            return $deadline->copy()->addSeconds($graceSeconds);
+        }
+
+        return $deadline->copy();
     }
 
     /**
@@ -1709,10 +1793,10 @@ public function startRental(
     }
 
     /**
-     * Expire every active rental whose expected end time has passed and
-     * notify administrators. Idempotent by state: only status=active rentals
-     * are considered, so a rental that already transitioned is never
-     * touched and its admin notification is never created twice.
+     * Expire every active rental whose expected end time has passed, persist
+     * the return-grace deadline, and notify administrators. Idempotent by
+     * state: only status=active rentals are considered, so a rental that
+     * already transitioned is never touched or notified twice.
      *
      * Comparisons use the application timezone (config('app.timezone')), so
      * the same authoritative server clock is used by the scheduler command,
@@ -1738,6 +1822,12 @@ public function startRental(
             $rental->update([
                 'status' => Rental::STATUS_EXPIRED,
                 'expiredAt' => $asOf,
+                'returnGraceStartedAt' => $rental->returnGraceStartedAt
+                    ?? $rental->expectedEndTime->copy(),
+                'returnGraceDeadline' => $rental->returnGraceDeadline
+                    ?? $rental->expectedEndTime->copy()->addSeconds(
+                        max(0, (int) SystemSetting::getValue('returnGraceSeconds', 300))
+                    ),
             ]);
 
             if (!empty($adminIds)) {
@@ -1839,7 +1929,7 @@ public function startRental(
 
         return 'PHP '
             . number_format(self::LATE_PENALTY_PER_COMPLETED_FIVE_MINUTES, 2)
-            . ' per completed 5-minute block after the original rental end time';
+            . ' per completed 5-minute block after the return deadline';
     }
 
     /**

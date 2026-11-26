@@ -611,7 +611,7 @@
                             <td>
                                 <div class="rv-actions">
                                     @php
-                                        $detailPenalty = '₱20 per completed 5-minute block after original rental end';
+                                        $detailPenalty = '₱20 per completed 5-minute block after the return deadline';
                                         $detailData = [
                                             'id'        => $rental->rentalId ?? ('REN-' . str_pad($rental->id, 4, '0', STR_PAD_LEFT)),
                                             'status'    => $rental->status,

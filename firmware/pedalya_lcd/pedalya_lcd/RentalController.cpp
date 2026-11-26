@@ -80,7 +80,7 @@ void RentalController::update(const RentalState& rental, bool serverReachable) {
         return;
     }
 
-    if (rental.status == "awaiting_return") {
+    if (rental.status == "awaiting_return" && !rental.expired()) {
         timer_.reset();
         enterState(ActuatorState::AwaitingReturn);
         return;
@@ -94,7 +94,17 @@ void RentalController::update(const RentalState& rental, bool serverReachable) {
     if (expiryLatched_ || rental.expired()) {
         if (!expiryLatched_) {
             expiryLatched_ = true;
-            timer_.start(rental.serverOverdueSeconds);
+            uint32_t elapsedSinceExpiry = rental.serverOverdueSeconds;
+            if (rental.returnCountdownDeadlineTs > 0) {
+                const int64_t graceRemaining = rental.returnCountdownRemainingSeconds();
+                const uint32_t boundedGraceRemaining = graceRemaining > 0
+                    ? (uint32_t)(graceRemaining > RETURN_GRACE_SECONDS
+                        ? RETURN_GRACE_SECONDS
+                        : graceRemaining)
+                    : 0;
+                elapsedSinceExpiry = RETURN_GRACE_SECONDS - boundedGraceRemaining;
+            }
+            timer_.start(elapsedSinceExpiry);
         }
         timer_.update();
         if (rental.deadlineTs > 0) {
@@ -157,7 +167,7 @@ void RentalController::enforce(const RentalState& rental, BoundaryStatus boundar
         return;
     }
 
-    if (rental.status == "awaiting_return") {
+    if (rental.status == "awaiting_return" && !rental.expired()) {
         lock_.writePhysical(SERVO_LOCK_ANGLE, "return-pending");
         lock_.setLocked(true);
         lockMovementCompleted_ = false;

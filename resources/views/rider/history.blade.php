@@ -26,7 +26,7 @@
 @section('content')
 @if($activeRental && in_array($activeRental->status, ['awaiting_return', 'overdue_return'], true))
     @php
-        $penaltyRuleText = '₱20 per completed 5-minute block after the original rental end time';
+        $penaltyRuleText = '₱20 per completed 5-minute block after the return deadline';
     @endphp
     <div class="card-pedalya mb-4" style="border-left:4px solid {{ $activeRental->status === 'overdue_return' ? '#C62828' : '#F57C00' }};">
         <div class="card-pedalya-body">

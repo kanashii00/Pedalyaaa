@@ -22,8 +22,11 @@ struct RentalState {
 
     int64_t startTs          = 0;
     int64_t deadlineTs       = 0;
+    int64_t returnGraceStartedAtTs = 0;
+    int64_t returnCountdownDeadlineTs = 0;
     uint32_t serverOverdueSeconds = 0;
     int64_t serverUnix       = 0;
+    int64_t serverUnixMs     = 0;
     uint32_t syncedAtMs      = 0;
 
     bool    isOverdue        = false;
@@ -45,6 +48,8 @@ struct RentalState {
         penaltyRule   = "";
         startTs       = 0;
         deadlineTs    = 0;
+        returnGraceStartedAtTs = 0;
+        returnCountdownDeadlineTs = 0;
         serverOverdueSeconds = 0;
         isOverdue     = false;
         penaltyAccrued   = 0.0f;
@@ -52,7 +57,11 @@ struct RentalState {
     }
 
     int64_t serverNow() const {
-        return serverUnix + (int64_t)((uint32_t)(millis() - syncedAtMs) / 1000UL);
+        const uint32_t elapsedMs = (uint32_t)(millis() - syncedAtMs);
+        if (serverUnixMs > 0) {
+            return (serverUnixMs + elapsedMs) / 1000;
+        }
+        return serverUnix + (int64_t)(elapsedMs / 1000UL);
     }
 
     int64_t elapsedSeconds() const {
@@ -89,6 +98,9 @@ struct RentalState {
         if (status == "expired" || status == "overdue" || status == "overdue_return") {
             return true;
         }
+        if (status == "awaiting_return") {
+            return deadlineTs > 0 && remainingSeconds() <= 0;
+        }
         if (status != "active" || deadlineTs <= 0) {
             return false;
         }
@@ -101,6 +113,17 @@ struct RentalState {
         }
         int64_t v = serverNow() - deadlineTs;
         return v > 0 ? v : 0;
+    }
+
+    int64_t returnCountdownRemainingSeconds() const {
+        return returnCountdownDeadlineTs > 0
+            ? returnCountdownDeadlineTs - serverNow()
+            : 0;
+    }
+
+    int64_t returnCountdownOverdueSeconds() const {
+        const int64_t remaining = returnCountdownRemainingSeconds();
+        return remaining < 0 ? -remaining : 0;
     }
 };
 

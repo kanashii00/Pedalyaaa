@@ -14,7 +14,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *
  * Unlike RentalResource this surfaces the deadline and penalty columns, and
  * ships the server clock alongside the data so a device with no battery-backed
- * RTC can correct for drift and still count down accurately between polls.
+ * RTC can correct for drift and count down against the server's return-grace
+ * deadline between polls.
  *
  * rental may be null: an idle bicycle is a normal state, not an error, and the
  * display simply shows its ready screen.
@@ -52,6 +53,7 @@ class DeviceRentalResource extends JsonResource
                 'serverTime' => $this->serverTime->toIso8601String(),
                 'serverTimeUtc' => $this->serverTime->copy()->utc()->toIso8601String(),
                 'unix' => $this->serverTime->getTimestamp(),
+                'unixMilliseconds' => $this->serverTime->valueOf(),
                 'utcOffsetSeconds' => $this->serverTime->getOffset(),
                 'timezone' => $this->serverTime->getTimezone()->getName(),
             ],
@@ -65,6 +67,7 @@ class DeviceRentalResource extends JsonResource
         /** @var Rental $rental */
         $rental = $this->resource;
         $clock = $this->rentalService->rentalClockFor($rental, $this->serverTime);
+        $countdownDeadline = $this->rentalService->deviceCountdownDeadline($rental, $this->serverTime);
 
         return [
             'rentalId' => $rental->rentalId,
@@ -79,6 +82,11 @@ class DeviceRentalResource extends JsonResource
             'returnDeadline' => $clock['effectiveDeadline']?->toIso8601String(),
             'returnDeadlineUtc' => $clock['effectiveDeadline']?->copy()->utc()->toIso8601String(),
             'returnDeadlineTimestamp' => $clock['effectiveDeadline']?->getTimestamp(),
+            'returnGraceStartedAtUtc' => $rental->returnGraceStartedAt?->copy()->utc()->toIso8601String(),
+            'returnGraceStartedAtTimestamp' => $rental->returnGraceStartedAt?->getTimestamp(),
+            'returnGraceDeadlineUtc' => $rental->returnGraceDeadline?->copy()->utc()->toIso8601String(),
+            'returnCountdownDeadlineUtc' => $countdownDeadline?->copy()->utc()->toIso8601String(),
+            'returnCountdownDeadlineTimestamp' => $countdownDeadline?->getTimestamp(),
             'deadlineBasis' => $clock['deadlineBasis'],
             'deadlineSetBy' => $rental->returnDeadlineSetBy,
 

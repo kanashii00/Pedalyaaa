@@ -7,6 +7,7 @@ use App\Models\Notification;
 use App\Models\Rental;
 use App\Models\SystemSetting;
 use App\Services\IoTService;
+use App\Services\RentalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Tests\Concerns\CreatesTestData;
@@ -24,8 +25,8 @@ use Tests\TestCase;
  */
 class ReturnGraceDetectionTest extends TestCase
 {
-    use RefreshDatabase;
     use CreatesTestData;
+    use RefreshDatabase;
 
     private function park(IoTService $iot, Bicycle $bicycle): void
     {
@@ -36,8 +37,10 @@ class ReturnGraceDetectionTest extends TestCase
         ]);
     }
 
-    public function test_parking_a_running_rental_opens_the_five_minute_grace(): void
+    public function test_early_parking_anchors_the_five_minute_return_period_to_scheduled_end(): void
     {
+        $this->travelTo(now()->startOfSecond());
+
         $admin = $this->makeAdmin();
         $rider = $this->makeRider();
         $bike = $this->makeBicycle([
@@ -45,15 +48,14 @@ class ReturnGraceDetectionTest extends TestCase
             'lockStatus' => Bicycle::LOCK_UNLOCKED,
         ]);
 
+        $expectedEnd = now()->addMinutes(40);
         $rental = $this->makeRental([
             'riderId' => $rider->id,
             'bicycleId' => $bike->id,
             'status' => Rental::STATUS_ACTIVE,
             'startTime' => now()->subMinutes(20),
-            'expectedEndTime' => now()->addMinutes(40),
+            'expectedEndTime' => $expectedEnd,
         ]);
-
-        $this->travelTo(now()->startOfSecond());
 
         $this->park(app(IoTService::class), $bike);
 
@@ -61,7 +63,8 @@ class ReturnGraceDetectionTest extends TestCase
 
         $this->assertSame(Rental::STATUS_AWAITING_RETURN, $rental->status);
         $this->assertSame('IoT park detection', $rental->returnDeadlineSetBy);
-        $this->assertTrue($rental->returnDeadline->equalTo(now()->addSeconds(300)));
+        $this->assertTrue($rental->returnDeadline->equalTo($expectedEnd->copy()->addSeconds(300)));
+        $this->assertTrue($rental->returnGraceDeadline->equalTo($rental->returnDeadline));
 
         // The lock re-engaging opens the return flow, but the physical arrival
         // is still verified and recorded by an administrator during Process
@@ -69,8 +72,7 @@ class ReturnGraceDetectionTest extends TestCase
         $this->assertNull($rental->endTime);
         $this->assertNotNull($rental->returnRequestedAt);
 
-        // No per-rental rule is written: the global late-return rate stays the
-        // source of truth until an administrator overrides it.
+        // No per-rental rule is written; the fixed policy remains centralized.
         $this->assertNull($rental->penaltyType);
         $this->assertNull($rental->penaltyValue);
 
@@ -89,6 +91,38 @@ class ReturnGraceDetectionTest extends TestCase
                 ->where('title', 'Return Deadline Auto-Set')
                 ->count()
         );
+    }
+
+    public function test_parking_after_expiry_keeps_the_existing_grace_deadline(): void
+    {
+        $this->makeAdmin();
+        $rider = $this->makeRider();
+        $bike = $this->makeBicycle([
+            'status' => Bicycle::STATUS_RENTED,
+            'lockStatus' => Bicycle::LOCK_UNLOCKED,
+        ]);
+        $expectedEnd = now()->subMinutes(2);
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bike->id,
+            'status' => Rental::STATUS_ACTIVE,
+            'startTime' => $expectedEnd->copy()->subHour(),
+            'expectedEndTime' => $expectedEnd,
+        ]);
+
+        app(RentalService::class)->expireDueRentals(now());
+        $storedGraceDeadline = $rental->fresh()->returnGraceDeadline;
+        $this->assertSame(
+            $expectedEnd->copy()->addMinutes(5)->getTimestamp(),
+            $storedGraceDeadline->getTimestamp()
+        );
+
+        $this->park(app(IoTService::class), $bike);
+
+        $rental->refresh();
+        $this->assertSame(Rental::STATUS_AWAITING_RETURN, $rental->status);
+        $this->assertTrue($rental->returnDeadline->equalTo($storedGraceDeadline));
+        $this->assertTrue($rental->returnGraceDeadline->equalTo($storedGraceDeadline));
     }
 
     public function test_a_heartbeat_before_the_unlock_ack_never_ends_a_fresh_ride(): void
@@ -158,36 +192,43 @@ class ReturnGraceDetectionTest extends TestCase
         );
     }
 
-    public function test_an_expired_rental_gets_the_grace_without_an_end_time(): void
+    public function test_an_expired_rental_uses_its_scheduled_grace_deadline_without_an_end_time(): void
     {
+        $this->travelTo(now()->startOfSecond());
+
         $this->makeAdmin();
         $rider = $this->makeRider();
         $bike = $this->makeBicycle([
             'status' => Bicycle::STATUS_RENTED,
             'lockStatus' => Bicycle::LOCK_UNLOCKED,
         ]);
+        $expectedEnd = now()->subMinutes(10);
 
         $rental = $this->makeRental([
             'riderId' => $rider->id,
             'bicycleId' => $bike->id,
             'status' => Rental::STATUS_EXPIRED,
             'startTime' => now()->subHours(2),
-            'expectedEndTime' => now()->subMinutes(10),
-            'expiredAt' => now()->subMinutes(10),
+            'expectedEndTime' => $expectedEnd,
+            'expiredAt' => $expectedEnd,
         ]);
-
-        $this->travelTo(now()->startOfSecond());
 
         $this->park(app(IoTService::class), $bike);
 
         $rental = $rental->fresh();
 
         $this->assertSame(Rental::STATUS_AWAITING_RETURN, $rental->status);
-        $this->assertTrue($rental->returnDeadline->equalTo(now()->addSeconds(300)));
+        $this->assertTrue($rental->returnDeadline->equalTo($expectedEnd->copy()->addSeconds(300)));
 
         // The expiry path has never recorded an end time, and settlement does
         // not need one, so the automatic window must not invent one either.
         $this->assertNull($rental->endTime);
+
+        app(RentalService::class)->markOverdueReturnDeadlines(now());
+        $rental->refresh();
+
+        $this->assertSame(Rental::STATUS_OVERDUE_RETURN, $rental->status);
+        $this->assertSame(20.0, (float) $rental->penaltyAccrued);
     }
 
     public function test_an_administered_deadline_survives_the_park_detection(): void
@@ -247,7 +288,7 @@ class ReturnGraceDetectionTest extends TestCase
         $this->assertNull($rental->returnDeadline);
     }
 
-    public function test_a_lapsed_grace_window_does_not_accrue_before_original_end(): void
+    public function test_early_park_keeps_return_period_anchored_to_the_scheduled_end(): void
     {
         $this->makeAdmin();
         $rider = $this->makeRider();
@@ -268,20 +309,20 @@ class ReturnGraceDetectionTest extends TestCase
 
         $this->assertSame(Rental::STATUS_AWAITING_RETURN, $rental->fresh()->status);
 
-        // The grace deadline has lapsed, but the original rental end is still
-        // in the future. The operational deadline does not start the fee.
+        // A delayed park report or early park cannot move the authoritative
+        // return-period deadline from scheduled end + five minutes.
         $this->travel(11)->minutes();
 
         Artisan::call('rentals:check-return-deadlines');
 
         $rental = $rental->fresh();
 
-        $this->assertSame(Rental::STATUS_OVERDUE_RETURN, $rental->status);
+        $this->assertSame(Rental::STATUS_AWAITING_RETURN, $rental->status);
         $this->assertSame(0.0, (float) $rental->penaltyAccrued);
-        $this->assertNotNull($rental->overdueReturnAt);
+        $this->assertNull($rental->overdueReturnAt);
     }
 
-    public function test_late_fee_accrues_from_original_end_during_return_grace(): void
+    public function test_late_fee_begins_after_scheduled_end_plus_five_minute_grace(): void
     {
         $this->makeAdmin();
         $rider = $this->makeRider();
@@ -306,7 +347,7 @@ class ReturnGraceDetectionTest extends TestCase
         $rental = $rental->fresh();
 
         $this->assertSame(Rental::STATUS_OVERDUE_RETURN, $rental->status);
-        // 17 minutes past the original end = three completed blocks x PHP 20.
-        $this->assertSame(60.0, (float) $rental->penaltyAccrued);
+        // 12 minutes past the return deadline = two completed blocks.
+        $this->assertSame(40.0, (float) $rental->penaltyAccrued);
     }
 }

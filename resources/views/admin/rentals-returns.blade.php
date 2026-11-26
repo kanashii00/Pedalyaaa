@@ -647,7 +647,7 @@
             <div>
                 <div class="rv-summary__label">Late Penalty</div>
                 <div class="rv-summary__value">&#8369;20/5 min</div>
-                <div class="rv-summary__sub">each completed block after original rental end</div>
+                <div class="rv-summary__sub">each completed block after the return deadline</div>
             </div>
         </div>
     </div>

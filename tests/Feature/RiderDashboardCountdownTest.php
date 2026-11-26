@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Bicycle;
 use App\Models\Rental;
+use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\RentalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -71,9 +72,11 @@ class RiderDashboardCountdownTest extends TestCase
             ->where('status', Rental::STATUS_ACTIVE)
             ->firstOrFail();
 
-        $this->assertSame(
-            $this->dashboardTarget($rider),
-            $this->deviceDeadline($bicycle),
+        $dashboardTarget = new Carbon($this->dashboardTarget($rider));
+        $deviceTarget = new Carbon($this->deviceDeadline($bicycle));
+
+        $this->assertTrue(
+            $dashboardTarget->equalTo($deviceTarget),
             'rider dashboard and on-board LCD must count down to the same instant'
         );
     }
@@ -128,5 +131,180 @@ class RiderDashboardCountdownTest extends TestCase
             $target->equalTo($rental->fresh()->returnDeadline),
             'awaiting_return must count down to the admin-set return deadline'
         );
+    }
+
+    public function test_expired_rental_shows_grace_countdown_matching_device_deadline_after_refresh(): void
+    {
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle(['status' => Bicycle::STATUS_AVAILABLE]);
+        $expectedEnd = now()->subSecond();
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bicycle->id,
+            'status' => Rental::STATUS_EXPIRED,
+            'startTime' => $expectedEnd->copy()->subHour(),
+            'expectedEndTime' => $expectedEnd,
+        ]);
+        $deadline = $expectedEnd->copy()->addSeconds((int) SystemSetting::getValue('returnGraceSeconds', 300));
+
+        $html = $this->actingAs($rider)->get(route('rider.dashboard'))->assertOk()->getContent();
+        $target = new Carbon($this->dashboardTarget($rider));
+
+        $this->assertSame($deadline->getTimestamp(), $target->getTimestamp());
+        $this->assertStringContainsString('Bike Return Countdown', $html);
+        $this->assertStringContainsString('Awaiting Bike Return', $html);
+        $this->assertStringContainsString('Please return your bike before the countdown expires.', $html);
+        $this->assertStringContainsString(
+            'Late Return Penalty:</strong> ₱20 per completed 5 minutes after this period',
+            $html
+        );
+        $this->assertStringContainsString(
+            '₱20 per completed 5 minutes after this period',
+            $html
+        );
+
+        $deviceKey = $bicycle->issueDeviceKey();
+        $deviceResponse = $this->withHeader('X-API-Key', $deviceKey)
+            ->getJson("/api/iot/bicycle/{$bicycle->id}/rental")
+            ->assertOk();
+
+        $this->assertSame(
+            $target->copy()->utc()->toIso8601String(),
+            $deviceResponse->json('data.rental.returnCountdownDeadlineUtc')
+        );
+
+        $this->assertSame(
+            $target->toIso8601String(),
+            $this->dashboardTarget($rider),
+            'refreshes must not restart the session'
+        );
+    }
+
+    public function test_return_grace_countdown_is_scoped_to_its_rider(): void
+    {
+        $owner = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $otherRider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle(['status' => Bicycle::STATUS_AVAILABLE]);
+        $expectedEnd = now()->subSecond();
+
+        $this->makeRental([
+            'riderId' => $owner->id,
+            'bicycleId' => $bicycle->id,
+            'status' => Rental::STATUS_EXPIRED,
+            'startTime' => $expectedEnd->copy()->subHour(),
+            'expectedEndTime' => $expectedEnd,
+        ]);
+
+        $this->actingAs($otherRider)
+            ->get(route('rider.dashboard'))
+            ->assertOk()
+            ->assertDontSee('id="bikeReturnCountdown"', false);
+    }
+
+    public function test_dashboard_state_returns_fresh_grace_deadline_and_authoritative_penalty(): void
+    {
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle(['status' => Bicycle::STATUS_AVAILABLE]);
+        $expectedEnd = now()->subMinutes(6);
+        $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bicycle->id,
+            'status' => Rental::STATUS_EXPIRED,
+            'startTime' => $expectedEnd->copy()->subHour(),
+            'expectedEndTime' => $expectedEnd,
+        ]);
+
+        $expectedDeadline = $expectedEnd->copy()->addSeconds((int) SystemSetting::getValue('returnGraceSeconds', 300));
+
+        $response = $this->actingAs($rider)
+            ->getJson(route('rider.dashboard.state'))
+            ->assertOk();
+
+        $response->assertJsonPath('activeRental.deadline', $expectedDeadline->copy()->utc()->toIso8601String());
+        $this->assertSame(0.0, (float) $response->json('activeRental.currentPenalty'));
+        $this->assertStringContainsString(
+            'no-store',
+            $response->headers->get('Cache-Control', '')
+        );
+    }
+
+    public function test_overdue_rental_shows_overdue_stage_and_penalty_after_grace(): void
+    {
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
+        $expectedEnd = now()->subMinutes(10);
+        $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bicycle->id,
+            'status' => Rental::STATUS_EXPIRED,
+            'startTime' => $expectedEnd->copy()->subHour(),
+            'expectedEndTime' => $expectedEnd,
+        ]);
+
+        $html = $this->actingAs($rider)->get(route('rider.dashboard'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('id="bikeReturnCountdownStatus">Overdue</div>', $html);
+        $this->assertStringContainsString('id="bikeReturnOverdueDetails"', $html);
+        $this->assertStringContainsString('₱20.00', $html);
+    }
+
+    public function test_rider_active_card_does_not_render_bicycle_battery_percentage(): void
+    {
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED, 'batteryLevel' => 73]);
+        $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bicycle->id,
+            'status' => Rental::STATUS_ACTIVE,
+            'startTime' => now()->subMinutes(5),
+            'expectedEndTime' => now()->addMinutes(55),
+        ]);
+
+        $html = $this->actingAs($rider)->get(route('rider.dashboard'))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('bi-battery-three-quarters', $html);
+        $this->assertStringNotContainsString('73%', $html);
+        $this->assertStringContainsString('Rental Cost:', $html);
+    }
+
+    public function test_dashboard_state_exposes_final_return_charge_and_penalty(): void
+    {
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle();
+        $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bicycle->id,
+            'status' => Rental::STATUS_RETURNED,
+            'totalFee' => 15.00,
+            'overdueFee' => 20.00,
+            'finalFee' => 35.00,
+        ]);
+
+        $this->actingAs($rider)
+            ->getJson(route('rider.dashboard.state'))
+            ->assertOk()
+            ->assertJsonPath('lastSettled.baseFee', 15)
+            ->assertJsonPath('lastSettled.finalPenalty', 20)
+            ->assertJsonPath('lastSettled.finalFee', 35);
+    }
+
+    public function test_expired_grace_displays_zero_without_marking_the_bike_returned(): void
+    {
+        $rider = $this->makeRider(['verified' => true, 'role' => User::ROLE_RIDER]);
+        $bicycle = $this->makeBicycle(['status' => Bicycle::STATUS_RENTED]);
+        $expectedEnd = now()->subMinutes(6);
+        $rental = $this->makeRental([
+            'riderId' => $rider->id,
+            'bicycleId' => $bicycle->id,
+            'status' => Rental::STATUS_EXPIRED,
+            'startTime' => $expectedEnd->copy()->subHour(),
+            'expectedEndTime' => $expectedEnd,
+        ]);
+
+        $html = $this->actingAs($rider)->get(route('rider.dashboard'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('id="bikeReturnCountdownValue">00:00</div>', $html);
+        $this->assertStringContainsString('id="bikeReturnCountdownStatus">Overdue</div>', $html);
+        $this->assertSame(Rental::STATUS_EXPIRED, $rental->fresh()->status);
     }
 }
