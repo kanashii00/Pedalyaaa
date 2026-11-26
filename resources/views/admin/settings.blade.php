@@ -138,10 +138,9 @@
                 <small class="text-muted">Activate LCD/buzzer warning before rental expires.</small>
             </div>
             <div class="col-md-3">
-                <label class="form-label">Return Grace Period (seconds)</label>
-                <input type="number" class="form-control" name="returnGraceSeconds"
-                    min="0" value="{{ old('returnGraceSeconds', $settings->returnGraceSeconds) }}">
-                <small class="text-muted">Free window the IoT lock starts once it detects the bicycle parked. 300 = 5 minutes, matching the firmware's RETURN_GRACE_SECONDS. 0 disables it.</small>
+                <label class="form-label">Bike Return Period</label>
+                <p class="form-control-plaintext mb-0">5 minutes — no penalty</p>
+                <small class="text-muted">Fixed return period after the scheduled rental end.</small>
             </div>
         </div>
     </x-admin.card>

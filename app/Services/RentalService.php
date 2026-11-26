@@ -10,12 +10,15 @@ use App\Models\SystemSetting;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class RentalService
 {
     /** Pedalya rental price: ₱30 per 20 minutes, billed proportionally. */
     public const RENTAL_RATE_PER_MINUTE = 1.50;
     public const RENTAL_RATE_PER_HOUR = 90.00;
+    public const RETURN_GRACE_SECONDS = 300;
+    public const PENALTY_INTERVAL_SECONDS = 300;
     /** Late returns cost this amount for each fully completed five-minute block. */
     public const LATE_PENALTY_PER_COMPLETED_FIVE_MINUTES = 20.00;
 protected NotificationService $notificationService;
@@ -32,65 +35,20 @@ protected MaintenanceService $maintenanceService;
         $this->maintenanceService = $maintenanceService;
     }
 
-public function startRental(
+    public function startRental(
         User $user,
         int $bicycleId,
         int $durationMinutes = 30,
         string $paymentMethod = 'cash',
-        ?string $paymentReference = null
+        ?string $paymentReference = null,
+        ?string $rentalRequestKey = null,
+        bool $deferSideEffectsUntilResponse = false
     ): Rental {
         if ($paymentMethod !== 'cash') {
             throw new RentalException('Cash is the only available payment method for rentals.');
         }
         if ($durationMinutes < 1 || $durationMinutes > 720) {
             throw new RentalException('The rental duration must be between 1 and 720 minutes.');
-        }
-        if (!$user->verified) {
-            throw new RentalException(
-                'User must be verified to start a rental.'
-            );
-        }
-
-        $activeRental = Rental::where('riderId', $user->id)
-            ->whereIn('status', [
-                'active',
-                'pending',
-                'overdue',
-                Rental::STATUS_AWAITING_RETURN,
-            ])
-            ->first();
-
-        if ($activeRental) {
-            throw new RentalException(
-                'User already has an active rental.'
-            );
-        }
-
-        $bicycle = Bicycle::findOrFail($bicycleId);
-
-        // A bicycle parked out of service carries `status = available` but has no
-        // hardware to unlock, so it must never start a rental. Checked before
-        // status so the message names the real reason.
-        if (! $bicycle->isInService()) {
-            throw new RentalException(
-                "Bicycle {$bicycle->serialNumber} is not in service."
-            );
-        }
-
-        if ($bicycle->status !== Bicycle::STATUS_AVAILABLE) {
-            throw new RentalException(
-                'Bicycle is not available for rental.'
-            );
-        }
-
-        if ($bicycle->batteryLevel === null) {
-            throw new RentalException('Bicycle battery level has not been reported.');
-        }
-
-        if ($bicycle->batteryLevel < 20) {
-            throw new RentalException(
-                'Bicycle battery level is too low to rent.'
-            );
         }
 
         // This is deliberately independent of bicycle.hourlyRate: Pedalya
@@ -99,7 +57,6 @@ public function startRental(
         $ratePerHour = self::RENTAL_RATE_PER_HOUR;
         $chargedHours = max((int) ceil($durationMinutes / 60), 1);
         $totalFee = round($durationMinutes * self::RENTAL_RATE_PER_MINUTE, 2);
-
         $durationFormatted = $this->formatDuration($durationMinutes);
 
         $pricing = [
@@ -110,74 +67,151 @@ public function startRental(
         ];
 
         $isGcash = false;
-        $rental = DB::transaction(function () use (
+        [$rental, $created] = DB::transaction(function () use (
             $user,
             $bicycleId,
             $durationMinutes,
             $paymentMethod,
             $paymentReference,
-            $pricing
+            $pricing,
+            $rentalRequestKey,
+            $isGcash
         ) {
-            // Re-read under a row lock. The availability check above ran outside
-            // the transaction, so two riders submitting the same bicycle
-            // concurrently could both pass it; the lock serialises them and the
-            // second one then sees the status the first already changed.
-            $locked = Bicycle::query()->lockForUpdate()->find($bicycleId);
+            // Serialise all starts for this rider so simultaneous submissions
+            // cannot reserve different bicycles for one account.
+            $lockedUser = User::query()->lockForUpdate()->find($user->id);
+            if ($lockedUser === null) {
+                throw new RentalException('Rider account no longer exists.');
+            }
+            if (! $lockedUser->verified) {
+                throw new RentalException('User must be verified to start a rental.');
+            }
 
-            if ($locked === null) {
+            if ($rentalRequestKey !== null) {
+                $existing = Rental::where('rentalRequestKey', $rentalRequestKey)->first();
+                if ($existing !== null) {
+                    if (
+                        (int) $existing->riderId !== (int) $lockedUser->id
+                        || (int) $existing->bicycleId !== $bicycleId
+                        || (int) $existing->durationMinutes !== $durationMinutes
+                        || $existing->paymentMethod !== $paymentMethod
+                    ) {
+                        throw new RentalException('This rental request key was already used for a different rental.');
+                    }
+
+                    return [$existing, false];
+                }
+            }
+
+            $activeRental = Rental::where('riderId', $lockedUser->id)
+                ->whereIn('status', array_merge([Rental::STATUS_PENDING], Rental::LIVE_STATUSES))
+                ->lockForUpdate()
+                ->first();
+            if ($activeRental !== null) {
+                throw new RentalException('User already has an active rental.');
+            }
+
+            // Lock and recheck availability before creating either the rental
+            // or its matching unlock command.
+            $lockedBicycle = Bicycle::query()->lockForUpdate()->find($bicycleId);
+            if ($lockedBicycle === null) {
                 throw new RentalException('Bicycle no longer exists.');
             }
-
-            // Re-checked under the row lock: provisioning can be revoked between
-            // the pre-transaction check and here.
-            if (! $locked->isInService()) {
-                throw new RentalException(
-                    "Bicycle {$locked->serialNumber} is not in service."
-                );
+            if (! $lockedBicycle->isInService()) {
+                throw new RentalException("Bicycle {$lockedBicycle->serialNumber} is not in service.");
             }
-
-            if ($locked->status !== Bicycle::STATUS_AVAILABLE) {
-                throw new RentalException(
-                    'That bicycle is no longer available for rent.'
-                );
+            if ($lockedBicycle->status !== Bicycle::STATUS_AVAILABLE) {
+                throw new RentalException('That bicycle is no longer available for rent.');
             }
-
-            if ($locked->batteryLevel === null) {
+            if ($lockedBicycle->batteryLevel === null) {
                 throw new RentalException('Bicycle battery level has not been reported.');
             }
-
-            if ($locked->batteryLevel < 20) {
-                throw new RentalException(
-                    'Bicycle battery level is too low to rent.'
-                );
+            if ($lockedBicycle->batteryLevel < 20) {
+                throw new RentalException('Bicycle battery level is too low to rent.');
             }
 
-            return $this->persistRental(
-                $user,
-                $locked,
+            $rental = $this->persistRental(
+                $lockedUser,
+                $lockedBicycle,
                 $durationMinutes,
                 $paymentMethod,
                 $paymentReference,
-                $pricing
+                $pricing,
+                $rentalRequestKey
             );
+
+            if (! $isGcash) {
+                $this->iotService->sendCommand(
+                    $lockedBicycle->id,
+                    'unlock',
+                    [
+                        'reason' => 'rental_started',
+                        'rental_id' => $rental->id,
+                        'rental_code' => $rental->rentalId,
+                    ],
+                    $lockedUser
+                );
+            }
+
+            return [$rental, true];
         });
 
-        // Queue unlock only after the rental transaction succeeds.
-        // The actual lockStatus changes only after the device acknowledges it.
-        if (!$isGcash) {
-            $this->iotService->sendCommand(
-                $bicycle->id,
-                'unlock',
-                [
-                    'reason' => 'rental_started',
-                    'rental_id' => $rental->id,
-                    'rental_code' => $rental->rentalId,
-                ],
-                $user
-            );
+        if ($created) {
+            $notify = function () use ($rental, $user, $isGcash, $totalFee): void {
+                $this->notifyRentalStarted($rental, $user, $isGcash, $totalFee);
+            };
+
+            if ($deferSideEffectsUntilResponse) {
+                app()->terminating(function () use ($notify, $rental): void {
+                    try {
+                        $notify();
+                    } catch (\Throwable $e) {
+                        Log::error('Rental start side effects failed after response', [
+                            'rentalId' => $rental->id,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                });
+            } else {
+                try {
+                    $notify();
+                } catch (\Throwable $e) {
+                    Log::error('Rental start side effects failed', [
+                        'rentalId' => $rental->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
         }
 
         return $rental;
+    }
+
+    private function notifyRentalStarted(Rental $rental, User $user, bool $isGcash, float $totalFee): void
+    {
+        $this->notificationService->create(
+            $user->id,
+            $isGcash ? 'GCash Payment Submitted' : 'Rental Started',
+            $isGcash
+                ? "Your rental {$rental->rentalId} is pending payment verification. Please wait for admin approval."
+                : "Your rental {$rental->rentalId} has started. Pay PHP {$totalFee} upon return. Enjoy your ride!",
+            'rental_started'
+        );
+
+        $adminIds = User::where('role', User::ROLE_ADMIN)->pluck('id')->all();
+        if ($adminIds !== []) {
+            $this->notificationService->createForUsers(
+                $adminIds,
+                'New Rental',
+                $isGcash
+                    ? "{$user->name} submitted a rental for bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}). Rental {$rental->rentalId} is pending payment verification."
+                    : "{$user->name} started a rental for bicycle {$rental->bicycleName} (#{$rental->bicycleSerial}). Rental {$rental->rentalId} · PHP {$totalFee}.",
+                'rental_started',
+                ['rentalId' => $rental->rentalId, 'bicycleId' => $rental->bicycleId]
+            );
+        }
+
+        RentalFeed::touch();
     }
 
     private function persistRental(
@@ -186,7 +220,8 @@ public function startRental(
         int $durationMinutes,
         string $paymentMethod,
         ?string $paymentReference,
-        array $pricing
+        array $pricing,
+        ?string $rentalRequestKey
     ): Rental {
         $isGcash = $paymentMethod === 'gcash';
         $ratePerHour = $pricing['ratePerHour'];
@@ -202,6 +237,7 @@ public function startRental(
 
         $rental = Rental::create([
             'rentalId' => $this->generateRentalId(),
+            'rentalRequestKey' => $rentalRequestKey,
 
             'riderId' => $user->id,
             'riderName' => $user->name,
@@ -275,32 +311,6 @@ public function startRental(
                 ],
             ]);
         }
-
-        $this->notificationService->create(
-            $user->id,
-            $isGcash
-                ? 'GCash Payment Submitted'
-                : 'Rental Started',
-            $isGcash
-                ? "Your rental {$rental->rentalId} is pending payment verification. Please wait for admin approval."
-                : "Your rental {$rental->rentalId} has started. Pay PHP {$totalFee} upon return. Enjoy your ride!",
-            'rental_started'
-        );
-
-        $adminIds = User::where('role', User::ROLE_ADMIN)->pluck('id')->all();
-        if (!empty($adminIds)) {
-            $this->notificationService->createForUsers(
-                $adminIds,
-                'New Rental',
-                $isGcash
-                    ? "{$user->name} submitted a rental for bicycle {$bicycle->name} (#{$bicycle->serialNumber}). Rental {$rental->rentalId} is pending payment verification."
-                    : "{$user->name} started a rental for bicycle {$bicycle->name} (#{$bicycle->serialNumber}). Rental {$rental->rentalId} · PHP {$totalFee}.",
-                'rental_started',
-                ['rentalId' => $rental->rentalId, 'bicycleId' => $bicycle->id]
-            );
-        }
-
-        RentalFeed::touch();
 
         return $rental;
     }
@@ -539,9 +549,8 @@ public function startRental(
      * Open the automatic return-grace window for a rental the bicycle's own
      * hardware just reported as parked and locked.
      *
-     * The window length comes from the returnGraceSeconds system setting, which
-     * mirrors the firmware's RETURN_GRACE_SECONDS (300 seconds, i.e. five
-     * minutes, by default). No administrator is involved: the deadline is
+     * The fixed five-minute window mirrors the firmware's
+     * RETURN_GRACE_SECONDS. No administrator is involved: the deadline is
      * computed from the authoritative server clock and the penalty rule is
      * deliberately left unset. The five-minute return period is anchored to
      * the scheduled rental end, not the time a delayed park report arrives.
@@ -571,15 +580,12 @@ public function startRental(
             return null;
         }
 
-        $graceSeconds = max(0, (int) SystemSetting::getValue('returnGraceSeconds', 300));
+        $graceSeconds = self::RETURN_GRACE_SECONDS;
         $graceStartedAt = $rental->returnGraceStartedAt?->copy()
             ?? $rental->expectedEndTime?->copy()
             ?? $asOf->copy();
         $deadline = $rental->returnGraceDeadline?->copy();
         if ($deadline === null) {
-            if ($graceSeconds === 0) {
-                return null;
-            }
             $deadline = $graceStartedAt->copy()->addSeconds($graceSeconds);
         }
 
@@ -665,7 +671,7 @@ public function startRental(
     /**
      * Penalty accrued as of server time, beginning at the authoritative return
      * deadline. Legacy rentals derive that deadline from the scheduled end
-     * plus the configured return-grace period.
+     * plus the fixed five-minute return period.
      *
      * Nothing is ever charged while the deadline is still in the future.
      */
@@ -683,8 +689,36 @@ public function startRental(
         // arithmetic), so it is correct across midnight. Partial blocks never
         // round up: 4:59 late costs 0; 5:00 costs exactly PHP 20.
         return round(
-            intdiv($diffSeconds, 300) * self::LATE_PENALTY_PER_COMPLETED_FIVE_MINUTES,
+            intdiv($diffSeconds, self::PENALTY_INTERVAL_SECONDS) * self::LATE_PENALTY_PER_COMPLETED_FIVE_MINUTES,
             2
+        );
+    }
+
+    /**
+     * Seconds until the next completed penalty interval, including the full
+     * five-minute interval when the return deadline has just passed.
+     */
+    public function secondsUntilNextPenalty(Rental $rental, Carbon $asOf): int
+    {
+        $nextDeadline = $this->nextPenaltyDeadlineForRental($rental, $asOf);
+
+        return $nextDeadline === null
+            ? self::PENALTY_INTERVAL_SECONDS
+            : max(0, $nextDeadline->getTimestamp() - $asOf->getTimestamp());
+    }
+
+    public function nextPenaltyDeadlineForRental(Rental $rental, Carbon $asOf): ?Carbon
+    {
+        $deadline = $this->penaltyDeadlineForRental($rental);
+        if ($deadline === null) {
+            return null;
+        }
+
+        $lateSeconds = max(0, $asOf->getTimestamp() - $deadline->getTimestamp());
+        $completedIntervals = intdiv($lateSeconds, self::PENALTY_INTERVAL_SECONDS);
+
+        return $deadline->copy()->addSeconds(
+            ($completedIntervals + 1) * self::PENALTY_INTERVAL_SECONDS
         );
     }
 
@@ -705,9 +739,7 @@ public function startRental(
             return null;
         }
 
-        $graceSeconds = max(0, (int) SystemSetting::getValue('returnGraceSeconds', 300));
-
-        return $rentalEnd->copy()->addSeconds($graceSeconds);
+        return $rentalEnd->copy()->addSeconds(self::RETURN_GRACE_SECONDS);
     }
 
     /**
@@ -800,7 +832,7 @@ public function startRental(
      *
      * Once the rental expires, the LCD's grace deadline is persisted on the
      * rental and shared with the dashboard. Legacy rows derive the same value
-     * from their stored rental end and grace setting.
+     * from their stored rental end and the fixed five-minute policy.
      */
     public function riderCountdownDeadline(Rental $rental): ?Carbon
     {
@@ -834,6 +866,26 @@ public function startRental(
         return $this->countdownDeadlineFor($rental, $expired);
     }
 
+    /**
+     * Authoritative boundary of the return period, available before expiry so
+     * the device can transition locally without waiting for another poll.
+     */
+    public function returnGraceDeadlineForRental(Rental $rental): ?Carbon
+    {
+        if ($rental->returnDeadline !== null) {
+            return $rental->returnDeadline->copy();
+        }
+        if ($rental->returnGraceDeadline !== null) {
+            return $rental->returnGraceDeadline->copy();
+        }
+
+        $rentalEnd = $rental->expectedEndTime
+            ?? $rental->endTime
+            ?? ($rental->startTime?->copy()->addMinutes($rental->durationMinutes ?? 60));
+
+        return $rentalEnd?->copy()->addSeconds(self::RETURN_GRACE_SECONDS);
+    }
+
     private function countdownDeadlineFor(Rental $rental, bool $expired): ?Carbon
     {
         if ($rental->returnDeadline !== null) {
@@ -852,9 +904,7 @@ public function startRental(
         }
 
         if ($expired) {
-            $graceSeconds = max(0, (int) SystemSetting::getValue('returnGraceSeconds', 300));
-
-            return $deadline->copy()->addSeconds($graceSeconds);
+            return $deadline->copy()->addSeconds(self::RETURN_GRACE_SECONDS);
         }
 
         return $deadline->copy();
@@ -1826,7 +1876,7 @@ public function startRental(
                     ?? $rental->expectedEndTime->copy(),
                 'returnGraceDeadline' => $rental->returnGraceDeadline
                     ?? $rental->expectedEndTime->copy()->addSeconds(
-                        max(0, (int) SystemSetting::getValue('returnGraceSeconds', 300))
+                        self::RETURN_GRACE_SECONDS
                     ),
             ]);
 

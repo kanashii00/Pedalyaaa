@@ -604,20 +604,40 @@ class RentalExpirationWorkflowTest extends TestCase
             $rental,
             $deadline->copy()->addMinutes(4)->addSeconds(59)
         ));
+        $this->assertSame(
+            1,
+            $service->secondsUntilNextPenalty($rental, $deadline->copy()->addMinutes(4)->addSeconds(59))
+        );
 
         // Exactly 5:00 late completes the first interval.
         $this->assertSame(20.0, $service->calculatePenaltyForRental(
             $rental,
             $deadline->copy()->addMinutes(5)
         ));
+        $this->assertSame(
+            300,
+            $service->secondsUntilNextPenalty($rental, $deadline->copy()->addMinutes(5))
+        );
 
         // 9:59 late is still only one completed interval.
         $this->assertSame(20.0, $service->calculatePenaltyForRental(
             $rental,
             $deadline->copy()->addMinutes(9)->addSeconds(59)
         ));
+        $this->assertSame(
+            1,
+            $service->secondsUntilNextPenalty($rental, $deadline->copy()->addMinutes(9)->addSeconds(59))
+        );
 
         $this->assertSame(40.0, $service->calculatePenaltyForRental($rental, $deadline->copy()->addMinutes(10)));
+        $this->assertSame(
+            300,
+            $service->secondsUntilNextPenalty($rental, $deadline->copy()->addMinutes(10))
+        );
+        $this->assertSame(
+            $deadline->copy()->addMinutes(15)->getTimestamp(),
+            $service->nextPenaltyDeadlineForRental($rental, $deadline->copy()->addMinutes(10))->getTimestamp()
+        );
         $this->assertSame(60.0, $service->calculatePenaltyForRental($rental, $deadline->copy()->addMinutes(15)));
 
         // Timestamp arithmetic crosses midnight without resetting elapsed time:

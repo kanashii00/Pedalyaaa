@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\Bicycle;
 use App\Models\Notification;
 use App\Models\Rental;
-use App\Models\SystemSetting;
 use App\Services\IoTService;
 use App\Services\RentalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -261,7 +260,7 @@ class ReturnGraceDetectionTest extends TestCase
         $this->assertSame(0, Notification::where('title', 'Return Grace Started')->count());
     }
 
-    public function test_a_zero_second_grace_disables_the_automatic_window(): void
+    public function test_the_return_grace_is_always_five_minutes(): void
     {
         $this->makeAdmin();
         $rider = $this->makeRider();
@@ -278,14 +277,15 @@ class ReturnGraceDetectionTest extends TestCase
             'expectedEndTime' => now()->addMinutes(50),
         ]);
 
-        SystemSetting::setValue('returnGraceSeconds', 0);
-
         $this->park(app(IoTService::class), $bike);
 
         $rental = $rental->fresh();
 
-        $this->assertSame(Rental::STATUS_ACTIVE, $rental->status);
-        $this->assertNull($rental->returnDeadline);
+        $this->assertSame(Rental::STATUS_AWAITING_RETURN, $rental->status);
+        $this->assertSame(
+            $rental->expectedEndTime->copy()->addSeconds(RentalService::RETURN_GRACE_SECONDS)->getTimestamp(),
+            $rental->returnDeadline->getTimestamp()
+        );
     }
 
     public function test_early_park_keeps_return_period_anchored_to_the_scheduled_end(): void

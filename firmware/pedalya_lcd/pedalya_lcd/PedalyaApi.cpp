@@ -1044,6 +1044,7 @@ bool PedalyaApi::parse(
     out.deadlineTs      = rental["returnDeadlineTimestamp"].as<int64_t>();
     out.returnGraceStartedAtTs = rental["returnGraceStartedAtTimestamp"].as<int64_t>();
     out.returnCountdownDeadlineTs = rental["returnCountdownDeadlineTimestamp"].as<int64_t>();
+    out.nextPenaltyDeadlineTs = rental["penalty"]["nextPenaltyDeadlineTimestamp"].as<int64_t>();
     out.isOverdue       = rental["isOverdue"] | false;
     out.serverOverdueSeconds = rental["overdueSeconds"] | 0UL;
     out.ratePerHour     = rental["ratePerHour"] | 0.0f;

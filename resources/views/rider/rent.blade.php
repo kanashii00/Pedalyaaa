@@ -452,8 +452,10 @@
                     <input type="hidden" name="bicycleId" id="selectedBicycleId" value="">
                     <input type="hidden" name="durationMinutes" id="selectedDuration" value="60">
                     <input type="hidden" name="paymentMethod" id="selectedPaymentMethod" value="cash">
+                    <input type="hidden" name="rentalRequestKey" id="rentalRequestKey" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
                     <button type="submit" class="btn btn-pedalya" id="confirmRentBtn"><i class="bi bi-key-fill"></i> Start Rental</button>
                 </form>
+                <div class="text-danger small w-100 mt-2 d-none" id="rentalSubmitError" role="alert"></div>
             </div>
         </div>
     </div>
@@ -626,9 +628,8 @@
         }
     });
 
-    // One rental per submission. The button is disabled on the way out and the
-    // form is flagged, so a double click (or a second Enter while the first
-    // request is still in flight) cannot start two rentals on one bicycle.
+    // Keep a request key across an ambiguous network failure so retrying the
+    // same submission cannot create a second rental.
     var rentalSubmitting = false;
 
     document.getElementById('rentalForm').addEventListener('submit', function(e) {
@@ -663,13 +664,132 @@
         }
 
         clearTermsError();
-
+        e.preventDefault();
         rentalSubmitting = true;
         form.dataset.submitting = '1';
 
         var btn = document.getElementById('confirmRentBtn');
-        btn.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div> Processing...';
+        var errorBox = document.getElementById('rentalSubmitError');
+        var requestKey = document.getElementById('rentalRequestKey').value;
+        var fingerprint = [
+            document.getElementById('selectedBicycleId').value,
+            document.getElementById('selectedDuration').value,
+            document.getElementById('selectedPaymentMethod').value
+        ].join(':');
+        if (form.dataset.requestFingerprint && form.dataset.requestFingerprint !== fingerprint) {
+            requestKey = (window.crypto && window.crypto.randomUUID)
+                ? window.crypto.randomUUID()
+                : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    var r = Math.random() * 16 | 0;
+                    return (c === 'x' ? r : (r & 3 | 8)).toString(16);
+                });
+            document.getElementById('rentalRequestKey').value = requestKey;
+        }
+        form.dataset.requestFingerprint = fingerprint;
+        errorBox.textContent = '';
+        errorBox.classList.add('d-none');
+        btn.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div> Processing Rental...';
         btn.disabled = true;
+        var abortController = window.AbortController ? new AbortController() : null;
+        var requestTimeout = abortController
+            ? window.setTimeout(function() { abortController.abort(); }, 15000)
+            : 0;
+
+        function resetSubmit(message) {
+            rentalSubmitting = false;
+            form.dataset.submitting = '0';
+            btn.innerHTML = '<i class="bi bi-key-fill"></i> Start Rental';
+            btn.disabled = false;
+            errorBox.textContent = message;
+            errorBox.classList.remove('d-none');
+        }
+
+        function finishRental(payload) {
+            var rental = payload && payload.rental;
+            if (
+                !rental
+                || rental.requestKey !== requestKey
+                || !rental.startTimeUtc
+                || !rental.rentalDeadlineUtc
+                || isNaN(Date.parse(rental.startTimeUtc))
+                || isNaN(Date.parse(rental.rentalDeadlineUtc))
+            ) {
+                resetSubmit('The server response did not include valid rental timestamps. Check your rental status before trying again.');
+                return;
+            }
+
+            window.location.assign(@json(route('rider.dashboard')));
+        }
+
+        function checkAcceptedRequest() {
+            var statusUrl = @json(route('rider.rentals.active-status'));
+            var statusAbortController = window.AbortController ? new AbortController() : null;
+            var statusTimeout = statusAbortController
+                ? window.setTimeout(function() { statusAbortController.abort(); }, 5000)
+                : 0;
+            return fetch(statusUrl + '?t=' + Date.now(), {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin',
+                cache: 'no-store',
+                signal: statusAbortController ? statusAbortController.signal : undefined
+            }).then(function(response) {
+                if (statusTimeout) window.clearTimeout(statusTimeout);
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                return response.json();
+            }).then(function(payload) {
+                if (payload && payload.rental && payload.rental.requestKey === requestKey) {
+                    return {
+                        rental: {
+                            requestKey: payload.rental.requestKey,
+                            startTimeUtc: payload.rental.startTime,
+                            rentalDeadlineUtc: payload.rental.expectedEndTime
+                        }
+                    };
+                }
+                return null;
+            }).catch(function(error) {
+                if (statusTimeout) window.clearTimeout(statusTimeout);
+                throw error;
+            });
+        }
+
+        fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            credentials: 'same-origin',
+            cache: 'no-store',
+            signal: abortController ? abortController.signal : undefined
+        }).then(function(response) {
+            if (requestTimeout) window.clearTimeout(requestTimeout);
+            return response.json().then(function(payload) {
+                if (!response.ok) {
+                    var error = new Error(payload.message || 'Unable to start the rental.');
+                    error.status = response.status;
+                    throw error;
+                }
+                return payload;
+            });
+        }).then(finishRental).catch(function(error) {
+            if (requestTimeout) window.clearTimeout(requestTimeout);
+            if (error.status && error.status < 500) {
+                resetSubmit(error.message);
+                return;
+            }
+
+            checkAcceptedRequest().then(function(payload) {
+                if (payload) {
+                    finishRental(payload);
+                    return;
+                }
+                resetSubmit('We could not confirm the request. You can safely retry; the same request key prevents duplicate rentals.');
+            }).catch(function() {
+                resetSubmit('The connection was interrupted. You can retry safely; this request key prevents duplicate rentals.');
+            });
+        });
     });
 
     document.addEventListener('DOMContentLoaded', function() {

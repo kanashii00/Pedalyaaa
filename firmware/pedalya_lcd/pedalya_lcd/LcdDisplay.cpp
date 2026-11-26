@@ -205,30 +205,26 @@ void LcdDisplay::showExpiredPhase(uint32_t secondsSinceExpiry, float serverPenal
     if (messageActive()) return;
 
     if (secondsSinceExpiry < RETURN_GRACE_SECONDS) {
-        row(0, locked ? "RETURN  LOCKED  " : "RETURN  UNLOCKED");
+        row(0, locked ? "BIKE RETURN LOCK" : "BIKE RETURN OPEN");
 
         const uint32_t graceLeft = RETURN_GRACE_SECONDS - secondsSinceExpiry;
         unsigned long m = (unsigned long)(graceLeft / 60);
         unsigned long s = (unsigned long)(graceLeft % 60);
-        rowf(1, "GRACE   %02lu:%02lu   ", m, s);
+        rowf(1, "RETURN  %02lu:%02lu", m, s);
         return;
     }
 
     const uint32_t lateSeconds = secondsSinceExpiry - RETURN_GRACE_SECONDS;
-    if (((lateSeconds / 2) % 2) == 0) {
-        row(0, locked ? "OVERDUE LOCKED  " : "OVERDUE UNLOCKED");
+    if (penaltyCurrent) {
+        rowf(0, "PENALTY PHP%.2f", serverPenalty);
     } else {
-        if (penaltyCurrent) {
-            rowf(0, "FEE PHP%.2f", serverPenalty);
-        } else {
-            row(0, "FEE SYNCING...  ");
-        }
+        row(0, "PENALTY SYNC... ");
     }
 
-    unsigned long h = (unsigned long)(lateSeconds / 3600);
-    unsigned long m = (unsigned long)((lateSeconds % 3600) / 60);
-    unsigned long s = (unsigned long)(lateSeconds % 60);
-    rowf(1, "LATE    %02lu:%02lu:%02lu", h % 100, m, s);
+    const uint32_t nextPenalty = RETURN_GRACE_SECONDS - (lateSeconds % RETURN_GRACE_SECONDS);
+    rowf(1, "NEXT    %02lu:%02lu",
+         (unsigned long)(nextPenalty / 60),
+         (unsigned long)(nextPenalty % 60));
 }
 
 void LcdDisplay::showExpiredDeadline(int64_t graceSecondsLeft, int64_t overdueSeconds,
@@ -237,31 +233,27 @@ void LcdDisplay::showExpiredDeadline(int64_t graceSecondsLeft, int64_t overdueSe
     if (messageActive()) return;
 
     if (graceSecondsLeft > 0) {
-        row(0, locked ? "RETURN  LOCKED  " : "RETURN  UNLOCKED");
+        row(0, locked ? "BIKE RETURN LOCK" : "BIKE RETURN OPEN");
 
         const unsigned long m = (unsigned long)(graceSecondsLeft / 60);
         const unsigned long s = (unsigned long)(graceSecondsLeft % 60);
-        rowf(1, "GRACE   %02lu:%02lu   ", m, s);
+        rowf(1, "RETURN  %02lu:%02lu", m, s);
         return;
     }
 
     const uint32_t lateSeconds = overdueSeconds > 0
         ? (uint32_t)overdueSeconds
         : 0;
-    if (((lateSeconds / 2) % 2) == 0) {
-        row(0, locked ? "OVERDUE LOCKED  " : "OVERDUE UNLOCKED");
+    if (penaltyCurrent) {
+        rowf(0, "PENALTY PHP%.2f", serverPenalty);
     } else {
-        if (penaltyCurrent) {
-            rowf(0, "FEE PHP%.2f", serverPenalty);
-        } else {
-            row(0, "FEE SYNCING...  ");
-        }
+        row(0, "PENALTY SYNC... ");
     }
 
-    const unsigned long h = (unsigned long)(lateSeconds / 3600);
-    const unsigned long m = (unsigned long)((lateSeconds % 3600) / 60);
-    const unsigned long s = (unsigned long)(lateSeconds % 60);
-    rowf(1, "LATE    %02lu:%02lu:%02lu", h % 100, m, s);
+    const uint32_t nextPenalty = RETURN_GRACE_SECONDS - (lateSeconds % RETURN_GRACE_SECONDS);
+    rowf(1, "NEXT    %02lu:%02lu",
+         (unsigned long)(nextPenalty / 60),
+         (unsigned long)(nextPenalty % 60));
 }
 
 void LcdDisplay::showConnectionError(const char* line1, const char* line2) {

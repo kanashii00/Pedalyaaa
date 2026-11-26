@@ -87,7 +87,7 @@
     $countdownStatusUrl = route('rider.rentals.active-status');
     $countdownInitialStatus = $activeRental->status;
     $countdownReturnSubmitted = $activeRental->returnRequestedAt !== null;
-    $returnGraceSeconds = max(0, (int) \App\Models\SystemSetting::getValue('returnGraceSeconds', 300));
+    $returnGraceSeconds = \App\Services\RentalService::RETURN_GRACE_SECONDS;
     $returnGraceLabel = $returnGraceSeconds % 60 === 0
         ? floor($returnGraceSeconds / 60) . ' Minute' . ($returnGraceSeconds === 60 ? '' : 's')
         : $returnGraceSeconds . ' Seconds';
@@ -98,6 +98,9 @@
     $returnOverdueSeconds = $countdownDeadline !== null
         ? max(0, now()->getTimestamp() - $countdownDeadline->getTimestamp())
         : 0;
+    $nextPenaltySeconds = $nextPenaltyDeadline
+        ? max(0, $nextPenaltyDeadline->getTimestamp() - now()->getTimestamp())
+        : 300;
 @endphp
                     <div class="active-rental-card">
                         <div class="rental-live-grid">
@@ -132,6 +135,7 @@
                                             <span style="color:#6b6b6b;">Overdue Time</span><strong id="dashboardOverdueTime">{{ floor(($overdueMinutes ?? 0) / 60) }}h {{ ($overdueMinutes ?? 0) % 60 }}m</strong>
                                             <span style="color:#6b6b6b;">Penalty Rate</span><strong>{{ $penaltyRuleText }}</strong>
                                             <span style="color:#6b6b6b;">Current Penalty</span><strong id="dashboardCurrentPenalty" style="color:#C62828;">&#8369;{{ number_format($currentPenalty ?? 0, 2) }}</strong>
+                                            <span style="color:#6b6b6b;">Next Penalty In</span><strong id="dashboardNextPenaltyCountdown">{{ sprintf('%02d:%02d', intdiv($nextPenaltySeconds, 60), $nextPenaltySeconds % 60) }}</strong>
                                             <span style="color:#6b6b6b;">Original Rental Fee</span><strong>&#8369;{{ number_format($activeRental->totalFee ?? 0, 2) }}</strong>
                                             <span style="color:#6b6b6b;">Total Amount Due</span><strong id="dashboardTotalDue" style="color:#C62828;">&#8369;{{ number_format(($activeRental->totalFee ?? 0) + ($currentPenalty ?? 0), 2) }}</strong>
                                         </div>
@@ -155,6 +159,7 @@
                                     <div class="mt-2" id="bikeReturnOverdueDetails"@if(!$returnCountdownExpired) hidden style="display:none;"@endif>
                                         <div>Overdue Duration: <strong id="bikeReturnOverdueValue">{{ sprintf('%02d:%02d:%02d', intdiv($returnOverdueSeconds, 3600), intdiv($returnOverdueSeconds % 3600, 60), $returnOverdueSeconds % 60) }}</strong></div>
                                         <div>Current Penalty: <strong id="bikeReturnPenaltyValue">₱{{ number_format($currentPenalty ?? 0, 2) }}</strong></div>
+                                        <div>Next penalty in: <strong id="bikeReturnPenaltyCountdown">{{ sprintf('%02d:%02d', intdiv($nextPenaltySeconds, 60), $nextPenaltySeconds % 60) }}</strong></div>
                                         <div>Penalty Rate: <strong>₱20 per completed 5 minutes</strong></div>
                                         <div>Total Amount Due: <strong id="bikeReturnTotalDueValue">₱{{ number_format(($activeRental->totalFee ?? 0) + ($currentPenalty ?? 0), 2) }}</strong></div>
                                     </div>
@@ -618,27 +623,48 @@
         var initialReturnSubmitted = @json($countdownReturnSubmitted);
         var statusUrl = @json($countdownStatusUrl);
         var serverTimeIso = @json($countdownServerTimeIso);
+        var nextPenaltyIso = @json($nextPenaltyDeadline?->copy()->utc()->toIso8601String());
         var endTime = target ? new Date(target) : null;
+        var nextPenaltyAt = nextPenaltyIso ? new Date(nextPenaltyIso) : null;
         var expiredShown = false;
 
-        // Client-clock correction: the countdown measures against the
-        // authoritative server clock, not the device clock. The offset is
-        // captured at render and refreshed on every status refetch.
-        var serverOffsetMs = 0;
+        // Anchor server UTC to a monotonic browser clock so wall-clock changes
+        // cannot make the rental countdown jump.
+        var serverAnchorMs = Date.parse(serverTimeIso);
+        var monotonicAnchorMs = window.performance && performance.now ? performance.now() : Date.now();
         try {
-            var renderServerMs = Date.parse(serverTimeIso);
-            if (!isNaN(renderServerMs)) serverOffsetMs = renderServerMs - Date.now();
-        } catch (offsetErr) { /* device clock stands in */ }
+            if (isNaN(serverAnchorMs)) serverAnchorMs = Date.now();
+        } catch (offsetErr) { serverAnchorMs = Date.now(); }
 
         var synced = false;
         var syncing = false;
+        var penaltyRefreshRequested = false;
         var retryTimer = 0;
         var interval = 0;
         var destroyed = false;
         var refreshQueued = false;
 
         function pad(n) { return String(n).padStart(2, '0'); }
-        function nowMs() { return Date.now() + serverOffsetMs; }
+        function monotonicNowMs() {
+            return window.performance && performance.now
+                ? performance.now()
+                : Date.now();
+        }
+        function nowMs() { return serverAnchorMs + (monotonicNowMs() - monotonicAnchorMs); }
+        function syncServerClock(iso) {
+            var serverMs = Date.parse(iso || '');
+            if (!isNaN(serverMs)) {
+                serverAnchorMs = serverMs;
+                monotonicAnchorMs = monotonicNowMs();
+            }
+        }
+        function setNextPenaltyDeadline(iso) {
+            var parsed = iso ? new Date(iso) : null;
+            if (parsed && !isNaN(parsed.getTime())) {
+                nextPenaltyAt = parsed;
+                penaltyRefreshRequested = false;
+            }
+        }
         function byId(id) { return document.getElementById(id); }
         function show(el) { if (el) { el.hidden = false; el.style.display = ''; } }
         function hide(el) { if (el) { el.hidden = true; el.style.display = 'none'; } }
@@ -781,10 +807,7 @@
         function applyStatus(payload) {
             syncing = false;
             if (destroyed) return;
-            try {
-                var serverMs = Date.parse(payload && payload.serverTime);
-                if (!isNaN(serverMs)) serverOffsetMs = serverMs - Date.now();
-            } catch (clockErr) { /* keep the previous offset */ }
+            syncServerClock(payload && payload.serverTime);
             var rental = payload && payload.rental;
             if (!rental) {
                 // Nothing live anymore (settled elsewhere): freeze at zero.
@@ -809,6 +832,7 @@
             initialStatus = rental.status;
             initialReturnSubmitted = !!rental.returnSubmitted;
             overdueReturn = rental.status === 'overdue_return';
+            setNextPenaltyDeadline(rental.nextPenaltyDeadline);
             setCountdownPresentation(rental.status);
             setCurrentPenalty(rental.currentPenalty);
             if (rental.returnRequestedAt) setReturnSubmittedAt(rental.returnRequestedAt);
@@ -958,6 +982,18 @@
                             dashboardOverdueTime.textContent = overdueHours + 'h ' + overdueMinutes + 'm';
                         }
                     }
+                    var penaltyCountdown = nextPenaltyAt && !isNaN(nextPenaltyAt.getTime())
+                        ? Math.max(0, Math.ceil((nextPenaltyAt.getTime() - nowMs()) / 1000))
+                        : 300;
+                    var penaltyLabel = pad(Math.floor(penaltyCountdown / 60)) + ':' + pad(penaltyCountdown % 60);
+                    var penaltyNode = byId('bikeReturnPenaltyCountdown');
+                    var dashboardPenaltyNode = byId('dashboardNextPenaltyCountdown');
+                    if (penaltyNode) penaltyNode.textContent = penaltyLabel;
+                    if (dashboardPenaltyNode) dashboardPenaltyNode.textContent = penaltyLabel;
+                    if (penaltyCountdown <= 0 && !penaltyRefreshRequested) {
+                        penaltyRefreshRequested = true;
+                        refreshStatus();
+                    }
                 }
             }
 
@@ -1023,8 +1059,7 @@
 
         function syncState(rental, serverTime) {
             if (destroyed || !rental) return;
-            var serverMs = Date.parse(serverTime || '');
-            if (!isNaN(serverMs)) serverOffsetMs = serverMs - Date.now();
+            syncServerClock(serverTime);
             if (rental.deadline) {
                 var next = new Date(rental.deadline);
                 if (!isNaN(next.getTime())) {
@@ -1034,6 +1069,7 @@
             }
             initialStatus = rental.status;
             overdueReturn = rental.status === 'overdue_return';
+            setNextPenaltyDeadline(rental.nextPenaltyDeadline);
             setCountdownPresentation(rental.status);
             setCurrentPenalty(rental.currentPenalty);
             updateTimer();

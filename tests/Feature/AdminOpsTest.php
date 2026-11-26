@@ -61,6 +61,20 @@ class AdminOpsTest extends TestCase
         $this->assertDatabaseMissing('system_settings', ['key' => 'lateReturnPenaltyPerHour']);
     }
 
+    public function test_settings_cannot_override_the_fixed_five_minute_return_period(): void
+    {
+        $this->adminAuth();
+
+        $this->get(route('admin.settings.index'))
+            ->assertOk()
+            ->assertDontSee('name="returnGraceSeconds"', false)
+            ->assertSee('Bike Return Period');
+
+        $this->putJson(route('admin.settings.update'), [
+            'returnGraceSeconds' => 0,
+        ])->assertUnprocessable();
+    }
+
     public function test_settings_update_stores_values_and_updates_geofence(): void
     {
         $this->adminAuth();

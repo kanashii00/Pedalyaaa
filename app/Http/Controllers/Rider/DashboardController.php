@@ -55,10 +55,12 @@ class DashboardController extends Controller
         $currentPenalty = null;
         $overdueMinutes = null;
         $countdownDeadline = null;
+        $nextPenaltyDeadline = null;
         if ($activeRental) {
             $rentalService = app(RentalService::class);
             $countdownDeadline = $rentalService->riderCountdownDeadline($activeRental);
             $currentPenalty = $rentalService->calculatePenaltyForRental($activeRental, now());
+            $nextPenaltyDeadline = $rentalService->nextPenaltyDeadlineForRental($activeRental, now());
         }
         if (
             $activeRental
@@ -72,6 +74,7 @@ class DashboardController extends Controller
             'user' => $user,
             'activeRental' => $activeRental,
             'countdownDeadline' => $countdownDeadline,
+            'nextPenaltyDeadline' => $nextPenaltyDeadline,
             'recentRentals' => $recentRentals,
             'mapBicycles' => $mapBicycles,
             'geofence' => $geofence,
@@ -131,6 +134,11 @@ class DashboardController extends Controller
                     ], true),
                 'deadline' => $rentalService->riderCountdownDeadline($activeRental)?->copy()->utc()->toIso8601String(),
                 'currentPenalty' => $rentalService->calculatePenaltyForRental($activeRental, $now),
+                'nextPenaltyDeadline' => $rentalService
+                    ->nextPenaltyDeadlineForRental($activeRental, $now)
+                    ?->copy()
+                    ->utc()
+                    ->toIso8601String(),
             ] : null,
             'stats' => [
                 'totalRentals' => $user->rentals()->count(),

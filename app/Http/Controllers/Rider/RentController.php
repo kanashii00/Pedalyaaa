@@ -95,7 +95,7 @@ class RentController extends Controller
         return $featuredId === null ? [-1 => true] : [(int) $featuredId => true];
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request): JsonResponse|RedirectResponse
     {
         $maxDurationMinutes = $this->maxDurationMinutes();
 
@@ -103,6 +103,7 @@ class RentController extends Controller
             'bicycleId'       => ['required', 'integer', 'exists:bicycles,id'],
             'paymentMethod'   => ['required', 'string', 'in:cash'],
             'durationMinutes' => ['required', 'integer', 'min:1', "max:{$maxDurationMinutes}"],
+            'rentalRequestKey' => ['sometimes', 'required', 'uuid'],
         ], [
             'durationMinutes.required' => 'Please choose how long you want to rent the bicycle.',
             'durationMinutes.integer'  => 'The rental duration must be a whole number of minutes.',
@@ -110,65 +111,82 @@ class RentController extends Controller
             'durationMinutes.max'      => "The rental duration cannot exceed {$maxDurationMinutes} minutes.",
         ]);
 
+        // Let a replay of an already accepted request reach the idempotent
+        // service even if fleet configuration changed after the first submit.
+        $existingRequest = $request->filled('rentalRequestKey')
+            ? Rental::query()
+                ->where('rentalRequestKey', $request->input('rentalRequestKey'))
+                ->where('riderId', $request->user()->id)
+                ->first()
+            : null;
+
         // The greyed-out cards are only a visual cue, so the same limit has to
         // be enforced here or a crafted POST could still rent another bicycle.
         $selectable = $this->selectableBicycleIds();
 
-        if ($selectable !== [] && ! isset($selectable[(int) $request->bicycleId])) {
+        if (
+            $existingRequest === null
+            && $selectable !== []
+            && ! isset($selectable[(int) $request->bicycleId])
+        ) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'That bicycle is not available for rent right now.'], 422);
+            }
+
             return back()->withErrors([
                 'bicycleId' => 'That bicycle is not available for rent right now.',
             ]);
         }
 
-        // Re-read the bicycle and re-check its status at submit time. The card
-        // the rider clicked was rendered from whatever status held when the
-        // page loaded, and an administrator may have ended a ride (freeing the
-        // bicycle) or pulled it into maintenance since. startRental() also
-        // guards this, but failing here produces a field-level message instead
-        // of a generic 500-equivalent error page.
-        $bicycle = Bicycle::find($request->bicycleId);
-
-        if ($bicycle === null) {
-            return back()->withErrors([
-                'bicycleId' => 'That bicycle no longer exists.',
-            ]);
-        }
-
-        if ($bicycle->status !== Bicycle::STATUS_AVAILABLE) {
-            return back()->withErrors([
-                'bicycleId' => 'That bicycle is not available for rent right now. Please pick another bicycle.',
-            ]);
-        }
-
-        // The last line of defence, and the one the greyed-out cards cannot skip:
-        // a bicycle that is not in service has no lock to open, so it can never
-        // start a rental no matter how the request was crafted.
-        if (! $bicycle->isInService()) {
-            return back()->withErrors([
-                'bicycleId' => 'That bicycle is not in service and cannot be rented.',
-            ]);
-        }
-
         $user = $request->user();
 
-        $redirect = redirect()->route('rider.dashboard')
-            ->with('success', 'Rental started successfully. Pay at the station upon return.');
-
         try {
-            $this->rentalService->startRental(
+            $rental = $this->rentalService->startRental(
                 $user,
-                $request->bicycleId,
+                (int) $request->bicycleId,
                 (int) $request->durationMinutes,
                 'cash',
+                null,
+                $request->input('rentalRequestKey'),
+                $request->expectsJson(),
             );
+
+            if ($request->expectsJson()) {
+                $serverTime = now()->utc();
+
+                return response()->json([
+                    'rental' => [
+                        'id' => $rental->id,
+                        'rentalId' => $rental->rentalId,
+                        'requestKey' => $rental->rentalRequestKey,
+                        'status' => $rental->status,
+                        'startTimeUtc' => $rental->startTime?->copy()->utc()->toIso8601String(),
+                        'rentalDeadlineUtc' => $rental->expectedEndTime?->copy()->utc()->toIso8601String(),
+                        'returnDeadlineUtc' => $this->rentalService
+                            ->returnGraceDeadlineForRental($rental)
+                            ?->utc()
+                            ->toIso8601String(),
+                    ],
+                    'serverTimeUtc' => $serverTime->toIso8601String(),
+                ]);
+            }
         } catch (RentalException $e) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+
             return back()->withErrors(['bicycleId' => $e->getMessage()]);
         } catch (\Throwable $e) {
             Log::error('Rider failed to start rental', ['error' => $e->getMessage()]);
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Unable to start the rental. Please try again.'], 500);
+            }
+
             return back()->withErrors(['bicycleId' => 'Unable to start the rental. Please try again.']);
         }
 
-        return $redirect;
+        return redirect()->route('rider.dashboard')
+            ->with('success', 'Rental started successfully. Pay at the station upon return.');
     }
 
     /**
@@ -228,12 +246,24 @@ class RentController extends Controller
             'rental' => [
                 'id' => $rental->id,
                 'rentalId' => $rental->rentalId,
+                'requestKey' => $rental->rentalRequestKey,
                 'status' => $rental->status,
                 'returnRequestedAt' => optional($rental->returnRequestedAt)->toIso8601String(),
                 'deadline' => $deadline?->copy()->utc()->toIso8601String(),
+                'returnGraceDeadline' => $this->rentalService
+                    ->returnGraceDeadlineForRental($rental)
+                    ?->utc()
+                    ->toIso8601String(),
+                'startTime' => $rental->startTime?->copy()->utc()->toIso8601String(),
                 'returnDeadline' => optional($rental->returnDeadline)->toIso8601String(),
                 'expectedEndTime' => optional($rental->expectedEndTime)->toIso8601String(),
                 'currentPenalty' => $this->rentalService->calculatePenaltyForRental($rental, $now),
+                'secondsUntilNextPenalty' => $this->rentalService->secondsUntilNextPenalty($rental, $now),
+                'nextPenaltyDeadline' => $this->rentalService
+                    ->nextPenaltyDeadlineForRental($rental, $now)
+                    ?->copy()
+                    ->utc()
+                    ->toIso8601String(),
                 'canReturn' => $canReturn,
                 'canExtend' => $canExtend,
                 'returnSubmitted' => $returnSubmitted,

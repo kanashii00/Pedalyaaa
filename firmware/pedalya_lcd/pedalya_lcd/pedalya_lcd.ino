@@ -329,8 +329,12 @@ static String lastError;
 
 static uint32_t pollIntervalMs() { return (uint32_t)state.pollAfterSeconds * 1000UL; }
 
-static bool penaltySnapshotCurrent(const RentalState& rental) {
+static bool rentalSnapshotCurrent(const RentalState& rental) {
     if (rental.syncedAtMs == 0) return false;
+    if (rental.nextPenaltyDeadlineTs > 0 &&
+        rental.serverNow() >= rental.nextPenaltyDeadlineTs) {
+        return false;
+    }
     const uint32_t maxAgeMs = (uint32_t)rental.pollAfterSeconds * 1000UL + REQUEST_TIMEOUT_MS;
     return (uint32_t)(millis() - rental.syncedAtMs) <= maxAgeMs;
 }
@@ -422,12 +426,12 @@ static void paintScreen() {
                     state.returnCountdownOverdueSeconds(),
                     state.penaltyAccrued,
                     lock.locked(),
-                    penaltySnapshotCurrent(state)
+                    rentalSnapshotCurrent(state)
                 );
             } else {
                 display.showExpiredPhase(
                     timer.seconds(), state.penaltyAccrued, lock.locked(),
-                    penaltySnapshotCurrent(state)
+                    rentalSnapshotCurrent(state)
                 );
             }
         } else {
@@ -492,7 +496,9 @@ static void countdownDisplayTask(void*) {
             xSemaphoreGive(countdownSnapshotMutex);
 
             if (snapshot.rental.hasRental && !display.messageActive()) {
-                if (snapshot.accidentPending && ((millis() / 2000UL) % 2) == 0) {
+                if (!rentalSnapshotCurrent(snapshot.rental)) {
+                    display.showConnectionError("DATA STALE", "RECONNECTING...");
+                } else if (snapshot.accidentPending && ((millis() / 2000UL) % 2) == 0) {
                     display.showAccidentAlert(false, snapshot.accidentHasFix);
                 } else if (snapshot.rental.expired()) {
                     if (snapshot.rental.returnCountdownDeadlineTs > 0) {
@@ -501,14 +507,14 @@ static void countdownDisplayTask(void*) {
                             snapshot.rental.returnCountdownOverdueSeconds(),
                             snapshot.rental.penaltyAccrued,
                             snapshot.locked,
-                            penaltySnapshotCurrent(snapshot.rental)
+                            rentalSnapshotCurrent(snapshot.rental)
                         );
                     } else {
                         display.showExpiredPhase(
                             snapshot.rental.serverOverdueSeconds,
                             snapshot.rental.penaltyAccrued,
                             snapshot.locked,
-                            penaltySnapshotCurrent(snapshot.rental)
+                            rentalSnapshotCurrent(snapshot.rental)
                         );
                     }
                 } else {

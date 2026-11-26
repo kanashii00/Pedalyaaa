@@ -29,7 +29,6 @@ class SettingController extends Controller
         'deviceTimeoutMinutes' => 5,
         'lowBatteryThreshold' => 20,
         'overdueBuzzerMinutes' => 5,
-        'returnGraceSeconds' => 300,
     ];
 
     public function index(): Response
@@ -60,7 +59,7 @@ class SettingController extends Controller
             'deviceTimeoutMinutes'   => ['sometimes', 'integer', 'min:1'],
             'lowBatteryThreshold'    => ['sometimes', 'integer', 'min:0', 'max:100'],
             'overdueBuzzerMinutes'   => ['sometimes', 'integer', 'min:0'],
-            'returnGraceSeconds'     => ['sometimes', 'integer', 'min:0', 'max:86400'],
+            'returnGraceSeconds'     => ['prohibited'],
         ]);
 
         $previousValues = SystemSetting::whereIn('key', array_keys($validated))

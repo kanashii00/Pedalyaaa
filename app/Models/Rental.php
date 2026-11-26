@@ -126,6 +126,7 @@ class Rental extends Model
 
     protected $fillable = [
         'rentalId',
+        'rentalRequestKey',
         'bicycleId',
         'bicycleName',
         'bicycleSerial',

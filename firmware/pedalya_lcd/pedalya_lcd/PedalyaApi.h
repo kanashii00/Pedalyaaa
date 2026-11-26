@@ -24,6 +24,7 @@ struct RentalState {
     int64_t deadlineTs       = 0;
     int64_t returnGraceStartedAtTs = 0;
     int64_t returnCountdownDeadlineTs = 0;
+    int64_t nextPenaltyDeadlineTs = 0;
     uint32_t serverOverdueSeconds = 0;
     int64_t serverUnix       = 0;
     int64_t serverUnixMs     = 0;
@@ -50,6 +51,7 @@ struct RentalState {
         deadlineTs    = 0;
         returnGraceStartedAtTs = 0;
         returnCountdownDeadlineTs = 0;
+        nextPenaltyDeadlineTs = 0;
         serverOverdueSeconds = 0;
         isOverdue     = false;
         penaltyAccrued   = 0.0f;

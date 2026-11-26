@@ -183870,3 +183870,323 @@ Did you mean one of these?
 #7 C:/Users/Administrator/pedalya/artisan(12): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
 #8 {main}
 "} 
+[2026-11-27 00:59:44] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 00:59:44] testing.DEBUG: [TheftDetection] RECONCILE creating missing open alert {"bicycleId":1,"lat":14.5995,"lng":120.9842,"distanceOutside":973905.313143496,"level":"breach","source":"read_path_reconcile"} 
+[2026-11-27 00:59:45] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 00:59:45] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 00:59:45] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 00:59:45] testing.DEBUG: [TheftDetection] RESOLVING alert on return {"bicycleId":1,"alertId":1,"status":"returned"} 
+[2026-11-27 00:59:46] testing.INFO: Broadcasting [GpsUpdate] on channels [private-gps.1] with payload:
+{
+    "bicycle": {
+        "id": 1,
+        "name": "Test Bike",
+        "lat": 7.099,
+        "lng": 125.647,
+        "speed": null,
+        "battery": 90,
+        "accuracy": null,
+        "hdop": null,
+        "satellites": null,
+        "locked": true,
+        "lockStatus": "locked",
+        "status": "rented",
+        "zone": "safe",
+        "zone_distance": 0,
+        "lastGpsUpdate": "2026-11-27T00:59:45+08:00",
+        "updated_at": "2026-11-27T00:59:46+08:00"
+    },
+    "socket": null
+}  
+[2026-11-27 00:59:55] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "info",
+    "title": "Hello",
+    "message": "World",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T00:59:55+08:00",
+    "socket": null
+}  
+[2026-11-27 00:59:55] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.3] with payload:
+{
+    "id": 2,
+    "type": "info",
+    "title": "Hello",
+    "message": "World",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T00:59:55+08:00",
+    "socket": null
+}  
+[2026-11-27 00:59:58] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "info",
+    "title": "Single",
+    "message": "Msg",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T00:59:58+08:00",
+    "socket": null
+}  
+[2026-11-27 01:00:00] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "warning",
+    "title": "Multi",
+    "message": "Msg",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:00:00+08:00",
+    "socket": null
+}  
+[2026-11-27 01:00:00] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.3] with payload:
+{
+    "id": 2,
+    "type": "warning",
+    "title": "Multi",
+    "message": "Msg",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:00:00+08:00",
+    "socket": null
+}  
+[2026-11-27 01:00:02] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "info",
+    "title": "Plain",
+    "message": "Form",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:00:02+08:00",
+    "socket": null
+}  
+[2026-11-27 01:09:06] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 01:09:06] testing.DEBUG: [TheftDetection] RECONCILE creating missing open alert {"bicycleId":1,"lat":14.5995,"lng":120.9842,"distanceOutside":973905.313143496,"level":"breach","source":"read_path_reconcile"} 
+[2026-11-27 01:09:06] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 01:09:07] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 01:09:07] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 01:09:08] testing.DEBUG: [TheftDetection] RESOLVING alert on return {"bicycleId":1,"alertId":1,"status":"returned"} 
+[2026-11-27 01:09:08] testing.INFO: Broadcasting [GpsUpdate] on channels [private-gps.1] with payload:
+{
+    "bicycle": {
+        "id": 1,
+        "name": "Test Bike",
+        "lat": 7.099,
+        "lng": 125.647,
+        "speed": null,
+        "battery": 90,
+        "accuracy": null,
+        "hdop": null,
+        "satellites": null,
+        "locked": true,
+        "lockStatus": "locked",
+        "status": "rented",
+        "zone": "safe",
+        "zone_distance": 0,
+        "lastGpsUpdate": "2026-11-27T01:09:07+08:00",
+        "updated_at": "2026-11-27T01:09:08+08:00"
+    },
+    "socket": null
+}  
+[2026-11-27 01:09:14] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "info",
+    "title": "Hello",
+    "message": "World",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:09:14+08:00",
+    "socket": null
+}  
+[2026-11-27 01:09:14] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.3] with payload:
+{
+    "id": 2,
+    "type": "info",
+    "title": "Hello",
+    "message": "World",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:09:14+08:00",
+    "socket": null
+}  
+[2026-11-27 01:09:16] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "info",
+    "title": "Single",
+    "message": "Msg",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:09:16+08:00",
+    "socket": null
+}  
+[2026-11-27 01:09:18] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "warning",
+    "title": "Multi",
+    "message": "Msg",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:09:18+08:00",
+    "socket": null
+}  
+[2026-11-27 01:09:18] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.3] with payload:
+{
+    "id": 2,
+    "type": "warning",
+    "title": "Multi",
+    "message": "Msg",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:09:18+08:00",
+    "socket": null
+}  
+[2026-11-27 01:09:20] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "info",
+    "title": "Plain",
+    "message": "Form",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:09:20+08:00",
+    "socket": null
+}  
+[2026-11-27 01:11:35] testing.ERROR: Rider failed to start rental {"error":"boom"} 
+[2026-11-27 01:14:38] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 01:14:38] testing.DEBUG: [TheftDetection] RECONCILE creating missing open alert {"bicycleId":1,"lat":14.5995,"lng":120.9842,"distanceOutside":973905.313143496,"level":"breach","source":"read_path_reconcile"} 
+[2026-11-27 01:14:38] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 01:14:38] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 01:14:39] testing.DEBUG: [TheftController] reconcile outside pin -> ensure alert {"bicycleId":1,"lat":"14.5995000","lng":"120.9842000","level":"breach","distanceOutside":973905.313143496} 
+[2026-11-27 01:14:39] testing.DEBUG: [TheftDetection] RESOLVING alert on return {"bicycleId":1,"alertId":1,"status":"returned"} 
+[2026-11-27 01:14:39] testing.INFO: Broadcasting [GpsUpdate] on channels [private-gps.1] with payload:
+{
+    "bicycle": {
+        "id": 1,
+        "name": "Test Bike",
+        "lat": 7.099,
+        "lng": 125.647,
+        "speed": null,
+        "battery": 90,
+        "accuracy": null,
+        "hdop": null,
+        "satellites": null,
+        "locked": true,
+        "lockStatus": "locked",
+        "status": "rented",
+        "zone": "safe",
+        "zone_distance": 0,
+        "lastGpsUpdate": "2026-11-27T01:14:39+08:00",
+        "updated_at": "2026-11-27T01:14:39+08:00"
+    },
+    "socket": null
+}  
+[2026-11-27 01:14:45] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "info",
+    "title": "Hello",
+    "message": "World",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:14:45+08:00",
+    "socket": null
+}  
+[2026-11-27 01:14:45] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.3] with payload:
+{
+    "id": 2,
+    "type": "info",
+    "title": "Hello",
+    "message": "World",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:14:45+08:00",
+    "socket": null
+}  
+[2026-11-27 01:14:47] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "info",
+    "title": "Single",
+    "message": "Msg",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:14:47+08:00",
+    "socket": null
+}  
+[2026-11-27 01:14:49] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "warning",
+    "title": "Multi",
+    "message": "Msg",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:14:49+08:00",
+    "socket": null
+}  
+[2026-11-27 01:14:49] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.3] with payload:
+{
+    "id": 2,
+    "type": "warning",
+    "title": "Multi",
+    "message": "Msg",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:14:49+08:00",
+    "socket": null
+}  
+[2026-11-27 01:14:51] testing.INFO: Broadcasting [notification.created] on channels [private-App.Models.User.2] with payload:
+{
+    "id": 1,
+    "type": "info",
+    "title": "Plain",
+    "message": "Form",
+    "read": false,
+    "rentalId": null,
+    "bicycleId": null,
+    "incidentId": null,
+    "created_at": "2026-11-27T01:14:51+08:00",
+    "socket": null
+}  
+[2026-11-27 01:17:06] testing.ERROR: Rider failed to start rental {"error":"boom"} 

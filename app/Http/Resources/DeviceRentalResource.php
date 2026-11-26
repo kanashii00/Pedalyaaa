@@ -67,7 +67,8 @@ class DeviceRentalResource extends JsonResource
         /** @var Rental $rental */
         $rental = $this->resource;
         $clock = $this->rentalService->rentalClockFor($rental, $this->serverTime);
-        $countdownDeadline = $this->rentalService->deviceCountdownDeadline($rental, $this->serverTime);
+        $countdownDeadline = $this->rentalService->returnGraceDeadlineForRental($rental);
+        $nextPenaltyDeadline = $this->rentalService->nextPenaltyDeadlineForRental($rental, $this->serverTime);
 
         return [
             'rentalId' => $rental->rentalId,
@@ -84,7 +85,7 @@ class DeviceRentalResource extends JsonResource
             'returnDeadlineTimestamp' => $clock['effectiveDeadline']?->getTimestamp(),
             'returnGraceStartedAtUtc' => $rental->returnGraceStartedAt?->copy()->utc()->toIso8601String(),
             'returnGraceStartedAtTimestamp' => $rental->returnGraceStartedAt?->getTimestamp(),
-            'returnGraceDeadlineUtc' => $rental->returnGraceDeadline?->copy()->utc()->toIso8601String(),
+            'returnGraceDeadlineUtc' => $countdownDeadline?->copy()->utc()->toIso8601String(),
             'returnCountdownDeadlineUtc' => $countdownDeadline?->copy()->utc()->toIso8601String(),
             'returnCountdownDeadlineTimestamp' => $countdownDeadline?->getTimestamp(),
             'deadlineBasis' => $clock['deadlineBasis'],
@@ -106,6 +107,7 @@ class DeviceRentalResource extends JsonResource
                 'ruleValue' => $clock['rule']['value'],
                 'isDefaultRate' => $clock['rule']['isDefaultRate'],
                 'projectedTotal' => $clock['projectedTotal'],
+                'nextPenaltyDeadlineTimestamp' => $nextPenaltyDeadline?->getTimestamp(),
             ],
         ];
     }

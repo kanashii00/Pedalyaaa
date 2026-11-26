@@ -62,7 +62,7 @@ class RiderActiveStatusTest extends TestCase
 
         $this->getStatus($rider)
             ->assertOk()
-            ->assertJsonPath('rental.deadline', $expectedDeadline->toIso8601String());
+            ->assertJsonPath('rental.deadline', $expectedDeadline->copy()->utc()->toIso8601String());
     }
 
     public function test_expired_rental_is_promoted_before_it_is_reported(): void

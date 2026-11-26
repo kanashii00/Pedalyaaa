@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Bicycle;
 use App\Models\Rental;
-use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\RentalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -145,7 +144,7 @@ class RiderDashboardCountdownTest extends TestCase
             'startTime' => $expectedEnd->copy()->subHour(),
             'expectedEndTime' => $expectedEnd,
         ]);
-        $deadline = $expectedEnd->copy()->addSeconds((int) SystemSetting::getValue('returnGraceSeconds', 300));
+        $deadline = $expectedEnd->copy()->addSeconds(RentalService::RETURN_GRACE_SECONDS);
 
         $html = $this->actingAs($rider)->get(route('rider.dashboard'))->assertOk()->getContent();
         $target = new Carbon($this->dashboardTarget($rider));
@@ -214,7 +213,7 @@ class RiderDashboardCountdownTest extends TestCase
             'expectedEndTime' => $expectedEnd,
         ]);
 
-        $expectedDeadline = $expectedEnd->copy()->addSeconds((int) SystemSetting::getValue('returnGraceSeconds', 300));
+        $expectedDeadline = $expectedEnd->copy()->addSeconds(RentalService::RETURN_GRACE_SECONDS);
 
         $response = $this->actingAs($rider)
             ->getJson(route('rider.dashboard.state'))
