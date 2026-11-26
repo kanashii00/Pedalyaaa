@@ -297,7 +297,7 @@
                         </span>
                     </td>
                     <td data-label="Speed">
-                        <span data-gps-field="speed">{{ $speed['speed'] !== null ? number_format($speed['speed'], 2).' km/h' : 'N/A' }}</span>
+                        <span data-gps-field="speed">{{ $speed['speed'] !== null ? number_format($speed['speed'], 1).' km/h' : 'N/A' }}</span>
                         <small class="badge-admin {{ $speedSourceClass }} d-block mt-1" data-gps-field="speed-source">{{ $speedSource }}</small>
                     </td>
                     <td data-label="Distance from center" data-gps-field="distance">{{ $bike->zone['distance'] !== null ? number_format($bike->zone['distance'], 0) . ' m' : 'N/A' }}</td>
@@ -604,7 +604,7 @@
                 speedValue.textContent = bike.speed_kmh !== null
                     && bike.speed_kmh !== undefined
                     && Number.isFinite(Number(bike.speed_kmh))
-                    ? Number(bike.speed_kmh).toFixed(2) + ' km/h'
+                    ? Number(bike.speed_kmh).toFixed(1) + ' km/h'
                     : 'N/A';
             }
             if (speedSource) {

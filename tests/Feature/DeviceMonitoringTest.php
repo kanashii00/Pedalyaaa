@@ -220,8 +220,9 @@ class DeviceMonitoringTest extends TestCase
             ->get(route('admin.monitoring.index', ['section' => 'gps']))
             ->assertOk()
             ->getContent();
-        $this->assertStringContainsString('0.00 km/h', $html);
+        $this->assertStringContainsString('0.0 km/h', $html);
         $this->assertStringContainsString('Hall Effect sensor', $html);
+        $this->assertStringContainsString('Number(bike.speed_kmh).toFixed(1)', $html);
 
         $rows = $this->actingAs($admin)->getJson(route('admin.monitoring.live'))
             ->assertOk()
@@ -248,7 +249,7 @@ class DeviceMonitoringTest extends TestCase
             ->get(route('admin.monitoring.index', ['section' => 'gps']))
             ->assertOk()
             ->getContent();
-        $this->assertStringContainsString('12.34 km/h', $html);
+        $this->assertStringContainsString('12.3 km/h', $html);
         $this->assertStringContainsString('GPS fallback', $html);
 
         $rows = $this->actingAs($admin)->getJson(route('admin.monitoring.live'))
