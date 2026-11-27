@@ -309,7 +309,7 @@
 #endif
 
 #ifndef HALL_SENSOR_PIN
-#define HALL_SENSOR_PIN 32
+#define HALL_SENSOR_PIN 33
 #endif
 
 #ifndef HALL_PULSES_PER_REVOLUTION
