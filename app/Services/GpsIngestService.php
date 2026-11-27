@@ -6,6 +6,7 @@ use App\Events\GeofenceAlert;
 use App\Events\GpsUpdate;
 use App\Models\Accident;
 use App\Models\Bicycle;
+use App\Models\DeviceStatus;
 use App\Models\GpsLog;
 
 /**
@@ -71,6 +72,10 @@ class GpsIngestService
             'source' => 'gps',
         ]);
 
+        if (array_key_exists('speedSensorStatus', $data)) {
+            $this->recordHallTelemetry($bicycle, $data);
+        }
+
         // lastGpsUpdate is written in the same statement as the coordinates on
         // purpose: it is what makes currentLat/currentLng trustworthy as a GPS
         // position rather than a seeded placeholder. Nothing else sets it.
@@ -103,6 +108,16 @@ class GpsIngestService
             'gps_log' => $gpsLog,
             'geofence' => $geofence,
         ];
+    }
+
+    public function recordHallTelemetry(Bicycle $bicycle, array $data): DeviceStatus
+    {
+        return DeviceStatus::create([
+            'bicycleId' => $bicycle->id,
+            ...HallSpeedTelemetry::attributesFor($bicycle, $data),
+            'type' => 'gps',
+            'eventTimestamp' => now(),
+        ]);
     }
 
     /**

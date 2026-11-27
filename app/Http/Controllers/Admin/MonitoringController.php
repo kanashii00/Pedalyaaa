@@ -39,7 +39,7 @@ class MonitoringController extends Controller
         // deleted here); the devices section itself decides per row whether a
         // genuinely registered device backs it. The latest lock command rides
         // along so the "last command result" tile reads real ack state.
-        $bicycles = Bicycle::with(['latestTelemetry', 'latestHeartbeatTelemetry', 'latestGpsLog', 'currentRiderUser', 'currentRental', 'latestCommand'])
+        $bicycles = Bicycle::with(['latestTelemetry', 'latestSpeedTelemetry', 'latestGpsLog', 'currentRiderUser', 'currentRental', 'latestCommand'])
 
             ->where('status', '!=', 'removed')
             ->orderBy('id')
@@ -161,7 +161,7 @@ class MonitoringController extends Controller
 
     public function live(): JsonResponse
     {
-        $bicycles = Bicycle::with(['latestGpsLog', 'latestTelemetry', 'latestHeartbeatTelemetry', 'currentRiderUser', 'currentRental'])
+        $bicycles = Bicycle::with(['latestGpsLog', 'latestTelemetry', 'latestSpeedTelemetry', 'currentRiderUser', 'currentRental'])
             ->where('status', '!=', 'removed')
             ->orderBy('id')
             ->get();
@@ -268,7 +268,7 @@ class MonitoringController extends Controller
         $circumference = $bicycle->wheelCircumferenceM !== null
             ? (float) $bicycle->wheelCircumferenceM
             : null;
-        $telemetry = $bicycle->latestHeartbeatTelemetry;
+        $telemetry = $bicycle->latestSpeedTelemetry;
         $telemetryIsFresh = $telemetry?->eventTimestamp !== null
             && $telemetry->eventTimestamp->greaterThanOrEqualTo(now()->subSeconds(45));
 

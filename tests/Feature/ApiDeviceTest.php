@@ -284,6 +284,59 @@ class ApiDeviceTest extends TestCase
         $this->assertNotNull($bike->fresh()->lastGpsUpdate);
     }
 
+    public function test_bicycle_gps_path_records_hall_speed_without_replacing_gps_speed(): void
+    {
+        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.1]);
+        $deviceKey = $bike->issueDeviceKey();
+
+        $this->postJson("/api/iot/bicycle/{$bike->id}/gps", [
+            'lat' => 14.6123456,
+            'lng' => 120.9876543,
+            'speed' => 6.5,
+            'speedKmh' => 12.34,
+            'wheelCircumferenceM' => 2.1,
+            'hallPulseCount' => 48,
+            'speedSensorStatus' => 'active',
+        ], ['X-API-Key' => $deviceKey])->assertOk();
+
+        $this->assertDatabaseHas('gps_logs', [
+            'bicycleId' => $bike->id,
+            'speed' => 6.5,
+        ]);
+        $this->assertDatabaseHas('device_status', [
+            'bicycleId' => $bike->id,
+            'type' => 'gps',
+            'speedKmh' => 12.34,
+            'wheelCircumferenceM' => 2.1,
+            'hallPulseCount' => 48,
+            'speedSensorStatus' => 'active',
+        ]);
+    }
+
+    public function test_bicycle_gps_path_accepts_hall_telemetry_without_a_gps_fix(): void
+    {
+        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.1]);
+        $deviceKey = $bike->issueDeviceKey();
+
+        $this->postJson("/api/iot/bicycle/{$bike->id}/gps", [
+            'speedKmh' => 0,
+            'wheelCircumferenceM' => 2.1,
+            'hallPulseCount' => 48,
+            'speedSensorStatus' => 'stopped',
+        ], ['X-API-Key' => $deviceKey])
+            ->assertOk()
+            ->assertJsonPath('message', 'Hall telemetry recorded');
+
+        $this->assertDatabaseHas('device_status', [
+            'bicycleId' => $bike->id,
+            'type' => 'gps',
+            'speedKmh' => 0,
+            'speedSensorStatus' => 'stopped',
+        ]);
+        $this->assertDatabaseCount('gps_logs', 0);
+        $this->assertNull($bike->fresh()->lastGpsUpdate);
+    }
+
     public function test_gps_location_triggers_geofence_breach(): void
     {
         config(['services.geofence' => ['center_lat' => 15.0, 'center_lng' => 121.0, 'default_radius' => 100, 'warning_threshold' => 50]]);

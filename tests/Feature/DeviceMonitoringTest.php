@@ -51,7 +51,7 @@ class DeviceMonitoringTest extends TestCase
             'deviceVersion' => 'v2.4.1',
             'uptime' => 3723,
             'lockStatus' => Bicycle::LOCK_LOCKED,
-            'type' => 'heartbeat',
+            'type' => 'gps',
             'eventTimestamp' => now()->subMinute(),
         ], $overrides));
     }
@@ -192,7 +192,7 @@ class DeviceMonitoringTest extends TestCase
         $this->assertFalse($parkedRow['has_registered_device']);
     }
 
-    public function test_monitoring_prefers_hall_speed_and_reports_stopped_as_zero(): void
+    public function test_monitoring_prefers_hall_speed_from_gps_telemetry_and_reports_stopped_as_zero(): void
     {
         $admin = $this->makeAdmin();
         $bike = $this->makeBicycle([

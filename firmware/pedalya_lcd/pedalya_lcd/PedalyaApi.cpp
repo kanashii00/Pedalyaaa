@@ -664,6 +664,17 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
     return true;
 }
 
+static void addHallSpeedPayload(JsonDocument& payload, const HallSpeedReading& speed) {
+    payload["speedSensorStatus"] = speed.status;
+    payload["hallPulseCount"] = speed.pulseCount;
+    if (speed.wheelCircumferenceM > 0.0f) {
+        payload["wheelCircumferenceM"] = speed.wheelCircumferenceM;
+    }
+    if (speed.speedAvailable) {
+        payload["speedKmh"] = speed.speedKmh;
+    }
+}
+
 bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptimeSeconds,
                                const HallSpeedReading& speed, String& error) {
     JsonDocument payload;
@@ -674,14 +685,7 @@ bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptime
     if (lockStateKnown) payload["locked"] = locked;
     payload["uptime"] = uptimeSeconds;
     payload["firmware"] = "pedalya-esp32-v1";
-    payload["speedSensorStatus"] = speed.status;
-    payload["hallPulseCount"] = speed.pulseCount;
-    if (speed.wheelCircumferenceM > 0.0f) {
-        payload["wheelCircumferenceM"] = speed.wheelCircumferenceM;
-    }
-    if (speed.speedAvailable) {
-        payload["speedKmh"] = speed.speedKmh;
-    }
+    addHallSpeedPayload(payload, speed);
 
     // Keep the admin and rider maps live even while the modem or GPS receiver
     // is not producing a fresh fix. The backend treats heartbeat lat/lng as the
@@ -704,7 +708,7 @@ bool PedalyaApi::sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptime
 }
 
 bool PedalyaApi::sendGps(double latitude, double longitude, float speedKph,
-                         float heading, String& error) {
+                         float heading, const HallSpeedReading& hallSpeed, String& error) {
     lastGpsFix_.latitude = latitude;
     lastGpsFix_.longitude = longitude;
     lastGpsFix_.speedKph = speedKph;
@@ -717,6 +721,16 @@ bool PedalyaApi::sendGps(double latitude, double longitude, float speedKph,
     payload["lng"] = longitude;
     payload["speed"] = speedKph;
     payload["heading"] = heading;
+    addHallSpeedPayload(payload, hallSpeed);
+    String body;
+    serializeJson(payload, body);
+    return postJson(GPS_PATH, body, error);
+}
+
+bool PedalyaApi::sendHallSpeed(const HallSpeedReading& hallSpeed, String& error) {
+    JsonDocument payload;
+    addHallSpeedPayload(payload, hallSpeed);
+
     String body;
     serializeJson(payload, body);
     return postJson(GPS_PATH, body, error);

@@ -31,6 +31,10 @@ class GpsController extends Controller
             'hdop' => 'nullable|numeric|min:0',
             'satellites' => 'nullable|integer|min:0',
             'battery' => 'nullable|numeric|between:0,100',
+            'speedKmh' => 'nullable|numeric|between:0,60',
+            'wheelCircumferenceM' => 'nullable|numeric|between:0.5,4',
+            'hallPulseCount' => 'nullable|integer|min:0',
+            'speedSensorStatus' => 'nullable|string|in:unconfigured,waiting,active,stopped',
             'timestamp' => 'nullable|date',
         ]);
 
@@ -46,6 +50,10 @@ class GpsController extends Controller
             'hdop' => $validated['hdop'] ?? null,
             'satellites' => $validated['satellites'] ?? null,
             'battery' => $validated['battery'] ?? null,
+            'speedKmh' => $validated['speedKmh'] ?? null,
+            'wheelCircumferenceM' => $validated['wheelCircumferenceM'] ?? null,
+            'hallPulseCount' => $validated['hallPulseCount'] ?? null,
+            'speedSensorStatus' => $validated['speedSensorStatus'] ?? null,
             'timestamp' => $validated['timestamp'] ?? null,
         ]);
 
@@ -59,8 +67,8 @@ class GpsController extends Controller
     public function bicycleLocation(Request $request, Bicycle $bicycle): JsonResponse
     {
         $validated = $request->validate([
-            'lat' => 'required|numeric|between:-90,90',
-            'lng' => 'required|numeric|between:-180,180',
+            'lat' => 'required_with:lng|nullable|numeric|between:-90,90',
+            'lng' => 'required_with:lat|nullable|numeric|between:-180,180',
             'speed' => 'nullable|numeric|min:0',
             'heading' => 'nullable|numeric|between:0,360',
             'altitude' => 'nullable|numeric',
@@ -68,8 +76,21 @@ class GpsController extends Controller
             'hdop' => 'nullable|numeric|min:0',
             'satellites' => 'nullable|integer|min:0',
             'battery' => 'nullable|numeric|between:0,100',
+            'speedKmh' => 'nullable|numeric|between:0,60',
+            'wheelCircumferenceM' => 'nullable|numeric|between:0.5,4',
+            'hallPulseCount' => 'nullable|integer|min:0',
+            'speedSensorStatus' => 'required_without_all:lat,lng|nullable|string|in:unconfigured,waiting,active,stopped',
             'timestamp' => 'nullable|date',
         ]);
+
+        if (! isset($validated['lat'], $validated['lng'])) {
+            $telemetry = $this->gpsIngest->recordHallTelemetry($bicycle, $validated);
+
+            return response()->json([
+                'message' => 'Hall telemetry recorded',
+                'telemetry' => $telemetry,
+            ]);
+        }
 
         $recorded = $this->gpsIngest->record($bicycle, [
             'lat' => $validated['lat'],
@@ -81,6 +102,10 @@ class GpsController extends Controller
             'hdop' => $validated['hdop'] ?? null,
             'satellites' => $validated['satellites'] ?? null,
             'battery' => $validated['battery'] ?? null,
+            'speedKmh' => $validated['speedKmh'] ?? null,
+            'wheelCircumferenceM' => $validated['wheelCircumferenceM'] ?? null,
+            'hallPulseCount' => $validated['hallPulseCount'] ?? null,
+            'speedSensorStatus' => $validated['speedSensorStatus'] ?? null,
             'timestamp' => $validated['timestamp'] ?? null,
         ]);
 

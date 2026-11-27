@@ -173,6 +173,13 @@ class Bicycle extends Model
             ->latestOfMany('eventTimestamp');
     }
 
+    public function latestSpeedTelemetry()
+    {
+        return $this->hasOne(DeviceStatus::class, 'bicycleId')
+            ->whereNotNull('speedSensorStatus')
+            ->latestOfMany('eventTimestamp');
+    }
+
     public function latestGpsLog()
     {
         return $this->hasOne(GpsLog::class, 'bicycleId')->latestOfMany('id');

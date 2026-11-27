@@ -180,7 +180,9 @@ public:
     bool acknowledgeCommand(uint32_t commandId, bool executed, const String& result, String& error);
     bool sendHeartbeat(bool locked, bool lockStateKnown, uint32_t uptimeSeconds,
                        const HallSpeedReading& speed, String& error);
-    bool sendGps(double latitude, double longitude, float speedKph, float heading, String& error);
+    bool sendGps(double latitude, double longitude, float speedKph, float heading,
+                 const HallSpeedReading& hallSpeed, String& error);
+    bool sendHallSpeed(const HallSpeedReading& hallSpeed, String& error);
 
     /**
      * Report a possible accident to the backend.

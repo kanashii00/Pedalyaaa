@@ -357,9 +357,12 @@ static void connectWifi() {
  * HTTP timeouts.
  */
 static void reportTelemetry() {
+    static bool hallTelemetryAttempted = false;
+    static uint32_t lastHallTelemetryMs = 0;
     const uint32_t now = millis();
     String error;
     const uint32_t pollInterval = pollIntervalMs();
+    const HallSpeedReading hallReading = hallSpeed.reading();
     const uint32_t heartbeatInterval = hallSpeed.configured()
         ? min(pollInterval, (uint32_t)HALL_TELEMETRY_INTERVAL_MS)
         : pollInterval;
@@ -369,7 +372,7 @@ static void reportTelemetry() {
         lastHeartbeatMs = now;
         setNetworkWait(true);
         const bool sent = api.sendHeartbeat(
-            lock.locked(), lock.ready(), now / 1000UL, hallSpeed.reading(), error);
+            lock.locked(), lock.ready(), now / 1000UL, hallReading, error);
         setNetworkWait(false);
         if (!sent) {
             Serial.printf("[telemetry] heartbeat failed: %s\n", error.c_str());
@@ -380,14 +383,29 @@ static void reportTelemetry() {
         api.cacheGpsFix(gps.fix());
     }
 
-    if (gps.hasFreshFix() && now - lastGpsReportMs >= GPS_REPORT_INTERVAL_MS) {
+    const bool gpsReportDue = gps.hasFreshFix()
+        && now - lastGpsReportMs >= GPS_REPORT_INTERVAL_MS;
+    if (gpsReportDue) {
         lastGpsReportMs = now;
+        lastHallTelemetryMs = now;
+        hallTelemetryAttempted = true;
         const GpsFix& fix = gps.fix();
         setNetworkWait(true);
-        const bool sent = api.sendGps(fix.latitude, fix.longitude, fix.speedKph, fix.heading, error);
+        const bool sent = api.sendGps(
+            fix.latitude, fix.longitude, fix.speedKph, fix.heading, hallReading, error);
         setNetworkWait(false);
         if (!sent) {
             Serial.printf("[telemetry] GPS upload failed: %s\n", error.c_str());
+        }
+    } else if (!hallTelemetryAttempted
+               || now - lastHallTelemetryMs >= HALL_TELEMETRY_INTERVAL_MS) {
+        hallTelemetryAttempted = true;
+        lastHallTelemetryMs = now;
+        setNetworkWait(true);
+        const bool sent = api.sendHallSpeed(hallReading, error);
+        setNetworkWait(false);
+        if (!sent) {
+            Serial.printf("[telemetry] Hall upload failed: %s\n", error.c_str());
         }
     }
 }

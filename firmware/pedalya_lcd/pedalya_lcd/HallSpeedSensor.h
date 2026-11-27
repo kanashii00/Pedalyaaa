@@ -28,6 +28,7 @@ private:
 
     uint8_t pin_;
     float wheelCircumferenceM_ = 0.0f;
+    uint32_t configuredAtUs_ = 0;
     mutable portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
     volatile uint32_t pulseCount_ = 0;
     volatile uint32_t lastPulseUs_ = 0;
@@ -48,6 +49,9 @@ inline void HallSpeedSensor::setWheelCircumferenceM(float circumferenceM)
         && circumferenceM <= HALL_MAX_WHEEL_CIRCUMFERENCE_M;
 
     portENTER_CRITICAL(&mux_);
+    const bool wasConfigured = wheelCircumferenceM_ > 0.0f;
+    const bool circumferenceChanged =
+        wasConfigured && fabsf(wheelCircumferenceM_ - circumferenceM) > 0.001f;
     wheelCircumferenceM_ = valid ? circumferenceM : 0.0f;
     if (valid) {
         const uint32_t speedLimitIntervalUs =
@@ -55,6 +59,9 @@ inline void HallSpeedSensor::setWheelCircumferenceM(float circumferenceM)
                 circumferenceM * 3600000.0f
                 / (HALL_MAX_SPEED_KMH * HALL_PULSES_PER_REVOLUTION));
         minimumPulseIntervalUs_ = max((uint32_t)HALL_DEBOUNCE_US, speedLimitIntervalUs);
+        if (!wasConfigured || circumferenceChanged) {
+            configuredAtUs_ = micros();
+        }
     } else {
         minimumPulseIntervalUs_ = HALL_DEBOUNCE_US;
     }
@@ -90,15 +97,24 @@ inline HallSpeedReading HallSpeedSensor::reading() const
         return result;
     }
 
-    if (pulseCount < 2 || lastIntervalUs == 0) {
-        result.status = "waiting";
-        return result;
-    }
-
-    if ((uint32_t)(nowUs - lastPulseUs) >= HALL_STOP_TIMEOUT_MS * 1000UL) {
+    const uint32_t lastMotionUs = pulseCount > 0 ? lastPulseUs : configuredAtUs_;
+    const uint32_t maximumStopTimeoutUs = HALL_MAX_STOP_TIMEOUT_MS * 1000UL;
+    const uint32_t intervalGraceUs = lastIntervalUs >= maximumStopTimeoutUs / 2UL
+        ? maximumStopTimeoutUs
+        : lastIntervalUs * 2UL;
+    const uint32_t minimumStopTimeoutUs = HALL_STOP_TIMEOUT_MS * 1000UL;
+    const uint32_t stopTimeoutUs = intervalGraceUs > minimumStopTimeoutUs
+        ? intervalGraceUs
+        : minimumStopTimeoutUs;
+    if ((uint32_t)(nowUs - lastMotionUs) >= stopTimeoutUs) {
         result.speedKmh = 0.0f;
         result.speedAvailable = true;
         result.status = "stopped";
+        return result;
+    }
+
+    if (pulseCount < 2 || lastIntervalUs == 0) {
+        result.status = "waiting";
         return result;
     }
 

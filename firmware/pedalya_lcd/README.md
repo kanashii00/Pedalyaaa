@@ -369,9 +369,11 @@ the module's RXD (with common GND, power at 3V3):
 It uploads a valid fix every 15 seconds to `GPS_PATH`; no GPS fix means no
 location request. A fleet-authenticated heartbeat reports the commanded lock
 state and uptime at the rental polling interval, and carries Hall telemetry
-when configured (capped at `HALL_TELEMETRY_INTERVAL_MS`). `GPS_PATH` (with
-`SERVER_PATH` and `/commands`) carries the bicycle's own `DEVICE_API_KEY`; the
-heartbeat and the accident report carry the fleet `PEDALYA_API_KEY` instead.
+when configured (capped at `HALL_TELEMETRY_INTERVAL_MS`). Hall telemetry is
+also sent on the per-bicycle `GPS_PATH` at that interval, without location
+fields when no fresh GPS fix is available. `GPS_PATH` (with `SERVER_PATH` and
+`/commands`) carries the bicycle's own `DEVICE_API_KEY`; the heartbeat and the
+accident report carry the fleet `PEDALYA_API_KEY` instead.
 
 The GPS endpoint records the fix in the existing `gps_logs` table and runs the
 existing geofence checks. The heartbeat reports lock state only when the servo
@@ -403,19 +405,22 @@ module drives a 5 V high level, use a suitable level shifter; never connect its
 
 Set the actual wheel circumference in **Admin → Bicycles → Edit**. Measure one
 complete wheel revolution; no circumference is assumed by the firmware. The
-on-board rental poll sends that per-bicycle value to the ESP32, and the existing
-fleet heartbeat stores `speedKmh`, `wheelCircumferenceM`, `hallPulseCount` and
-`speedSensorStatus` with the matching bicycle. GPS logs continue to hold GPS
-speed separately.
+on-board rental poll sends that per-bicycle value to the ESP32. Hall telemetry
+is stored with the matching bicycle through the existing per-bicycle GPS route
+and fleet heartbeat; GPS logs continue to hold GPS speed separately.
 
 The interrupt rejects pulses faster than the configured maximum of 60 km/h and
 uses the greater of that limit and a 5 ms debounce interval. A speed becomes
-available after two valid pulses; after `HALL_STOP_TIMEOUT_MS` (3 seconds by
-default) without another valid pulse it reports 0.00 km/h. The heartbeat is
-sent at most every 15 seconds while circumference is configured. Before the
-first measured revolution the sensor reports `waiting`; a simple
-open-collector sensor cannot distinguish a disconnected wire from a stationary
-wheel.
+Moving speed is calculated after two valid pulses. With a configured
+circumference, no accepted pulse reports 0.00 km/h after at least
+`HALL_STOP_TIMEOUT_MS` (3 seconds) or two measured revolution intervals,
+whichever is longer, capped by `HALL_MAX_STOP_TIMEOUT_MS` (30 seconds). This
+also covers the time before the first wheel turn. When no fresh GPS fix exists,
+Hall status and pulse telemetry is sent to `GPS_PATH` at most every 15 seconds
+using the device-specific key; numeric speed is included when available.
+Before the first measured revolution the sensor reports `waiting` until the
+timeout; a simple open-collector sensor cannot distinguish a disconnected wire
+from a stationary wheel.
 
 #### Cellular fallback (EC20F)
 
