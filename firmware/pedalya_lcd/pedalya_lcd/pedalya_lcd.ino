@@ -839,6 +839,15 @@ void setup() {
 }
 
 void loop() {
+    static uint32_t lastHallDiagnosticMs = 0;
+    const uint32_t hallDiagnosticNow = millis();
+    if (hallDiagnosticNow - lastHallDiagnosticMs >= 1000UL) {
+        lastHallDiagnosticMs = hallDiagnosticNow;
+        const HallSpeedReading reading = hallSpeed.reading();
+        Serial.printf("[hall] GPIO=%u pulses=%lu status=%s\n",
+                      HALL_SENSOR_PIN, (unsigned long)reading.pulseCount, reading.status);
+    }
+
 #if CONNECTIVITY_MODE == CONNECTIVITY_MODE_WIFI_HEALTH_TEST
     gps.update();
     pollAccidentDetection();
