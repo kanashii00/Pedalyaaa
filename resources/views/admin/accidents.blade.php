@@ -412,7 +412,7 @@
                     </div>
                     <div class="acc-summary-divider"></div>
                     <div class="acc-summary-item text-md-end ms-md-auto">
-                        <span class="acc-meta-label">Reported Date &amp; Time</span>
+                        <span class="acc-meta-label">Event timestamp (server time if unsynced)</span>
                         <span class="fw-semibold text-1" id="modalDetectedTime">—</span>
                     </div>
                 </div>
@@ -433,7 +433,7 @@
                                     <span class="acc-field-value font-monospace" id="modalBikeSerial">—</span>
                                 </div>
                                 <div class="acc-field-group">
-                                    <span class="acc-field-label">Impact Force</span>
+                                    <span class="acc-field-label">Impact reading</span>
                                     <span class="acc-field-value text-danger fw-bold" id="modalImpactForce">—</span>
                                 </div>
                                 <div class="acc-field-group">
@@ -441,7 +441,7 @@
                                     <span class="acc-field-value" id="modalHallSpeed">Not reported</span>
                                 </div>
                                 <div class="acc-field-group">
-                                    <span class="acc-field-label">Hardware Sensor</span>
+                                    <span class="acc-field-label">MPU / Hall sensor status</span>
                                     <span class="acc-field-value text-muted" id="modalSensorStatus">IoT Telemetry</span>
                                 </div>
                             </div>
@@ -478,7 +478,7 @@
                     <div class="theft-modal-section__title"><i class="bi bi-activity text-success"></i> Sensor context at event</div>
                     <div class="acc-card-grid">
                         <div class="acc-field-group">
-                            <span class="acc-field-label">Detection source / reason</span>
+                            <span class="acc-field-label">Classification / trigger / reason</span>
                             <span class="acc-field-value" id="modalDetectionReason">Not reported</span>
                         </div>
                         <div class="acc-field-group">
@@ -486,8 +486,16 @@
                             <span class="acc-field-value" id="modalHallStatus">Not reported</span>
                         </div>
                         <div class="acc-field-group">
-                            <span class="acc-field-label">GPS speed / fix age</span>
+                            <span class="acc-field-label">Hall speed before event</span>
+                            <span class="acc-field-value" id="modalHallSpeedBefore">Not reported</span>
+                        </div>
+                        <div class="acc-field-group">
+                            <span class="acc-field-label">GPS fix status / speed / age</span>
                             <span class="acc-field-value" id="modalGpsSpeed">Not reported</span>
+                        </div>
+                        <div class="acc-field-group">
+                            <span class="acc-field-label">GPS location timestamp</span>
+                            <span class="acc-field-value" id="modalGpsTimestamp">Not reported</span>
                         </div>
                         <div class="acc-field-group">
                             <span class="acc-field-label">Wheel circumference / pulse count</span>
@@ -697,7 +705,11 @@
         if (elSev) elSev.innerHTML = formatSeverityBadge(acc.severity);
 
         var elTime = document.getElementById('modalDetectedTime');
-        if (elTime) elTime.textContent = acc.timestampFull || acc.timestamp || '—';
+        if (elTime) {
+            elTime.textContent = acc.eventTimestamp
+                ? new Date(acc.eventTimestamp).toLocaleString()
+                : (acc.timestampFull || acc.timestamp || '—');
+        }
 
         var elStatus = document.getElementById('modalStatusBadge');
         if (elStatus) {
@@ -712,7 +724,11 @@
         if (elSerial) elSerial.textContent = acc.serialNumber || '—';
 
         var elImpact = document.getElementById('modalImpactForce');
-        if (elImpact) elImpact.textContent = acc.impactForce || '—';
+        if (elImpact) {
+            elImpact.textContent = acc.impactDetected
+                ? (acc.impactForce || 'Detected; magnitude unavailable')
+                : 'No impact detected';
+        }
 
         var elHallSpeed = document.getElementById('modalHallSpeed');
         if (elHallSpeed) {
@@ -724,12 +740,24 @@
         }
 
         var elSensor = document.getElementById('modalSensorStatus');
-        if (elSensor) elSensor.textContent = acc.sensorStatus || 'Not reported';
+        if (elSensor) {
+            elSensor.textContent = (acc.mpuStatus || 'MPU unavailable')
+                + ' · Hall ' + (acc.sensorStatus || 'unavailable')
+                + (acc.mpuSampleAgeMs !== null && acc.mpuSampleAgeMs !== undefined
+                    ? ' · MPU sample ' + acc.mpuSampleAgeMs + ' ms old'
+                    : '');
+        }
 
         var sensorContext = acc.sensorContext || {};
         var hall = sensorContext.hall || {};
         var gps = sensorContext.gps || {};
-        var detection = [acc.detectionSource, acc.detectionReason].filter(Boolean).join(' · ');
+        var detection = [
+            acc.classification,
+            acc.detectionSource,
+            acc.detectionTrigger,
+            acc.detectionReason,
+            acc.impactDetected ? 'impact detected' : 'no impact detected'
+        ].filter(Boolean).join(' · ');
         var elDetection = document.getElementById('modalDetectionReason');
         if (elDetection) elDetection.textContent = detection || 'Not reported';
 
@@ -737,9 +765,18 @@
         if (elHallStatus) {
             elHallStatus.textContent = [
                 acc.movementStatus || hall.movementStatus || 'Unknown',
-                acc.sensorStatus || hall.status || 'Unavailable'
+                acc.sensorStatus || hall.status || 'Unavailable',
+                acc.hallTelemetryFresh === true || hall.telemetryFresh === true
+                    ? 'current snapshot'
+                    : 'freshness unavailable'
             ].join(' · ');
         }
+
+        var hallBefore = acc.hallSpeedBeforeKmh !== null && acc.hallSpeedBeforeKmh !== undefined
+            ? Number(acc.hallSpeedBeforeKmh).toFixed(1) + ' km/h'
+            : 'Not reported';
+        var elHallBefore = document.getElementById('modalHallSpeedBefore');
+        if (elHallBefore) elHallBefore.textContent = hallBefore;
 
         var gpsSpeed = acc.gpsSpeedKmh !== null && acc.gpsSpeedKmh !== undefined
             && Number.isFinite(Number(acc.gpsSpeedKmh))
@@ -750,7 +787,14 @@
             ? (Number(acc.gpsFixAgeMs) / 1000).toFixed(1) + 's old'
             : 'age unknown';
         var elGpsSpeed = document.getElementById('modalGpsSpeed');
-        if (elGpsSpeed) elGpsSpeed.textContent = gpsSpeed + ' · ' + gpsAge;
+        if (elGpsSpeed) {
+            elGpsSpeed.textContent = (acc.gpsFixStatus || gps.fixStatus || 'unavailable')
+                + ' · ' + gpsSpeed + ' · ' + gpsAge;
+        }
+        var elGpsTimestamp = document.getElementById('modalGpsTimestamp');
+        if (elGpsTimestamp) {
+            elGpsTimestamp.textContent = acc.gpsLocationTimestamp || 'Not reported';
+        }
 
         var circumference = acc.wheelCircumferenceM || hall.wheelCircumferenceM;
         var pulseCount = acc.hallPulseCount !== null && acc.hallPulseCount !== undefined
@@ -770,6 +814,9 @@
                     : 'Pulse count unavailable',
                 pulseAge !== null && pulseAge !== undefined
                     ? (Number(pulseAge) / 1000).toFixed(1) + 's since pulse'
+                    : null,
+                acc.hallLastPulseAt
+                    ? 'Last pulse ' + new Date(acc.hallLastPulseAt).toLocaleString()
                     : null
             ].filter(Boolean).join(' · ');
         }

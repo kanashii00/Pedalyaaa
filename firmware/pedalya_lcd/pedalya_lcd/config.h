@@ -517,16 +517,20 @@
 #define ACCIDENT_ROTATION_DPS 220.0f
 #endif
 
-// How far the bike may lean from upright before it counts as down. A bike on
-// its side is ~90°, so this is generous.
+// Supporting tilt threshold for impact combinations. Sustained fall evaluation
+// uses the separate 45-degree threshold below.
 #ifndef ACCIDENT_TILT_DEGREES
 #define ACCIDENT_TILT_DEGREES 55.0f
 #endif
 
-// Consecutive samples the bike must stay down before that alone reports, so a
-// sharp swerve or a camera bump cannot trigger it. 10 samples is 1 second.
-#ifndef ACCIDENT_TILT_HOLD_SAMPLES
-#define ACCIDENT_TILT_HOLD_SAMPLES 10UL
+// A fall evaluation begins at 45 degrees, but only reports after the tilt
+// remains sustained for the configured duration.
+#ifndef ACCIDENT_FALL_TILT_DEGREES
+#define ACCIDENT_FALL_TILT_DEGREES 45.0f
+#endif
+
+#ifndef ACCIDENT_FALL_TILT_HOLD_MS
+#define ACCIDENT_FALL_TILT_HOLD_MS 1000UL
 #endif
 
 // Consecutive agreeing samples needed to fire, and how many single samples may

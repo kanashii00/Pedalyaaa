@@ -169,6 +169,7 @@ public:
     bool connected();
     void begin();
     void ensureTime();
+    bool formatTimestampAtUptime(uint32_t uptimeMs, char* destination, size_t capacity) const;
     void cacheGpsFix(const GpsFix& fix) {
         lastGpsFix_ = fix;
         hasGpsFix_ = true;

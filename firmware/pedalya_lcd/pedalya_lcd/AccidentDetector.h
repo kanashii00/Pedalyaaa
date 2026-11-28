@@ -7,9 +7,8 @@
 /**
  * One MPU6050 sample, already scaled out of raw counts and judged.
  *
- * The three flags are the independent questions "was it hit?", "is it
- * spinning?" and "is it down?". AccidentDetector decides what combination of
- * them is worth reporting.
+ * The sample flags separate impact, abnormal rotation, supporting tilt, and
+ * sustained fall tilt. AccidentDetector decides what combination is reportable.
  */
 struct AccidentReading {
     float accelXG = 0.0f;
@@ -32,6 +31,8 @@ struct AccidentReading {
     bool impact = false;
     bool rotation = false;
     bool tilt = false;
+    bool fallTilt = false;
+    bool sustainedFallTilt = false;
 };
 
 /** Why the detector is or is not currently able to report a crash. */
@@ -54,6 +55,12 @@ struct AccidentEvent {
     float gyroXDps = 0.0f;
     float gyroYDps = 0.0f;
     float gyroZDps = 0.0f;
+    bool impactDetected = false;
+    bool rotationDetected = false;
+    bool sustainedFallTilt = false;
+    uint32_t detectedAtMs = 0;
+    const char* classification = "POTENTIAL_ACCIDENT";
+    const char* detectionTrigger = "mpu6050";
     const char* detectionReason = "mpu6050_candidate";
 };
 
@@ -156,6 +163,7 @@ private:
     uint32_t lastProbeMs_ = 0;
     uint32_t triggeredAtMs_ = 0;
     uint32_t calmSinceMs_ = 0;
+    uint32_t fallTiltStartedAtMs_ = 0;
 
     bool triggered_ = false;
     bool armed_ = false;
@@ -182,7 +190,9 @@ private:
 
     uint8_t hits_ = 0;
     uint8_t misses_ = 0;
-    uint8_t tiltHold_ = 0;
+    bool fallTiltActive_ = false;
+    bool fallHadImpact_ = false;
+    bool fallHadRotation_ = false;
 
     float previousMagnitudeG_ = 0.0f;
     float peakMagnitudeG_ = 0.0f;

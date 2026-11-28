@@ -20,10 +20,15 @@ struct SensorHistorySample {
 
 struct AccidentReportContext {
     char eventId[33] = {};
+    char eventTimestamp[25] = {};
     AccidentEvent event;
     HallSpeedReading hallSpeed;
+    HallSpeedReading hallSpeedBefore;
+    bool hasHallSpeedBefore = false;
     GpsFix gpsFix;
     bool hasGpsFix = false;
+    bool hasLastGpsFix = false;
+    const char* gpsFixStatus = "unavailable";
     uint32_t eventAtMs = 0;
     uint8_t historyCount = 0;
     SensorHistorySample history[SENSOR_HISTORY_CAPACITY];

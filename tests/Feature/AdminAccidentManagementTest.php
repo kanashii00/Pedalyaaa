@@ -129,15 +129,26 @@ class AdminAccidentManagementTest extends TestCase
             'speedKmh' => 24.5,
             'gpsLocation' => ['lat' => 14.5821, 'lng' => 120.9788],
             'sensorContext' => [
+                'classification' => 'POTENTIAL_ACCIDENT',
                 'detectionSource' => 'mpu6050',
+                'detectionTrigger' => 'impact_threshold',
                 'detectionReason' => 'impact_and_rotation',
+                'impactDetected' => true,
+                'eventTimestamp' => now()->subSeconds(3)->toIso8601String(),
                 'gpsSpeedKmh' => 20.0,
                 'gpsFixAgeMs' => 1200,
                 'rotationDps' => 80.0,
                 'tiltDegrees' => 60.0,
+                'gps' => [
+                    'fixStatus' => 'fresh',
+                    'locationTimestamp' => now()->subSeconds(2)->toIso8601String(),
+                ],
+                'mpu' => ['available' => true, 'sampleAgeMs' => 0],
                 'hall' => [
                     'status' => 'active',
                     'movementStatus' => 'moving',
+                    'telemetryFresh' => true,
+                    'speedBeforeKmh' => 20.1,
                     'wheelCircumferenceM' => 2.086,
                     'pulseCount' => 20,
                     'lastPulseAgeMs' => 100,
@@ -168,6 +179,13 @@ class AdminAccidentManagementTest extends TestCase
         $this->assertStringContainsString('14.5821', $res->json('incident.locationText'));
         $this->assertStringContainsString(route('admin.monitoring.index'), $res->json('incident.mapUrl'));
         $this->assertSame('impact_and_rotation', $res->json('incident.detectionReason'));
+        $this->assertSame('POTENTIAL_ACCIDENT', $res->json('incident.classification'));
+        $this->assertSame('impact_threshold', $res->json('incident.detectionTrigger'));
+        $this->assertNotNull($res->json('incident.eventTimestamp'));
+        $this->assertTrue($res->json('incident.impactDetected'));
+        $this->assertEquals(20.1, $res->json('incident.hallSpeedBeforeKmh'));
+        $this->assertSame('fresh', $res->json('incident.gpsFixStatus'));
+        $this->assertSame('available', $res->json('incident.mpuStatus'));
         $this->assertSame('active', $res->json('incident.sensorStatus'));
         $this->assertEquals(20.0, $res->json('incident.gpsSpeedKmh'));
         $this->assertSame(1, count($res->json('incident.preImpactSamples')));

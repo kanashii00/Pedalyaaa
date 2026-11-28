@@ -572,32 +572,48 @@ void AccidentDetector::evaluate(const uint8_t* raw, uint32_t now) {
     sample.rotation = sample.gyroMagnitudeDps >= ACCIDENT_ROTATION_DPS;
     sample.tilt = sample.tiltDegrees >= ACCIDENT_TILT_DEGREES;
 
-    if (sample.tilt) {
-        if (tiltHold_ < UINT8_MAX) ++tiltHold_;
-    } else {
-        tiltHold_ = 0;
-    }
-
     reading_ = sample;
     previousMagnitudeG_ = sample.magnitudeG;
     hasSample_ = true;
 
     // Never trigger while settling or disarmed!
-    if (!armed_ || settling_) return;
+    if (!armed_ || settling_) {
+        fallTiltActive_ = false;
+        fallHadImpact_ = false;
+        fallHadRotation_ = false;
+        return;
+    }
+
+    sample.fallTilt = sample.tiltDegrees >= ACCIDENT_FALL_TILT_DEGREES;
+    if (sample.fallTilt) {
+        if (!fallTiltActive_) {
+            fallTiltActive_ = true;
+            fallTiltStartedAtMs_ = now;
+            fallHadImpact_ = false;
+            fallHadRotation_ = false;
+        }
+        fallHadImpact_ = fallHadImpact_ || sample.impact;
+        fallHadRotation_ = fallHadRotation_ || sample.rotation;
+        sample.sustainedFallTilt =
+            (uint32_t)(now - fallTiltStartedAtMs_) >= ACCIDENT_FALL_TILT_HOLD_MS;
+    } else {
+        fallTiltActive_ = false;
+        fallTiltStartedAtMs_ = 0;
+        fallHadImpact_ = false;
+        fallHadRotation_ = false;
+    }
+    reading_ = sample;
 
     if (sample.magnitudeG > peakMagnitudeG_) peakMagnitudeG_ = sample.magnitudeG;
     if (sample.gyroMagnitudeDps > peakRotationDps_) peakRotationDps_ = sample.gyroMagnitudeDps;
     if (sample.tiltDegrees > peakTiltDegrees_) peakTiltDegrees_ = sample.tiltDegrees;
 
-    // A hard signal alone is never enough, because normal riding makes hard
-    // signals constantly. Either a hit agrees with the bike's attitude, the two
-    // agree with each other, the hit is violent enough to stand alone, or the
-    // bike has simply been lying on its side for a while.
+    // Keep impact evaluation independent from the sustained-tilt timer. Tilt
+    // without impact must persist for the full fall-evaluation interval.
     const bool candidate =
         (sample.impact && (sample.rotation || sample.tilt)) ||
-        (sample.rotation && sample.tilt) ||
         sample.magnitudeG >= ACCIDENT_HARD_IMPACT_G ||
-        (sample.tilt && tiltHold_ >= (uint8_t)ACCIDENT_TILT_HOLD_SAMPLES);
+        sample.sustainedFallTilt;
 
     if (!candidate) {
         if (hits_ > 0 && ++misses_ > (uint8_t)ACCIDENT_TRIGGER_TOLERANCE) {
@@ -620,8 +636,35 @@ void AccidentDetector::fire(const AccidentReading& sample, uint32_t now) {
     event_.gyroXDps = sample.gyroXDps;
     event_.gyroYDps = sample.gyroYDps;
     event_.gyroZDps = sample.gyroZDps;
+    event_.impactDetected = sample.impact || sample.magnitudeG >= ACCIDENT_HARD_IMPACT_G ||
+        (sample.sustainedFallTilt && fallHadImpact_);
+    event_.rotationDetected = sample.rotation ||
+        (sample.sustainedFallTilt && fallHadRotation_);
+    event_.sustainedFallTilt = sample.sustainedFallTilt;
+    event_.detectedAtMs = now;
+    if (sample.sustainedFallTilt) {
+        event_.classification = (event_.impactDetected || event_.rotationDetected)
+            ? "POTENTIAL_ACCIDENT"
+            : "POTENTIAL_FALL";
+        event_.detectionTrigger = "sustained_tilt";
+    } else if (sample.impact || sample.magnitudeG >= ACCIDENT_HARD_IMPACT_G) {
+        event_.classification = "IMPACT_DETECTED";
+        event_.detectionTrigger = "impact_threshold";
+    } else {
+        event_.classification = "POTENTIAL_ACCIDENT";
+        event_.detectionTrigger = "rotation_and_tilt";
+    }
+
     if (sample.magnitudeG >= ACCIDENT_HARD_IMPACT_G) {
         event_.detectionReason = "hard_impact";
+    } else if (sample.sustainedFallTilt && event_.impactDetected && event_.rotationDetected) {
+        event_.detectionReason = "sustained_tilt_with_impact_and_rotation";
+    } else if (sample.sustainedFallTilt && event_.impactDetected) {
+        event_.detectionReason = "sustained_tilt_with_impact";
+    } else if (sample.sustainedFallTilt && event_.rotationDetected) {
+        event_.detectionReason = "sustained_tilt_with_rotation";
+    } else if (sample.sustainedFallTilt) {
+        event_.detectionReason = "sustained_tilt";
     } else if (sample.impact && sample.rotation && sample.tilt) {
         event_.detectionReason = "impact_rotation_and_tilt";
     } else if (sample.impact && sample.rotation) {
@@ -640,7 +683,10 @@ void AccidentDetector::fire(const AccidentReading& sample, uint32_t now) {
     calmSinceMs_ = 0;
     hits_ = 0;
     misses_ = 0;
-    tiltHold_ = 0;
+    fallTiltActive_ = false;
+    fallTiltStartedAtMs_ = 0;
+    fallHadImpact_ = false;
+    fallHadRotation_ = false;
 
     Serial.printf("[mpu] crash pattern: %.2f g peak, %.0f dps peak, %.0f deg from upright\n",
                   (double)peakMagnitudeG_, (double)peakRotationDps_, (double)peakTiltDegrees_);
@@ -656,7 +702,7 @@ bool AccidentDetector::calm() const {
     }
     return fabsf(reading_.magnitudeG - 1.0f) <= ACCIDENT_CALM_MARGIN_G &&
            reading_.gyroMagnitudeDps <= ACCIDENT_CALM_ROTATION_DPS &&
-           reading_.tiltDegrees < ACCIDENT_TILT_DEGREES;
+    reading_.tiltDegrees < ACCIDENT_FALL_TILT_DEGREES;
 }
 
 AccidentArmState AccidentDetector::armState() const {
@@ -706,7 +752,10 @@ void AccidentDetector::rearm() {
     calmSinceMs_ = 0;
     hits_ = 0;
     misses_ = 0;
-    tiltHold_ = 0;
+    fallTiltActive_ = false;
+    fallTiltStartedAtMs_ = 0;
+    fallHadImpact_ = false;
+    fallHadRotation_ = false;
     previousMagnitudeG_ = reading_.magnitudeG;
     peakMagnitudeG_ = 0.0f;
     peakRotationDps_ = 0.0f;

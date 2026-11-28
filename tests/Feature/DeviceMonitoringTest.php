@@ -230,9 +230,24 @@ class DeviceMonitoringTest extends TestCase
             'impactForce' => 2.4,
             'speedKmh' => 12.3,
             'sensorContext' => [
+                'classification' => 'POTENTIAL_ACCIDENT',
+                'detectionTrigger' => 'impact_threshold',
                 'detectionSource' => 'mpu6050',
                 'detectionReason' => 'impact_and_rotation',
-                'hall' => ['speedKmh' => 12.3, 'status' => 'active'],
+                'impactDetected' => true,
+                'tiltDegrees' => 61.5,
+                'rotationDps' => 228.4,
+                'hall' => [
+                    'speedKmh' => 12.3,
+                    'speedBeforeKmh' => 10.1,
+                    'status' => 'active',
+                ],
+                'gps' => [
+                    'fixStatus' => 'fresh',
+                    'lastKnownLat' => 14.6,
+                    'lastKnownLng' => 120.99,
+                ],
+                'mpu' => ['available' => true, 'sampleAgeMs' => 0],
             ],
         ]);
 
@@ -245,6 +260,13 @@ class DeviceMonitoringTest extends TestCase
         $this->assertEquals(0.1001, $row['hall_estimated_distance_km']);
         $this->assertSame('online', $row['device_connection']);
         $this->assertSame('impact_and_rotation', $response->json('recent_incidents.0.detection_reason'));
+        $this->assertSame('POTENTIAL_ACCIDENT', $response->json('recent_incidents.0.classification'));
+        $this->assertSame('impact_threshold', $response->json('recent_incidents.0.detection_trigger'));
+        $this->assertSame(61.5, $response->json('recent_incidents.0.tilt_degrees'));
+        $this->assertSame(228.4, $response->json('recent_incidents.0.rotation_dps'));
+        $this->assertSame('available', $response->json('recent_incidents.0.mpu_status'));
+        $this->assertSame(10.1, $response->json('recent_incidents.0.hall_speed_before_kmh'));
+        $this->assertSame('fresh', $response->json('recent_incidents.0.gps_fix_status'));
 
         $html = $this->actingAs($admin)
             ->get(route('admin.monitoring.index', ['section' => 'gps']))

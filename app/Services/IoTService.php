@@ -212,28 +212,99 @@ class IoTService
     {
         $bicycleId = $data['bicycleId'] ?? $data['bicycle_id'] ?? null;
         $bicycle = $bicycleId ? Bicycle::find($bicycleId) : null;
-        $impact = (float) ($data['impact'] ?? $data['impact_force'] ?? $data['impactForce'] ?? 0);
-        $severity = $this->determineSeverity($impact);
+        $classification = strtoupper((string) (
+            $data['classification']
+                ?? $data['sensor_context']['classification']
+                ?? 'POTENTIAL_ACCIDENT'
+        ));
+        if (! in_array($classification, ['POTENTIAL_FALL', 'IMPACT_DETECTED', 'POTENTIAL_ACCIDENT'], true)) {
+            $classification = 'POTENTIAL_ACCIDENT';
+        }
+        $hasImpactValue = array_key_exists('impact', $data)
+            || array_key_exists('impact_force', $data)
+            || array_key_exists('impactForce', $data);
+        $impactDetected = array_key_exists('impact_detected', $data)
+            ? (bool) $data['impact_detected']
+            : $hasImpactValue;
+        $impact = $impactDetected
+            ? (float) ($data['impact'] ?? $data['impact_force'] ?? $data['impactForce'] ?? 0)
+            : null;
+        $severity = $this->determineSeverity($impact ?? 0.0);
 
         $sensorContext = $data['sensor_context'] ?? [];
-        $sensorContext['classification'] = 'potential_accident';
+        $sensorContext['classification'] = $classification;
         $sensorContext['detectionSource'] = $data['detection_source'] ?? 'mpu6050';
+        $sensorContext['detectionTrigger'] = $data['detection_trigger']
+            ?? ($sensorContext['detectionTrigger'] ?? null);
         $sensorContext['detectionReason'] = $data['detection_reason'] ?? null;
+        $sensorContext['impactDetected'] = $impactDetected;
         $sensorContext['gpsSpeedKmh'] = $data['gps_speed_kmh'] ?? null;
         $sensorContext['gpsFixAgeMs'] = $data['gps_fix_age_ms'] ?? null;
         $sensorContext['rotationDps'] = $data['rotation_dps'] ?? null;
         $sensorContext['tiltDegrees'] = $data['tilt_degrees'] ?? null;
+        $eventTimestamp = $data['timestamp'] ?? ($sensorContext['eventTimestamp'] ?? null);
+        $sensorContext['eventTimestamp'] = $eventTimestamp;
+        $sensorContext['bicycleSerial'] = $bicycle?->serialNumber;
+
+        $gps = $sensorContext['gps'] ?? [];
+        $gpsStatus = $data['gps_fix_status'] ?? ($gps['fixStatus'] ?? null);
+        if ($gpsStatus === null) {
+            $gpsStatus = isset($data['lat'], $data['lng']) ? 'fresh' : 'unavailable';
+        }
+        $gps['fixStatus'] = $gpsStatus;
+        $gps['available'] = $gpsStatus === 'fresh' && isset($data['lat'], $data['lng']);
+        if (array_key_exists('gps_speed_kmh', $data)) {
+            $gps['speedKmh'] = $data['gps_speed_kmh'];
+        }
+        $gpsFixAgeMs = $data['gps_fix_age_ms'] ?? ($gps['fixAgeMs'] ?? ($gps['lastKnownFixAgeMs'] ?? null));
+        if ($gpsFixAgeMs !== null && $eventTimestamp !== null) {
+            $eventTime = \Illuminate\Support\Carbon::parse($eventTimestamp);
+            $gps['locationTimestamp'] = $eventTime->copy()
+                ->subMilliseconds((int) $gpsFixAgeMs)
+                ->toIso8601String();
+        }
+        $sensorContext['gps'] = $gps;
+
+        $hall = $sensorContext['hall'] ?? [];
+        if (array_key_exists('speedKmh', $data)) {
+            $hall['speedKmh'] = $data['speedKmh'];
+        }
+        if (array_key_exists('hall_speed_before_kmh', $data)) {
+            $hall['speedBeforeKmh'] = $data['hall_speed_before_kmh'];
+        }
+        if (array_key_exists('speedSensorStatus', $data)) {
+            $hall['status'] = $data['speedSensorStatus'];
+        }
+        if (array_key_exists('hallPulseCount', $data)) {
+            $hall['pulseCount'] = $data['hallPulseCount'];
+        }
+        $hallPulseAgeMs = $data['hallPulseAgeMs'] ?? ($hall['lastPulseAgeMs'] ?? null);
+        if ($hallPulseAgeMs !== null) {
+            $hall['lastPulseAgeMs'] = $hallPulseAgeMs;
+            if ($eventTimestamp !== null) {
+                $hall['lastPulseAt'] = \Illuminate\Support\Carbon::parse($eventTimestamp)
+                    ->subMilliseconds((int) $hallPulseAgeMs)
+                    ->toIso8601String();
+            }
+        }
+        $sensorContext['hall'] = $hall;
 
         $attributes = [
             'bicycleId' => $bicycleId,
             'type' => $data['type'] ?? 'accident',
             'severity' => $severity,
-            'gpsLocation' => isset($data['lat'], $data['lng']) ? ['lat' => $data['lat'], 'lng' => $data['lng']] : null,
+            'gpsLocation' => $gpsStatus === 'fresh' && isset($data['lat'], $data['lng'])
+                ? ['lat' => $data['lat'], 'lng' => $data['lng']]
+                : null,
             'accelerometerData' => $data['accelerometer'] ?? $data['accelerometerData'] ?? null,
             'impactForce' => $impact,
             'speedKmh' => $bicycle ? $this->hallSpeedForAccident($bicycle, $data) : null,
             'sensorContext' => $sensorContext,
-            'description' => $data['description'] ?? 'Potential accident detected by MPU6050; awaiting administrator review.',
+            'description' => $data['description'] ?? match ($classification) {
+                'POTENTIAL_FALL' => 'Potential fall detected by MPU6050; awaiting administrator review.',
+                'IMPACT_DETECTED' => 'Impact detected by MPU6050; awaiting administrator review.',
+                default => 'Potential accident detected by MPU6050; awaiting administrator review.',
+            },
             'status' => 'open',
             'acknowledged' => false,
             'alertSent' => true,
@@ -435,9 +506,15 @@ class IoTService
 
     private function notifyAccident(Accident $accident, string $severity): void
     {
+        $classification = $accident->sensorContext['classification'] ?? 'POTENTIAL_ACCIDENT';
+        $title = match ($classification) {
+            'POTENTIAL_FALL' => 'Potential Fall Detected',
+            'IMPACT_DETECTED' => 'Impact Detected',
+            default => 'Potential Accident Detected',
+        };
         $this->notifyAdmins(
-            'Accident Report',
-            "Accident detected on bicycle {$accident->bicycleId}. Severity: {$severity}. Immediate attention required."
+            $title,
+            "{$classification} on bicycle {$accident->bicycleId}. Severity: {$severity}. Administrator review required."
         );
     }
 

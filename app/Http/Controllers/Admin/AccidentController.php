@@ -151,6 +151,10 @@ class AccidentController extends Controller
         $sensorContext = $incident->sensorContext ?? [];
         $hall = $sensorContext['hall'] ?? [];
         $gps = $sensorContext['gps'] ?? [];
+        $mpu = $sensorContext['mpu'] ?? [];
+        $lastKnownCoordinates = isset($gps['lastKnownLat'], $gps['lastKnownLng'])
+            ? $gps['lastKnownLat'].', '.$gps['lastKnownLng']
+            : null;
         $rentalId = $incident->rentalId ? ('#' . $incident->rentalId) : ($incident->bicycle?->currentRental ? ('#' . $incident->bicycle->currentRental->id) : null);
 
         $mapParams = ['bike' => $incident->bicycleId];
@@ -183,22 +187,38 @@ class AccidentController extends Controller
             'hasGps' => $hasGps,
             'lat' => $hasGps ? $incident->gpsLocation['lat'] : null,
             'lng' => $hasGps ? $incident->gpsLocation['lng'] : null,
-            'locationText' => $hasGps ? ($incident->gpsLocation['lat'] . ', ' . $incident->gpsLocation['lng']) : 'No GPS Coordinates',
+            'locationText' => $hasGps
+                ? ($incident->gpsLocation['lat'] . ', ' . $incident->gpsLocation['lng'])
+                : ($lastKnownCoordinates ? 'Last known (stale): '.$lastKnownCoordinates : 'No GPS Coordinates'),
             'impactForce' => $incident->impactForce !== null ? number_format((float) $incident->impactForce, 2) . ' G' : null,
+            'impactDetected' => (bool) ($sensorContext['impactDetected'] ?? ($incident->impactForce !== null)),
             'speedKmh' => $incident->speedKmh !== null ? (float) $incident->speedKmh : null,
             'sensorContext' => $sensorContext,
             'deviceEventId' => $incident->deviceEventId,
+            'classification' => $sensorContext['classification'] ?? 'POTENTIAL_ACCIDENT',
             'detectionSource' => $sensorContext['detectionSource'] ?? null,
+            'detectionTrigger' => $sensorContext['detectionTrigger'] ?? null,
             'detectionReason' => $sensorContext['detectionReason'] ?? null,
             'sensorStatus' => $hall['status'] ?? null,
             'movementStatus' => $hall['movementStatus'] ?? null,
+            'hallTelemetryFresh' => $hall['telemetryFresh'] ?? null,
+            'hallSpeedBeforeKmh' => $hall['speedBeforeKmh'] ?? null,
+            'hallLastPulseAt' => $hall['lastPulseAt'] ?? null,
+            'hallMovementStatus' => $hall['movementStatus'] ?? null,
+            'mpuStatus' => ($mpu['available'] ?? false)
+                ? 'available'
+                : (($sensorContext['detectionSource'] ?? null) === 'mpu6050' ? 'reported' : 'unavailable'),
+            'mpuSampleAgeMs' => $mpu['sampleAgeMs'] ?? null,
             'wheelCircumferenceM' => $hall['wheelCircumferenceM'] ?? null,
             'hallPulseCount' => $hall['pulseCount'] ?? null,
             'hallPulseAgeMs' => $hall['lastPulseAgeMs'] ?? null,
             'gpsSpeedKmh' => $gps['speedKmh'] ?? ($sensorContext['gpsSpeedKmh'] ?? null),
-            'gpsFixAgeMs' => $gps['fixAgeMs'] ?? ($sensorContext['gpsFixAgeMs'] ?? null),
+            'gpsFixStatus' => $gps['fixStatus'] ?? ($hasGps ? 'fresh' : 'unavailable'),
+            'gpsLocationTimestamp' => $gps['locationTimestamp'] ?? null,
+            'gpsFixAgeMs' => $gps['fixAgeMs'] ?? ($gps['lastKnownFixAgeMs'] ?? ($sensorContext['gpsFixAgeMs'] ?? null)),
             'rotationDps' => $sensorContext['rotationDps'] ?? null,
             'tiltDegrees' => $sensorContext['tiltDegrees'] ?? null,
+            'eventTimestamp' => $sensorContext['eventTimestamp'] ?? null,
             'preImpactSamples' => $sensorContext['preImpactSamples'] ?? [],
             'timestamp' => $incident->created_at->format('M d, Y H:i'),
             'timestampFull' => $incident->created_at->format('M d, Y h:i A'),

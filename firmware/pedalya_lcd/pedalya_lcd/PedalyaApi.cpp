@@ -222,6 +222,23 @@ void PedalyaApi::ensureTime() {
     }
 }
 
+bool PedalyaApi::formatTimestampAtUptime(
+    uint32_t uptimeMs,
+    char* destination,
+    size_t capacity
+) const {
+    if (!destination || capacity == 0 || !timeSynced) return false;
+
+    const time_t currentEpoch = time(nullptr);
+    if (currentEpoch < 1700000000) return false;
+
+    const uint32_t elapsedSeconds = (uint32_t)(millis() - uptimeMs) / 1000UL;
+    const time_t eventEpoch = currentEpoch - elapsedSeconds;
+    struct tm utc;
+    if (!gmtime_r(&eventEpoch, &utc)) return false;
+    return strftime(destination, capacity, "%Y-%m-%dT%H:%M:%SZ", &utc) > 0;
+}
+
 /**
  * Explains a failed poll on both channels.
  *
@@ -768,19 +785,29 @@ bool PedalyaApi::reportAccident(const AccidentReportContext& context, String& er
     payload["bicycle_id"] = (uint32_t)ACCIDENT_BICYCLE_ID;
     payload["device_id"] = ACCIDENT_DEVICE_ID;
 
-    // impact is what the backend bands into a severity, so it carries the
-    // measured peak. impact_force is kept in step for the older endpoint.
-    payload["impact"] = context.event.peakMagnitudeG;
-    payload["impact_force"] = context.event.peakMagnitudeG;
+    payload["impact_detected"] = context.event.impactDetected;
+    if (context.event.impactDetected) {
+        payload["impact"] = context.event.peakMagnitudeG;
+        payload["impact_force"] = context.event.peakMagnitudeG;
+    }
     payload["rotation_dps"] = context.event.peakRotationDps;
     payload["tilt_degrees"] = context.event.peakTiltDegrees;
     payload["event_id"] = context.eventId;
     payload["detection_source"] = "mpu6050";
+    payload["classification"] = context.event.classification;
+    payload["detection_trigger"] = context.event.detectionTrigger;
     payload["detection_reason"] = context.event.detectionReason;
+    if (context.eventTimestamp[0] != '\0') {
+        payload["timestamp"] = context.eventTimestamp;
+    }
+    payload["gps_fix_status"] = context.gpsFixStatus;
     if (context.hasGpsFix) {
         payload["gps_fix_age_ms"] =
             (uint32_t)(context.eventAtMs - context.gpsFix.receivedAtMs);
         payload["gps_speed_kmh"] = context.gpsFix.speedKph;
+    }
+    if (context.hasHallSpeedBefore && context.hallSpeedBefore.speedAvailable) {
+        payload["hall_speed_before_kmh"] = context.hallSpeedBefore.speedKmh;
     }
     addHallSpeedPayload(payload, context.hallSpeed);
 
@@ -796,35 +823,60 @@ bool PedalyaApi::reportAccident(const AccidentReportContext& context, String& er
     gyroscope.add(context.event.gyroZDps);
 
     JsonObject sensorContext = payload["sensor_context"].to<JsonObject>();
-    sensorContext["classification"] = "potential_accident";
+    sensorContext["classification"] = context.event.classification;
     sensorContext["detectionSource"] = "mpu6050";
+    sensorContext["detectionTrigger"] = context.event.detectionTrigger;
     sensorContext["detectionReason"] = context.event.detectionReason;
+    sensorContext["eventTimestamp"] = context.eventTimestamp[0] != '\0'
+        ? context.eventTimestamp
+        : nullptr;
     sensorContext["eventUptimeMs"] = context.eventAtMs;
+    sensorContext["impactDetected"] = context.event.impactDetected;
+    sensorContext["rotationDetected"] = context.event.rotationDetected;
+    sensorContext["sustainedFallTilt"] = context.event.sustainedFallTilt;
 
     JsonObject gps = sensorContext["gps"].to<JsonObject>();
     gps["available"] = context.hasGpsFix;
+    gps["fixStatus"] = context.gpsFixStatus;
+    gps["lastKnownAvailable"] = context.hasLastGpsFix;
     if (context.hasGpsFix) {
         gps["speedKmh"] = context.gpsFix.speedKph;
-    } else {
-        gps["speedKmh"] = nullptr;
-    }
-    if (context.hasGpsFix) {
         gps["fixAgeMs"] = (uint32_t)(context.eventAtMs - context.gpsFix.receivedAtMs);
         gps["lat"] = context.gpsFix.latitude;
         gps["lng"] = context.gpsFix.longitude;
     } else {
+        gps["speedKmh"] = nullptr;
         gps["fixAgeMs"] = nullptr;
+        if (context.hasLastGpsFix) {
+            gps["lastKnownFixAgeMs"] =
+                (uint32_t)(context.eventAtMs - context.gpsFix.receivedAtMs);
+            gps["lastKnownLat"] = context.gpsFix.latitude;
+            gps["lastKnownLng"] = context.gpsFix.longitude;
+        } else {
+            gps["lastKnownFixAgeMs"] = nullptr;
+        }
     }
 
     JsonObject hall = sensorContext["hall"].to<JsonObject>();
     hall["status"] = context.hallSpeed.status;
+    hall["telemetryFresh"] = true;
+    hall["readingAgeMs"] = 0;
     hall["movementStatus"] = strcmp(context.hallSpeed.status, "active") == 0
         ? "moving"
-        : (strcmp(context.hallSpeed.status, "stopped") == 0 ? "stationary" : "unknown");
+        : (strcmp(context.hallSpeed.status, "stopped") == 0
+            ? "stationary"
+            : (strcmp(context.hallSpeed.status, "waiting") == 0 ? "waiting" : "unconfigured"));
     if (context.hallSpeed.speedAvailable) {
         hall["speedKmh"] = context.hallSpeed.speedKmh;
     } else {
         hall["speedKmh"] = nullptr;
+    }
+    if (context.hasHallSpeedBefore && context.hallSpeedBefore.speedAvailable) {
+        hall["speedBeforeKmh"] = context.hallSpeedBefore.speedKmh;
+        hall["statusBefore"] = context.hallSpeedBefore.status;
+    } else {
+        hall["speedBeforeKmh"] = nullptr;
+        hall["statusBefore"] = nullptr;
     }
     if (context.hallSpeed.wheelCircumferenceM > 0.0f) {
         hall["wheelCircumferenceM"] = context.hallSpeed.wheelCircumferenceM;
@@ -837,8 +889,11 @@ bool PedalyaApi::reportAccident(const AccidentReportContext& context, String& er
         : 0;
     if (context.hallSpeed.hasPulse) {
         hall["lastPulseAgeMs"] = context.hallSpeed.lastPulseAgeMs;
+        hall["lastPulseAtUptimeMs"] =
+            (uint32_t)(context.eventAtMs - context.hallSpeed.lastPulseAgeMs);
     } else {
         hall["lastPulseAgeMs"] = nullptr;
+        hall["lastPulseAtUptimeMs"] = nullptr;
     }
     if (context.hallSpeed.wheelCircumferenceM > 0.0f) {
         hall["estimatedDistanceKm"] =
@@ -851,6 +906,11 @@ bool PedalyaApi::reportAccident(const AccidentReportContext& context, String& er
     mpu["peakMagnitudeG"] = context.event.peakMagnitudeG;
     mpu["peakRotationDps"] = context.event.peakRotationDps;
     mpu["peakTiltDegrees"] = context.event.peakTiltDegrees;
+    mpu["available"] = true;
+    mpu["sampleAgeMs"] = 0;
+    mpu["impactDetected"] = context.event.impactDetected;
+    mpu["rotationDetected"] = context.event.rotationDetected;
+    mpu["sustainedFallTilt"] = context.event.sustainedFallTilt;
     JsonArray currentAccel = mpu["accelerometerG"].to<JsonArray>();
     currentAccel.add(context.event.accelXG);
     currentAccel.add(context.event.accelYG);
@@ -906,6 +966,8 @@ bool PedalyaApi::reportAccident(const AccidentReportContext& context, String& er
             item["magnitudeG"] = sample.mpu.magnitudeG;
             item["rotationDps"] = sample.mpu.gyroMagnitudeDps;
             item["tiltDegrees"] = sample.mpu.tiltDegrees;
+            item["fallTilt"] = sample.mpu.fallTilt;
+            item["sustainedFallTilt"] = sample.mpu.sustainedFallTilt;
             JsonArray accel = item["accelerometerG"].to<JsonArray>();
             accel.add(sample.mpu.accelXG);
             accel.add(sample.mpu.accelYG);

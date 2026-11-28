@@ -134,20 +134,40 @@ static void queueAccidentReport(const AccidentEvent& event) {
     pendingAccident = {};
     pendingAccident.active = true;
     pendingAccident.context.event = event;
-    pendingAccident.context.eventAtMs = millis();
+    pendingAccident.context.eventAtMs = event.detectedAtMs;
     pendingAccident.context.hallSpeed = hallSpeed.reading();
     pendingAccident.context.historyCount = sensorHistory.copyRecent(
         pendingAccident.context.history, SENSOR_HISTORY_CAPACITY);
+    for (int i = (int)pendingAccident.context.historyCount - 1; i >= 0; --i) {
+        const HallSpeedReading& previous =
+            pendingAccident.context.history[i].hall;
+        if (previous.speedAvailable) {
+            pendingAccident.context.hallSpeedBefore = previous;
+            pendingAccident.context.hasHallSpeedBefore = true;
+            break;
+        }
+    }
     snprintf(pendingAccident.context.eventId, sizeof(pendingAccident.context.eventId),
              "%08lx%08lx%08lx%08lx",
              (unsigned long)esp_random(), (unsigned long)esp_random(),
              (unsigned long)esp_random(), (unsigned long)esp_random());
+    api.formatTimestampAtUptime(
+        pendingAccident.context.eventAtMs,
+        pendingAccident.context.eventTimestamp,
+        sizeof(pendingAccident.context.eventTimestamp));
 
-    // Read the fix now. GPS_FIX_STALE_MS has already retired any fix that
-    // stopped being updated, so hasFreshFix() means this position is current.
+    // Keep stale fixes as explicitly stale context, never as the event location.
+    pendingAccident.context.hasGpsFix = gps.hasFreshFix();
+    pendingAccident.context.gpsFixStatus = pendingAccident.context.hasGpsFix
+        ? "fresh"
+        : "unavailable";
     if (gps.hasFreshFix()) {
-        pendingAccident.context.hasGpsFix = true;
         pendingAccident.context.gpsFix = gps.fix();
+        pendingAccident.context.hasLastGpsFix = true;
+    } else if (gps.fix().receivedAtMs != 0) {
+        pendingAccident.context.gpsFix = gps.fix();
+        pendingAccident.context.hasLastGpsFix = true;
+        pendingAccident.context.gpsFixStatus = "stale";
     }
 }
 
@@ -869,9 +889,11 @@ void setup() {
         Serial.printf("[accident] MPU6050 answering at 0x%02X\n",
                       accidentDetector.address());
         Serial.printf("[accident] monitoring: impact >= %.1f g or %.1f g/sample, rotation >= %.0f dps, "
-                      "tilt >= %.0f deg\n",
+                      "fall tilt >= %.0f deg for %lu ms (support tilt >= %.0f deg)\n",
                       (double)ACCIDENT_IMPACT_G, (double)ACCIDENT_JERK_G,
-                      (double)ACCIDENT_ROTATION_DPS, (double)ACCIDENT_TILT_DEGREES);
+                      (double)ACCIDENT_ROTATION_DPS, (double)ACCIDENT_FALL_TILT_DEGREES,
+                      (unsigned long)ACCIDENT_FALL_TILT_HOLD_MS,
+                      (double)ACCIDENT_TILT_DEGREES);
     } else {
         // Not fatal: everything else keeps working, and the detector keeps
         // re-probing so a module fixed later is picked up without a reset.

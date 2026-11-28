@@ -308,12 +308,41 @@ class MonitoringController extends Controller
                 'id' => $incident->id,
                 'bicycle_name' => $incident->bicycle?->name ?? ('Bicycle #' . $incident->bicycleId),
                 'serial_number' => $incident->bicycle?->serialNumber,
+                'status' => $incident->status ?? 'open',
                 'severity' => $incident->severity,
+                'classification' => $incident->sensorContext['classification'] ?? 'POTENTIAL_ACCIDENT',
+                'detection_trigger' => $incident->sensorContext['detectionTrigger'] ?? null,
                 'detection_reason' => $incident->sensorContext['detectionReason'] ?? null,
+                'tilt_degrees' => $incident->sensorContext['tiltDegrees'] ?? null,
+                'rotation_dps' => $incident->sensorContext['rotationDps'] ?? null,
+                'impact_detected' => (bool) ($incident->sensorContext['impactDetected'] ?? ($incident->impactForce !== null)),
+                'impact_force' => $incident->impactForce !== null
+                    ? (float) $incident->impactForce
+                    : null,
+                'hall_speed_before_kmh' => $incident->sensorContext['hall']['speedBeforeKmh'] ?? null,
                 'hall_speed_kmh' => $incident->speedKmh !== null
                     ? (float) $incident->speedKmh
                     : null,
-                'created_at' => $incident->created_at?->toIso8601String(),
+                'hall_status' => $incident->sensorContext['hall']['status'] ?? 'unavailable',
+                'hall_movement_status' => $incident->sensorContext['hall']['movementStatus'] ?? 'unknown',
+                'hall_telemetry_fresh' => $incident->sensorContext['hall']['telemetryFresh'] ?? false,
+                'hall_pulse_count' => $incident->sensorContext['hall']['pulseCount'] ?? null,
+                'hall_pulse_age_ms' => $incident->sensorContext['hall']['lastPulseAgeMs'] ?? null,
+                'hall_last_pulse_at' => $incident->sensorContext['hall']['lastPulseAt'] ?? null,
+                'mpu_status' => ($incident->sensorContext['mpu']['available'] ?? false)
+                    ? 'available'
+                    : (($incident->sensorContext['detectionSource'] ?? null) === 'mpu6050' ? 'reported' : 'unavailable'),
+                'gps_fix_status' => $incident->sensorContext['gps']['fixStatus']
+                    ?? ($incident->gpsLocation ? 'fresh' : 'unavailable'),
+                'gps_location' => $incident->gpsLocation
+                    ? $incident->gpsLocation['lat'].', '.$incident->gpsLocation['lng']
+                    : (($incident->sensorContext['gps']['lastKnownLat'] ?? null) !== null
+                        && ($incident->sensorContext['gps']['lastKnownLng'] ?? null) !== null
+                        ? 'Last known (stale): '.$incident->sensorContext['gps']['lastKnownLat'].', '.$incident->sensorContext['gps']['lastKnownLng']
+                        : null),
+                'gps_location_timestamp' => $incident->sensorContext['gps']['locationTimestamp'] ?? null,
+                'event_timestamp' => $incident->sensorContext['eventTimestamp']
+                    ?? $incident->created_at?->toIso8601String(),
             ])
             ->all();
     }

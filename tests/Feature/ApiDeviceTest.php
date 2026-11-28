@@ -248,6 +248,61 @@ class ApiDeviceTest extends TestCase
         $this->assertSame(1, count($incident->sensorContext['preImpactSamples']));
     }
 
+    public function test_potential_fall_without_impact_keeps_stationary_hall_and_stale_gps_context(): void
+    {
+        $bike = $this->makeBicycle([
+            'wheelCircumferenceM' => 2.086,
+            'serialNumber' => 'PDY-001',
+        ]);
+
+        $this->postJson('/api/iot/accident-report', [
+            'bicycle_id' => $bike->id,
+            'device_id' => 'ESP-001',
+            'event_id' => 'device-fall-001',
+            'classification' => 'POTENTIAL_FALL',
+            'detection_source' => 'mpu6050',
+            'detection_trigger' => 'sustained_tilt',
+            'detection_reason' => 'sustained_tilt',
+            'impact_detected' => false,
+            'tilt_degrees' => 48.5,
+            'speedKmh' => 0,
+            'wheelCircumferenceM' => 2.086,
+            'hallPulseCount' => 18,
+            'hallPulseAgeMs' => 500,
+            'speedSensorStatus' => 'stopped',
+            'hall_speed_before_kmh' => 0,
+            'gps_fix_status' => 'stale',
+            'timestamp' => now()->toIso8601String(),
+            'sensor_context' => [
+                'hall' => [
+                    'status' => 'stopped',
+                    'movementStatus' => 'stationary',
+                    'speedKmh' => 0,
+                    'speedBeforeKmh' => 0,
+                    'telemetryFresh' => true,
+                ],
+                'gps' => [
+                    'fixStatus' => 'stale',
+                    'lastKnownLat' => 14.6,
+                    'lastKnownLng' => 120.99,
+                    'lastKnownFixAgeMs' => 5000,
+                ],
+            ],
+        ], $this->deviceHeaders())->assertOk();
+
+        $incident = Accident::firstOrFail();
+        $this->assertNull($incident->impactForce);
+        $this->assertEquals(0, (float) $incident->speedKmh);
+        $this->assertNull($incident->gpsLocation);
+        $this->assertSame('POTENTIAL_FALL', $incident->sensorContext['classification']);
+        $this->assertFalse($incident->sensorContext['impactDetected']);
+        $this->assertSame('stale', $incident->sensorContext['gps']['fixStatus']);
+        $this->assertSame(14.6, $incident->sensorContext['gps']['lastKnownLat']);
+        $this->assertSame('PDY-001', $incident->sensorContext['bicycleSerial']);
+        $this->assertNotNull($incident->sensorContext['gps']['locationTimestamp']);
+        $this->assertNotNull($incident->sensorContext['hall']['lastPulseAt']);
+    }
+
     public function test_geofence_alert_processes(): void
     {
         $bike = $this->makeBicycle();

@@ -364,23 +364,65 @@
             <thead>
                 <tr>
                     <th>Bicycle</th>
-                    <th>Detection</th>
-                    <th>Hall speed</th>
-                    <th>Severity</th>
-                    <th>Reported</th>
+                    <th>Classification / trigger</th>
+                    <th>Tilt / rotation</th>
+                    <th>Impact</th>
+                    <th>Hall speed (before / current)</th>
+                    <th>Sensor status</th>
+                    <th>GPS status / location</th>
+                    <th>Status / event time</th>
                 </tr>
             </thead>
             <tbody id="recentIncidentFeed">
                 @forelse($recentIncidents as $incident)
                     <tr>
                         <td>{{ $incident['bicycle_name'] }} <small class="text-muted">{{ $incident['serial_number'] }}</small></td>
-                        <td>{{ $incident['detection_reason'] ? str_replace('_', ' ', $incident['detection_reason']) : 'MPU6050 report' }}</td>
-                        <td>{{ $incident['hall_speed_kmh'] !== null ? number_format($incident['hall_speed_kmh'], 1).' km/h' : 'Not reported' }}</td>
-                        <td>{{ ucfirst($incident['severity']) }}</td>
-                        <td>{{ $incident['created_at'] ? \Carbon\Carbon::parse($incident['created_at'])->diffForHumans() : '—' }}</td>
+                        <td>
+                            <strong>{{ str_replace('_', ' ', $incident['classification']) }}</strong>
+                            <small class="text-muted d-block">{{ str_replace('_', ' ', $incident['detection_trigger'] ?? $incident['detection_reason'] ?? 'MPU6050') }}</small>
+                        </td>
+                        <td>
+                            {{ $incident['tilt_degrees'] !== null ? number_format((float) $incident['tilt_degrees'], 1).'° tilt' : 'Tilt unavailable' }}
+                            <small class="text-muted d-block">{{ $incident['rotation_dps'] !== null ? number_format((float) $incident['rotation_dps'], 1).' dps' : 'Rotation unavailable' }}</small>
+                        </td>
+                        <td>
+                            {{ $incident['impact_detected'] ? 'Detected' : 'Not detected' }}
+                            @if($incident['impact_force'] !== null)
+                                <small class="text-muted d-block">{{ number_format($incident['impact_force'], 2) }} G</small>
+                            @endif
+                        </td>
+                        <td>
+                            {{ $incident['hall_speed_before_kmh'] !== null ? number_format((float) $incident['hall_speed_before_kmh'], 1).' km/h' : 'N/A' }}
+                            <small class="text-muted"> / {{ $incident['hall_speed_kmh'] !== null ? number_format($incident['hall_speed_kmh'], 1).' km/h' : 'N/A' }}</small>
+                        </td>
+                        <td>
+                            MPU {{ ucfirst($incident['mpu_status']) }}
+                            <small class="text-muted d-block">
+                                Hall {{ ucfirst($incident['hall_status']) }} · {{ ucfirst(str_replace('_', ' ', $incident['hall_movement_status'])) }}
+                                · {{ $incident['hall_telemetry_fresh'] ? 'fresh snapshot' : 'stale/unavailable' }}
+                                @if($incident['hall_pulse_count'] !== null)
+                                    · {{ number_format((int) $incident['hall_pulse_count']) }} pulses
+                                @endif
+                                @if($incident['hall_pulse_age_ms'] !== null)
+                                    · last pulse {{ number_format($incident['hall_pulse_age_ms'] / 1000, 1) }}s before event
+                                @endif
+                            </small>
+                        </td>
+                        <td>
+                            {{ ucfirst($incident['gps_fix_status']) }}
+                            @if($incident['gps_location'])
+                                <small class="text-muted d-block">{{ $incident['gps_location'] }}</small>
+                            @endif
+                            @if($incident['gps_location_timestamp'])
+                                <small class="text-muted d-block">Fix {{ \Carbon\Carbon::parse($incident['gps_location_timestamp'])->diffForHumans() }}</small>
+                            @endif
+                        </td>
+                        <td>{{ ucfirst(str_replace('_', ' ', $incident['status'])) }} · {{ ucfirst($incident['severity']) }}
+                            <small class="text-muted d-block">{{ $incident['event_timestamp'] ? \Carbon\Carbon::parse($incident['event_timestamp'])->diffForHumans() : '—' }}</small>
+                        </td>
                     </tr>
                 @empty
-                    <tr><td colspan="5" class="text-muted">No sensor incidents reported.</td></tr>
+                    <tr><td colspan="8" class="text-muted">No sensor incidents reported.</td></tr>
                 @endforelse
             </tbody>
         </table>
@@ -780,26 +822,59 @@
         var body = document.getElementById('recentIncidentFeed');
         if (!body) return;
         if (!incidents.length) {
-            body.innerHTML = '<tr><td colspan="5" class="text-muted">No sensor incidents reported.</td></tr>';
+            body.innerHTML = '<tr><td colspan="8" class="text-muted">No sensor incidents reported.</td></tr>';
             return;
         }
         body.innerHTML = incidents.map(function (incident) {
+            var beforeSpeed = incident.hall_speed_before_kmh !== null && incident.hall_speed_before_kmh !== undefined
+                ? Number(incident.hall_speed_before_kmh).toFixed(1) + ' km/h'
+                : 'N/A';
             var hallSpeed = incident.hall_speed_kmh !== null && incident.hall_speed_kmh !== undefined
                 ? Number(incident.hall_speed_kmh).toFixed(1) + ' km/h'
-                : 'Not reported';
-            var reported = incident.created_at
-                ? new Date(incident.created_at).toLocaleString()
+                : 'N/A';
+            var reported = incident.event_timestamp
+                ? new Date(incident.event_timestamp).toLocaleString()
                 : '—';
-            var reason = incident.detection_reason
-                ? incident.detection_reason.replace(/_/g, ' ')
-                : 'MPU6050 report';
+            var trigger = incident.detection_trigger || incident.detection_reason || 'MPU6050';
+            var tilt = incident.tilt_degrees !== null && incident.tilt_degrees !== undefined
+                ? Number(incident.tilt_degrees).toFixed(1) + '°'
+                : 'Not reported';
+            var rotation = incident.rotation_dps !== null && incident.rotation_dps !== undefined
+                ? Number(incident.rotation_dps).toFixed(1) + ' dps'
+                : 'Rotation unavailable';
+            var impact = incident.impact_detected ? 'Detected' : 'Not detected';
+            if (incident.impact_force !== null && incident.impact_force !== undefined) {
+                impact += ' · ' + Number(incident.impact_force).toFixed(2) + ' G';
+            }
+            var gps = incident.gps_fix_status || 'unavailable';
+            if (incident.gps_location) gps += ' · ' + incident.gps_location;
+            if (incident.gps_location_timestamp) {
+                gps += ' · fix ' + new Date(incident.gps_location_timestamp).toLocaleString();
+            }
+            var sensorStatus = 'MPU ' + (incident.mpu_status || 'unavailable')
+                + ' · Hall ' + (incident.hall_status || 'unavailable')
+                + ' · ' + (incident.hall_movement_status || 'unknown').replace(/_/g, ' ')
+                + ' · ' + (incident.hall_telemetry_fresh ? 'fresh snapshot' : 'stale/unavailable');
+            if (incident.hall_pulse_count !== null && incident.hall_pulse_count !== undefined) {
+                sensorStatus += ' · ' + Number(incident.hall_pulse_count).toLocaleString() + ' pulses';
+            }
+            if (incident.hall_pulse_age_ms !== null && incident.hall_pulse_age_ms !== undefined) {
+                sensorStatus += ' · last pulse ' + (Number(incident.hall_pulse_age_ms) / 1000).toFixed(1)
+                    + 's before event';
+            }
             return '<tr>'
                 + '<td>' + escapeIncidentText(incident.bicycle_name) + ' <small class="text-muted">'
                 + escapeIncidentText(incident.serial_number || '') + '</small></td>'
-                + '<td>' + escapeIncidentText(reason) + '</td>'
-                + '<td>' + escapeIncidentText(hallSpeed) + '</td>'
-                + '<td>' + escapeIncidentText(incident.severity || '—') + '</td>'
-                + '<td>' + escapeIncidentText(reported) + '</td>'
+                + '<td><strong>' + escapeIncidentText((incident.classification || 'POTENTIAL_ACCIDENT').replace(/_/g, ' '))
+                + '</strong><small class="text-muted d-block">' + escapeIncidentText(trigger.replace(/_/g, ' ')) + '</small></td>'
+                + '<td>' + escapeIncidentText(tilt) + '<small class="text-muted d-block">'
+                + escapeIncidentText(rotation) + '</small></td>'
+                + '<td>' + escapeIncidentText(impact) + '</td>'
+                + '<td>' + escapeIncidentText(beforeSpeed + ' / ' + hallSpeed) + '</td>'
+                + '<td>' + escapeIncidentText(sensorStatus) + '</td>'
+                + '<td>' + escapeIncidentText(gps.replace(/_/g, ' ')) + '</td>'
+                + '<td>' + escapeIncidentText((incident.status || 'open') + ' · ' + (incident.severity || '—'))
+                + '<small class="text-muted d-block">' + escapeIncidentText(reported) + '</small></td>'
                 + '</tr>';
         }).join('');
     }
