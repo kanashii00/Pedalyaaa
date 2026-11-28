@@ -370,6 +370,7 @@ bool PedalyaApi::cellularRequest(const char* method, const char* path, const Str
     const bool ok = isPost ? simHttpPost(url, payload, &responseBody, authHeader)
                            : simHttpGet(url, &responseBody, authHeader);
     const int status = simLastHttpStatus();
+    lastStatus_ = status;
 
     if (status == 0) {
         reportFailure(0, responseBody, error);
@@ -615,6 +616,7 @@ bool PedalyaApi::acknowledgeCommand(uint32_t commandId, bool executed, const Str
 
 bool PedalyaApi::postJson(const char* path, const String& payload, String& error,
                           const char* apiKey) {
+    lastStatus_ = 0;
     if (!connected()) {
         error = offlineError();
         return false;
@@ -657,6 +659,7 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
     const int status = http.POST(payload);
     const String response = http.getString();
     http.end();
+    lastStatus_ = status;
     if (status < 200 || status >= 300) {
         reportFailure(status, response, error);
         return false;
@@ -739,6 +742,7 @@ bool PedalyaApi::sendHallSpeed(const HallSpeedReading& hallSpeed, String& error)
 bool PedalyaApi::reportAccident(double latitude,
                                 double longitude,
                                 bool hasFix,
+                                const HallSpeedReading& hallSpeed,
                                 float impactG,
                                 float rotationDps,
                                 float tiltDegrees,
@@ -771,6 +775,7 @@ bool PedalyaApi::reportAccident(double latitude,
     payload["impact_force"] = impactG;
     payload["rotation_dps"] = rotationDps;
     payload["tilt_degrees"] = tiltDegrees;
+    addHallSpeedPayload(payload, hallSpeed);
 
     // The vector the event was judged on, so the record shows what the sensor
     // actually saw and not only the verdict derived from it.

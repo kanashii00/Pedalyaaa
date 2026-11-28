@@ -212,6 +212,7 @@ public:
     bool reportAccident(double latitude,
                         double longitude,
                         bool hasFix,
+                        const HallSpeedReading& hallSpeed,
                         float impactG,
                         float rotationDps,
                         float tiltDegrees,

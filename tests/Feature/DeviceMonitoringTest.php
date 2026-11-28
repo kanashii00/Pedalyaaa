@@ -222,6 +222,8 @@ class DeviceMonitoringTest extends TestCase
             ->getContent();
         $this->assertStringContainsString('0.0 km/h', $html);
         $this->assertStringContainsString('Hall Effect sensor', $html);
+        $this->assertStringContainsString('Circumference 2.100 m', $html);
+        $this->assertStringContainsString('Hall pulses 48', $html);
         $this->assertStringContainsString('Number(bike.speed_kmh).toFixed(1)', $html);
 
         $rows = $this->actingAs($admin)->getJson(route('admin.monitoring.live'))
@@ -231,6 +233,39 @@ class DeviceMonitoringTest extends TestCase
         $this->assertSame('hall', $row['speed_source']);
         $this->assertEquals(0.0, $row['speed_kmh']);
         $this->assertSame('stopped', $row['speed_sensor_status']);
+        $this->assertEquals(2.1, $row['wheel_circumference_m']);
+        $this->assertSame(48, $row['hall_pulse_count']);
+    }
+
+    public function test_monitoring_distinguishes_unconfigured_hall_sensor_from_missing_telemetry(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->makeBicycle(['serialNumber' => 'PDY-HALL-UNCONFIGURED']);
+        DeviceStatus::create([
+            'bicycleId' => $bike->id,
+            'type' => 'gps',
+            'eventTimestamp' => now(),
+            'hallPulseCount' => 1,
+            'speedSensorStatus' => 'unconfigured',
+        ]);
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.monitoring.index', ['section' => 'gps']))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Hall Effect sensor · unconfigured', $html);
+        $this->assertStringContainsString('Circumference not configured', $html);
+        $this->assertStringContainsString('Hall pulses 1', $html);
+
+        $rows = $this->actingAs($admin)->getJson(route('admin.monitoring.live'))
+            ->assertOk()
+            ->json('bicycles');
+        $row = collect($rows)->firstWhere('id', $bike->id);
+        $this->assertSame('unconfigured', $row['speed_sensor_status']);
+        $this->assertSame('unavailable', $row['speed_source']);
+        $this->assertNull($row['speed_kmh']);
+        $this->assertSame(1, $row['hall_pulse_count']);
     }
 
     public function test_monitoring_labels_legacy_gps_speed_as_fallback(): void

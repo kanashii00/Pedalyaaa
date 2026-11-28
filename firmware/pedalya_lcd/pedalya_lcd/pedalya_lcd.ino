@@ -74,6 +74,7 @@ struct PendingAccident {
     bool hasFix = false;
     double latitude = 0.0;
     double longitude = 0.0;
+    HallSpeedReading hallSpeed;
     float impactG = 0.0f;
     float rotationDps = 0.0f;
     float tiltDegrees = 0.0f;
@@ -139,6 +140,7 @@ static void queueAccidentReport(const AccidentEvent& event) {
     pendingAccident.accelXG = event.accelXG;
     pendingAccident.accelYG = event.accelYG;
     pendingAccident.accelZG = event.accelZG;
+    pendingAccident.hallSpeed = hallSpeed.reading();
 
     // Read the fix now. GPS_FIX_STALE_MS has already retired any fix that
     // stopped being updated, so hasFreshFix() means this position is current.
@@ -264,7 +266,7 @@ static void serviceAccidentReport() {
     setNetworkWait(true);
     const bool reported = api.reportAccident(
         pendingAccident.latitude, pendingAccident.longitude,
-        pendingAccident.hasFix, pendingAccident.impactG,
+        pendingAccident.hasFix, pendingAccident.hallSpeed, pendingAccident.impactG,
         pendingAccident.rotationDps, pendingAccident.tiltDegrees,
         pendingAccident.accelXG, pendingAccident.accelYG,
         pendingAccident.accelZG, error
@@ -396,6 +398,8 @@ static void reportTelemetry() {
         setNetworkWait(false);
         if (!sent) {
             Serial.printf("[telemetry] GPS upload failed: %s\n", error.c_str());
+        } else {
+            Serial.printf("[telemetry] GPS/Hall upload accepted (HTTP %d)\n", api.lastStatus());
         }
     } else if (!hallTelemetryAttempted
                || now - lastHallTelemetryMs >= HALL_TELEMETRY_INTERVAL_MS) {
@@ -406,6 +410,10 @@ static void reportTelemetry() {
         setNetworkWait(false);
         if (!sent) {
             Serial.printf("[telemetry] Hall upload failed: %s\n", error.c_str());
+        } else {
+            Serial.printf("[telemetry] Hall upload accepted (HTTP %d; %s; pulses=%lu)\n",
+                          api.lastStatus(), hallReading.status,
+                          (unsigned long)hallReading.pulseCount);
         }
     }
 }
@@ -935,6 +943,7 @@ void loop() {
     bool polledThisPass = false;
     const uint32_t interval = serverReachable ? pollIntervalMs()
                                                : (uint32_t)RETRY_SECONDS * 1000UL;
+    static float loggedWheelCircumferenceM = -1.0f;
     if (!polledOnce || now - lastPollMs >= interval) {
         lastPollMs = now;
         polledOnce = true;
@@ -951,6 +960,15 @@ void loop() {
             display.setErrorLed(true);
         } else {
             hallSpeed.setWheelCircumferenceM(state.wheelCircumferenceM);
+            if (state.wheelCircumferenceM != loggedWheelCircumferenceM) {
+                loggedWheelCircumferenceM = state.wheelCircumferenceM;
+                if (hallSpeed.configured()) {
+                    Serial.printf("[hall] circumference configured: %.3f m\n",
+                                  state.wheelCircumferenceM);
+                } else {
+                    Serial.println("[hall] circumference missing or invalid; speed unconfigured");
+                }
+            }
             display.setErrorLed(false);
         }
     }

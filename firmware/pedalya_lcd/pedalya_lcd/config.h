@@ -341,7 +341,7 @@
 #endif
 
 #ifndef HALL_MAX_SPEED_KMH
-#define HALL_MAX_SPEED_KMH 60.0f
+#define HALL_MAX_SPEED_KMH 120.0f
 #endif
 
 /* ------------------------------------------------------------------------

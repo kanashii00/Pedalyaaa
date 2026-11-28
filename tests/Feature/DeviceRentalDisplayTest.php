@@ -54,11 +54,11 @@ class DeviceRentalDisplayTest extends TestCase
 
     public function test_device_poll_includes_the_bicycles_configured_wheel_circumference(): void
     {
-        $this->bike->update(['wheelCircumferenceM' => 2.1]);
+        $this->bike->update(['wheelCircumferenceM' => 2.086]);
 
         $this->getJson($this->endpoint($this->bike), $this->deviceHeaders())
             ->assertOk()
-            ->assertJsonPath('data.bicycle.wheelCircumferenceM', 2.1);
+            ->assertJsonPath('data.bicycle.wheelCircumferenceM', 2.086);
     }
 
     public function test_device_reads_and_acknowledges_its_existing_command_queue(): void

@@ -119,7 +119,7 @@ class IoTServiceTest extends TestCase
     public function test_process_heartbeat_detects_impact_and_creates_accident(): void
     {
         $this->makeAdmin();
-        $bike = $this->makeBicycle();
+        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.086]);
 
         $this->geofenceService->shouldReceive('checkPointInGeofence')
             ->once()
@@ -133,11 +133,16 @@ class IoTServiceTest extends TestCase
             'impact' => 9.5,
             'lat' => 14.6,
             'lng' => 120.99,
+            'speedKmh' => 24.5,
+            'wheelCircumferenceM' => 2.086,
+            'hallPulseCount' => 25,
+            'speedSensorStatus' => 'active',
         ]);
 
         $accident = Accident::where('type', 'impact_detected')->first();
         $this->assertNotNull($accident);
         $this->assertSame('critical', $accident->severity);
+        $this->assertSame(24.5, (float) $accident->speedKmh);
     }
 
     public function test_process_accident_report_creates_accident_and_marks_bike_maintenance(): void

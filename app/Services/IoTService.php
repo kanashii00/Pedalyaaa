@@ -222,6 +222,7 @@ class IoTService
             'gpsLocation' => isset($data['lat'], $data['lng']) ? ['lat' => $data['lat'], 'lng' => $data['lng']] : null,
             'accelerometerData' => $data['accelerometer'] ?? $data['accelerometerData'] ?? null,
             'impactForce' => $impact,
+            'speedKmh' => $bicycle ? $this->hallSpeedForAccident($bicycle, $data) : null,
             'description' => $data['description'] ?? 'Automatic accident detection via IoT device',
             'status' => 'open',
             'acknowledged' => false,
@@ -322,6 +323,7 @@ class IoTService
             'gpsLocation' => isset($data['lat'], $data['lng']) ? ['lat' => $data['lat'], 'lng' => $data['lng']] : null,
             'accelerometerData' => $data['accelerometer'] ?? null,
             'impactForce' => $impact,
+            'speedKmh' => $this->hallSpeedForAccident($bicycle, $data),
             'description' => 'Impact detected with force: '.$impact.'g',
             'status' => 'open',
             'acknowledged' => false,
@@ -332,6 +334,17 @@ class IoTService
             'Impact / Accident Detected',
             "Abnormal movement or impact detected on bicycle {$bicycle->id} (force: {$impact}g, severity: {$severity})."
         );
+    }
+
+    private function hallSpeedForAccident(Bicycle $bicycle, array $data): ?float
+    {
+        $telemetry = HallSpeedTelemetry::attributesFor($bicycle, $data);
+        if (! in_array($telemetry['speedSensorStatus'], ['active', 'stopped'], true)
+            || $telemetry['speedKmh'] === null) {
+            return null;
+        }
+
+        return (float) $telemetry['speedKmh'];
     }
 
     private function handleGeofenceCheck(Bicycle $bicycle, float $lat, float $lng): void

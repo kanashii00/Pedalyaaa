@@ -83,6 +83,7 @@ class AdminAccidentManagementTest extends TestCase
         $this->assertStringContainsString('id="modalRiderName"', $html);
         $this->assertStringContainsString('id="modalRentalId"', $html);
         $this->assertStringContainsString('id="modalImpactForce"', $html);
+        $this->assertStringContainsString('id="modalHallSpeed"', $html);
         $this->assertStringContainsString('id="modalGpsCoords"', $html);
         $this->assertStringContainsString('id="modalDescription"', $html);
         $this->assertStringContainsString('id="modalDetectedTime"', $html);
@@ -125,6 +126,7 @@ class AdminAccidentManagementTest extends TestCase
             'severity' => 'critical',
             'description' => 'Severe impact detected at intersection',
             'impactForce' => 4.25,
+            'speedKmh' => 24.5,
             'gpsLocation' => ['lat' => 14.5821, 'lng' => 120.9788],
             'acknowledged' => false,
         ]);
@@ -142,6 +144,7 @@ class AdminAccidentManagementTest extends TestCase
                 'type' => 'accident',
                 'severity' => 'critical',
                 'impactForce' => '4.25 G',
+                'speedKmh' => 24.5,
                 'acknowledged' => false,
             ],
         ]);

@@ -26,7 +26,7 @@ class IoTController extends Controller
             'lat'           => 'nullable|numeric|between:-90,90',
             'lng'           => 'nullable|numeric|between:-180,180',
             'speed'         => 'nullable|numeric|min:0',
-            'speedKmh'      => 'nullable|numeric|between:0,60',
+            'speedKmh'      => 'nullable|numeric|between:0,120',
             'wheelCircumferenceM' => 'nullable|numeric|between:0.5,4',
             'hallPulseCount' => 'nullable|integer|min:0',
             'speedSensorStatus' => 'nullable|string|in:unconfigured,waiting,active,stopped',
@@ -59,6 +59,10 @@ class IoTController extends Controller
             'impact_force'  => 'nullable|numeric|min:0',
             'impact'        => 'nullable|numeric|min:0',
             'accelerometer' => 'nullable|array',
+            'speedKmh' => 'nullable|numeric|between:0,120',
+            'wheelCircumferenceM' => 'nullable|numeric|between:0.5,4',
+            'hallPulseCount' => 'nullable|integer|min:0',
+            'speedSensorStatus' => 'nullable|string|in:unconfigured,waiting,active,stopped',
             'timestamp'     => 'nullable|date',
         ]);
 

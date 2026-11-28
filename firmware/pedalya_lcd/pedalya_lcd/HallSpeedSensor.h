@@ -118,9 +118,11 @@ inline HallSpeedReading HallSpeedSensor::reading() const
         return result;
     }
 
-    result.speedKmh = circumferenceM * 3600000.0f
-        / (lastIntervalUs * HALL_PULSES_PER_REVOLUTION);
-    result.speedAvailable = result.speedKmh <= HALL_MAX_SPEED_KMH;
+    const float pulseIntervalUs = static_cast<float>(lastIntervalUs)
+        * static_cast<float>(HALL_PULSES_PER_REVOLUTION);
+    result.speedKmh = circumferenceM * 3600000.0f / pulseIntervalUs;
+    result.speedAvailable = isfinite(result.speedKmh)
+        && result.speedKmh <= HALL_MAX_SPEED_KMH;
     result.status = result.speedAvailable ? "active" : "waiting";
     return result;
 }

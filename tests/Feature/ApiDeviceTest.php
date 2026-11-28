@@ -84,14 +84,34 @@ class ApiDeviceTest extends TestCase
         ]);
     }
 
-    public function test_heartbeat_rejects_unrealistic_hall_speed(): void
+    public function test_heartbeat_accepts_higher_realistic_hall_speed(): void
+    {
+        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.086]);
+
+        $this->postJson('/api/iot/heartbeat', [
+            'bicycle_id' => $bike->id,
+            'device_id' => 'ESP-001',
+            'speedKmh' => 90,
+            'wheelCircumferenceM' => 2.086,
+            'hallPulseCount' => 12,
+            'speedSensorStatus' => 'active',
+        ], $this->deviceHeaders())->assertOk();
+
+        $this->assertDatabaseHas('device_status', [
+            'bicycleId' => $bike->id,
+            'speedKmh' => 90,
+            'speedSensorStatus' => 'active',
+        ]);
+    }
+
+    public function test_heartbeat_rejects_speed_above_supported_range(): void
     {
         $bike = $this->makeBicycle();
 
         $this->postJson('/api/iot/heartbeat', [
             'bicycle_id' => $bike->id,
             'device_id' => 'ESP-001',
-            'speedKmh' => 61,
+            'speedKmh' => 121,
             'wheelCircumferenceM' => 2.1,
             'hallPulseCount' => 12,
             'speedSensorStatus' => 'active',
@@ -164,7 +184,7 @@ class ApiDeviceTest extends TestCase
 
     public function test_accident_report_processes(): void
     {
-        $bike = $this->makeBicycle();
+        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.086]);
 
         $this->postJson('/api/iot/accident-report', [
             'bicycle_id' => $bike->id,
@@ -172,7 +192,16 @@ class ApiDeviceTest extends TestCase
             'lat' => 14.6,
             'lng' => 120.99,
             'impact_force' => 15,
+            'speedKmh' => 24.5,
+            'wheelCircumferenceM' => 2.086,
+            'hallPulseCount' => 25,
+            'speedSensorStatus' => 'active',
         ], $this->deviceHeaders())->assertOk();
+
+        $this->assertDatabaseHas('accidents', [
+            'bicycleId' => $bike->id,
+            'speedKmh' => 24.5,
+        ]);
     }
 
     public function test_geofence_alert_processes(): void
@@ -315,14 +344,14 @@ class ApiDeviceTest extends TestCase
 
     public function test_bicycle_gps_path_accepts_hall_telemetry_without_a_gps_fix(): void
     {
-        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.1]);
+        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.086]);
         $deviceKey = $bike->issueDeviceKey();
 
         $this->postJson("/api/iot/bicycle/{$bike->id}/gps", [
-            'speedKmh' => 0,
-            'wheelCircumferenceM' => 2.1,
+            'speedKmh' => 90,
+            'wheelCircumferenceM' => 2.086,
             'hallPulseCount' => 48,
-            'speedSensorStatus' => 'stopped',
+            'speedSensorStatus' => 'active',
         ], ['X-API-Key' => $deviceKey])
             ->assertOk()
             ->assertJsonPath('message', 'Hall telemetry recorded');
@@ -330,8 +359,8 @@ class ApiDeviceTest extends TestCase
         $this->assertDatabaseHas('device_status', [
             'bicycleId' => $bike->id,
             'type' => 'gps',
-            'speedKmh' => 0,
-            'speedSensorStatus' => 'stopped',
+            'speedKmh' => 90,
+            'speedSensorStatus' => 'active',
         ]);
         $this->assertDatabaseCount('gps_logs', 0);
         $this->assertNull($bike->fresh()->lastGpsUpdate);

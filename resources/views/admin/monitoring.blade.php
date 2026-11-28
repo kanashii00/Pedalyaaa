@@ -249,21 +249,35 @@
                     $speedSource = match ($speed['source']) {
                         'hall' => 'Hall Effect sensor',
                         'gps_fallback' => 'GPS fallback',
-                        default => 'Unavailable',
+                        default => $speed['sensor_status'] === 'unconfigured' ? 'Hall Effect sensor' : 'Unavailable',
                     };
-                    if ($speed['source'] === 'hall' && !in_array($speed['sensor_status'], ['active', 'stopped'], true)) {
-                        $speedSource .= ' · '.match ($speed['sensor_status']) {
-                            'waiting' => 'waiting for pulses',
-                            'stale' => 'no recent telemetry',
-                            'configuration_mismatch' => 'configuration mismatch',
-                            default => 'not available',
-                        };
+                    $speedStatusLabel = match ($speed['sensor_status']) {
+                        'unconfigured' => 'unconfigured',
+                        'waiting' => 'waiting for pulses',
+                        'stale' => 'no recent telemetry',
+                        'configuration_mismatch' => 'configuration mismatch',
+                        default => null,
+                    };
+                    if ($speedStatusLabel !== null) {
+                        $speedSource .= ' · '.$speedStatusLabel;
+                    } elseif ($speed['source'] === 'unavailable') {
+                        $speedSource .= ' · no usable telemetry';
                     }
                     $speedSourceClass = $speed['source'] === 'hall'
                         ? (in_array($speed['sensor_status'], ['active', 'stopped'], true)
                             ? 'badge-admin--brand'
                             : 'badge-admin--warning')
-                        : ($speed['source'] === 'gps_fallback' ? 'badge-admin--warning' : 'badge-admin--neutral');
+                        : ($speed['source'] === 'gps_fallback' || $speed['sensor_status'] === 'unconfigured'
+                            ? 'badge-admin--warning'
+                            : 'badge-admin--neutral');
+                    $speedDetails = [
+                        $speed['wheel_circumference_m'] !== null
+                            ? 'Circumference '.number_format($speed['wheel_circumference_m'], 3).' m'
+                            : 'Circumference not configured',
+                        $speed['hall_pulse_count'] !== null
+                            ? 'Hall pulses '.number_format($speed['hall_pulse_count'])
+                            : 'Hall pulses unavailable',
+                    ];
                 @endphp
                 <tr data-gps-bike-id="{{ $bike->id }}">
                     <td data-label="Bicycle">
@@ -299,6 +313,7 @@
                     <td data-label="Speed">
                         <span data-gps-field="speed">{{ $speed['speed'] !== null ? number_format($speed['speed'], 1).' km/h' : 'N/A' }}</span>
                         <small class="badge-admin {{ $speedSourceClass }} d-block mt-1" data-gps-field="speed-source">{{ $speedSource }}</small>
+                        <small class="text-muted d-block" data-gps-field="speed-details">{{ implode(' · ', $speedDetails) }}</small>
                     </td>
                     <td data-label="Distance from center" data-gps-field="distance">{{ $bike->zone['distance'] !== null ? number_format($bike->zone['distance'], 0) . ' m' : 'N/A' }}</td>
                     <td data-label="Last GPS" data-gps-field="updated-at">
@@ -535,6 +550,8 @@
         'speed_kmh' => $b->speed_data['speed'],
         'speed_source' => $b->speed_data['source'],
         'speed_sensor_status' => $b->speed_data['sensor_status'],
+        'wheel_circumference_m' => $b->speed_data['wheel_circumference_m'],
+        'hall_pulse_count' => $b->speed_data['hall_pulse_count'],
         'status' => $b->status,
         'battery' => $b->batteryLevel,
         'lockStatus' => $b->lockStatus,
@@ -610,24 +627,46 @@
             if (speedSource) {
                 var sourceLabel = bike.speed_source === 'hall'
                     ? 'Hall Effect sensor'
-                    : (bike.speed_source === 'gps_fallback' ? 'GPS fallback' : 'Unavailable');
+                    : (bike.speed_source === 'gps_fallback'
+                        ? 'GPS fallback'
+                        : (bike.speed_sensor_status === 'unconfigured' ? 'Hall Effect sensor' : 'Unavailable'));
                 var sourceClass = bike.speed_source === 'hall'
                     ? 'badge-admin--brand'
-                    : (bike.speed_source === 'gps_fallback' ? 'badge-admin--warning' : 'badge-admin--neutral');
+                    : (bike.speed_source === 'gps_fallback' || bike.speed_sensor_status === 'unconfigured'
+                        ? 'badge-admin--warning'
+                        : 'badge-admin--neutral');
                 var statusLabels = {
+                    unconfigured: 'unconfigured',
                     waiting: 'waiting for pulses',
                     stale: 'no recent telemetry',
                     configuration_mismatch: 'configuration mismatch'
                 };
-                if (bike.speed_source === 'hall'
-                    && bike.speed_sensor_status
-                    && bike.speed_sensor_status !== 'active'
-                    && bike.speed_sensor_status !== 'stopped') {
-                    sourceLabel += ' · ' + (statusLabels[bike.speed_sensor_status] || 'not available');
+                if (bike.speed_sensor_status && statusLabels[bike.speed_sensor_status]) {
+                    sourceLabel += ' · ' + statusLabels[bike.speed_sensor_status];
                     sourceClass = 'badge-admin--warning';
+                } else if (bike.speed_source === 'unavailable') {
+                    sourceLabel += ' · no usable telemetry';
                 }
                 speedSource.textContent = sourceLabel;
                 speedSource.className = 'badge-admin d-block mt-1 ' + sourceClass;
+            }
+
+            var speedDetails = row.querySelector('[data-gps-field="speed-details"]');
+            if (speedDetails) {
+                var circumference = Number(bike.wheel_circumference_m);
+                var pulseCount = Number(bike.hall_pulse_count);
+                var detailParts = [
+                    Number.isFinite(circumference) && circumference > 0
+                        ? 'Circumference ' + circumference.toFixed(3) + ' m'
+                        : 'Circumference not configured',
+                    bike.hall_pulse_count !== null
+                        && bike.hall_pulse_count !== undefined
+                        && Number.isInteger(pulseCount)
+                        && pulseCount >= 0
+                        ? 'Hall pulses ' + pulseCount.toLocaleString()
+                        : 'Hall pulses unavailable'
+                ];
+                speedDetails.textContent = detailParts.join(' · ');
             }
 
             var updatedCell = row.querySelector('[data-gps-field="updated-at"]');

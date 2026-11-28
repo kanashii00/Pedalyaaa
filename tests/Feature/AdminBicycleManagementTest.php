@@ -56,7 +56,17 @@ class AdminBicycleManagementTest extends TestCase
             ->get(route('admin.bicycles.show', $bike->id))
             ->assertOk()
             ->assertSee(route('admin.bicycles.lock', $bike->id), false);
-        $this->actingAs($admin)->get(route('admin.bicycles.create'))->assertOk();
+        $this->actingAs($admin)
+            ->get(route('admin.bicycles.create'))
+            ->assertOk()
+            ->assertSee('Wheel Circumference (m)')
+            ->assertSee('name="wheelCircumferenceM"', false);
+
+        $this->actingAs($admin)
+            ->get(route('admin.bicycles.index'))
+            ->assertOk()
+            ->assertSee('id="editBicycleModal'.$bike->id.'"', false)
+            ->assertSee('name="wheelCircumferenceM"', false);
     }
 
     public function test_details_hide_lock_controls_when_the_bicycle_cannot_be_controlled(): void
@@ -195,6 +205,53 @@ class AdminBicycleManagementTest extends TestCase
         $this->actingAs($admin)
             ->post(route('admin.bicycles.store'), ['hourlyRate' => 10])
             ->assertSessionHasErrors('name');
+    }
+
+    public function test_wheel_circumference_rejects_nonpositive_and_unreasonable_values(): void
+    {
+        $admin = $this->makeAdmin();
+
+        foreach ([0, -0.5, 4.001] as $circumference) {
+            $this->actingAs($admin)
+                ->post(route('admin.bicycles.store'), [
+                    'name' => 'Invalid circumference',
+                    'hourlyRate' => 10,
+                    'wheelCircumferenceM' => $circumference,
+                ])
+                ->assertSessionHasErrors('wheelCircumferenceM');
+        }
+
+        $bike = $this->makeBicycle();
+        $this->from(route('admin.bicycles.index'))
+            ->actingAs($admin)
+            ->put(route('admin.bicycles.update', $bike->id), [
+                '_editBicycleId' => $bike->id,
+                'wheelCircumferenceM' => 0,
+            ])
+            ->assertRedirect(route('admin.bicycles.index'))
+            ->assertSessionHasErrors('wheelCircumferenceM');
+
+        $this->actingAs($admin)
+            ->get(route('admin.bicycles.index'))
+            ->assertOk()
+            ->assertSee('class="admin-modal open" id="editBicycleModal'.$bike->id.'"', false)
+            ->assertSee('value="0"', false);
+    }
+
+    public function test_provided_pdy001_circumference_migration_sets_the_configured_value(): void
+    {
+        $this->makeBicycle([
+            'serialNumber' => 'PDY-001',
+            'wheelCircumferenceM' => null,
+        ]);
+
+        $migration = require database_path('migrations/2026_11_28_000003_set_pdy001_wheel_circumference.php');
+        $migration->up();
+
+        $this->assertDatabaseHas('bicycles', [
+            'serialNumber' => 'PDY-001',
+            'wheelCircumferenceM' => 2.086,
+        ]);
     }
 
     public function test_update_fields(): void

@@ -356,12 +356,13 @@
         @endphp
 
         {{-- Edit Bicycle --}}
-        <div class="admin-modal" id="editBicycleModal{{ $bike->id }}">
+        <div class="admin-modal{{ old('_editBicycleId') == $bike->id && $errors->any() ? ' open' : '' }}" id="editBicycleModal{{ $bike->id }}">
             <div class="admin-modal__backdrop" data-modal-close></div>
             <div class="admin-modal__dialog admin-modal__dialog--lg">
                 <form action="{{ route('admin.bicycles.update', $bike->id) }}" method="POST">
                     @csrf
                     @method('PUT')
+                    <input type="hidden" name="_editBicycleId" value="{{ $bike->id }}">
                     <div class="admin-modal__head">
                         <h3>Edit {{ $bike->serialNumber }}</h3>
                         <button type="button" class="admin-icon-btn" data-modal-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
@@ -382,8 +383,11 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Wheel Circumference (m)</label>
-                                <input type="number" name="wheelCircumferenceM" class="form-control" value="{{ $bike->wheelCircumferenceM }}" step="0.001" min="0.5" max="4">
-                                <small class="form-text text-muted">Measure one full wheel rotation; required for Hall speed.</small>
+                                <input type="number" name="wheelCircumferenceM" class="form-control @error('wheelCircumferenceM') is-invalid @enderror"
+                                       value="{{ old('_editBicycleId') == $bike->id ? old('wheelCircumferenceM', $bike->wheelCircumferenceM) : $bike->wheelCircumferenceM }}"
+                                       step="0.001" min="0.5" max="4" placeholder="Measure one full rotation">
+                                @error('wheelCircumferenceM')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                <small class="form-text text-muted">Enter the measured distance for one full wheel rotation (0.500–4.000 m). Leave blank to disable Hall speed.</small>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Latitude</label>

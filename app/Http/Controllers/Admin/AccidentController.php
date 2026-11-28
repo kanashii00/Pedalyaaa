@@ -182,6 +182,7 @@ class AccidentController extends Controller
             'lng' => $hasGps ? $incident->gpsLocation['lng'] : null,
             'locationText' => $hasGps ? ($incident->gpsLocation['lat'] . ', ' . $incident->gpsLocation['lng']) : 'No GPS Coordinates',
             'impactForce' => $incident->impactForce !== null ? number_format((float) $incident->impactForce, 2) . ' G' : null,
+            'speedKmh' => $incident->speedKmh !== null ? (float) $incident->speedKmh : null,
             'timestamp' => $incident->created_at->format('M d, Y H:i'),
             'timestampFull' => $incident->created_at->format('M d, Y h:i A'),
             'timestampAgo' => $incident->created_at->diffForHumans(),

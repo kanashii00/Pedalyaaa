@@ -437,6 +437,10 @@
                                     <span class="acc-field-value text-danger fw-bold" id="modalImpactForce">—</span>
                                 </div>
                                 <div class="acc-field-group">
+                                    <span class="acc-field-label">Hall Speed at Event</span>
+                                    <span class="acc-field-value" id="modalHallSpeed">Not reported</span>
+                                </div>
+                                <div class="acc-field-group">
                                     <span class="acc-field-label">Hardware Sensor</span>
                                     <span class="acc-field-value text-muted" id="modalSensorStatus">IoT Telemetry</span>
                                 </div>
@@ -679,6 +683,15 @@
 
         var elImpact = document.getElementById('modalImpactForce');
         if (elImpact) elImpact.textContent = acc.impactForce || '—';
+
+        var elHallSpeed = document.getElementById('modalHallSpeed');
+        if (elHallSpeed) {
+            elHallSpeed.textContent = acc.speedKmh !== null
+                && acc.speedKmh !== undefined
+                && Number.isFinite(Number(acc.speedKmh))
+                ? Number(acc.speedKmh).toFixed(1) + ' km/h'
+                : 'Not reported';
+        }
 
         var elSensor = document.getElementById('modalSensorStatus');
         if (elSensor) elSensor.textContent = acc.sensorStatus || 'IoT Telemetry';
