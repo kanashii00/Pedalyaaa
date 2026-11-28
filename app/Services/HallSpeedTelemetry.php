@@ -13,6 +13,9 @@ class HallSpeedTelemetry
             ? (float) $data['wheelCircumferenceM']
             : null;
         $speed = isset($data['speedKmh']) ? (float) $data['speedKmh'] : null;
+        $pulseCount = isset($data['hallPulseCount']) ? (int) $data['hallPulseCount'] : null;
+        $pulseAgeMs = isset($data['hallPulseAgeMs']) ? (int) $data['hallPulseAgeMs'] : null;
+        $pulseIntervalMs = isset($data['pulseIntervalMs']) ? (int) $data['pulseIntervalMs'] : null;
         $configuredCircumference = $bicycle->wheelCircumferenceM !== null
             ? (float) $bicycle->wheelCircumferenceM
             : null;
@@ -23,6 +26,10 @@ class HallSpeedTelemetry
                 'wheelCircumferenceM' => null,
                 'hallPulseCount' => null,
                 'speedSensorStatus' => null,
+                'lastHallPulseAt' => null,
+                'pulseIntervalMs' => null,
+                'estimatedDistanceKm' => null,
+                'movementStatus' => null,
             ];
         }
 
@@ -38,11 +45,28 @@ class HallSpeedTelemetry
             $speed = null;
         }
 
+        $circumferenceMatches = $configuredCircumference !== null
+            && $reportedCircumference !== null
+            && abs($configuredCircumference - $reportedCircumference) <= 0.005;
+        $estimatedDistanceKm = $circumferenceMatches && $pulseCount !== null
+            ? $pulseCount * $configuredCircumference / 1000
+            : null;
+
         return [
             'speedKmh' => $speed,
             'wheelCircumferenceM' => $reportedCircumference,
-            'hallPulseCount' => $data['hallPulseCount'] ?? null,
+            'hallPulseCount' => $pulseCount,
             'speedSensorStatus' => $status,
+            'lastHallPulseAt' => $pulseCount !== null && $pulseCount > 0 && $pulseAgeMs !== null
+                ? now()->subMilliseconds($pulseAgeMs)
+                : null,
+            'pulseIntervalMs' => $pulseIntervalMs,
+            'estimatedDistanceKm' => $estimatedDistanceKm,
+            'movementStatus' => match ($status) {
+                'active' => 'moving',
+                'stopped' => 'stationary',
+                default => 'unknown',
+            },
         ];
     }
 }

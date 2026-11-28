@@ -215,7 +215,16 @@ class IoTService
         $impact = (float) ($data['impact'] ?? $data['impact_force'] ?? $data['impactForce'] ?? 0);
         $severity = $this->determineSeverity($impact);
 
-        $accident = Accident::create([
+        $sensorContext = $data['sensor_context'] ?? [];
+        $sensorContext['classification'] = 'potential_accident';
+        $sensorContext['detectionSource'] = $data['detection_source'] ?? 'mpu6050';
+        $sensorContext['detectionReason'] = $data['detection_reason'] ?? null;
+        $sensorContext['gpsSpeedKmh'] = $data['gps_speed_kmh'] ?? null;
+        $sensorContext['gpsFixAgeMs'] = $data['gps_fix_age_ms'] ?? null;
+        $sensorContext['rotationDps'] = $data['rotation_dps'] ?? null;
+        $sensorContext['tiltDegrees'] = $data['tilt_degrees'] ?? null;
+
+        $attributes = [
             'bicycleId' => $bicycleId,
             'type' => $data['type'] ?? 'accident',
             'severity' => $severity,
@@ -223,23 +232,34 @@ class IoTService
             'accelerometerData' => $data['accelerometer'] ?? $data['accelerometerData'] ?? null,
             'impactForce' => $impact,
             'speedKmh' => $bicycle ? $this->hallSpeedForAccident($bicycle, $data) : null,
-            'description' => $data['description'] ?? 'Automatic accident detection via IoT device',
+            'sensorContext' => $sensorContext,
+            'description' => $data['description'] ?? 'Potential accident detected by MPU6050; awaiting administrator review.',
             'status' => 'open',
             'acknowledged' => false,
             'alertSent' => true,
             'reportedBy' => $data['device_id'] ?? 'iot_device',
-        ]);
+        ];
+        $eventId = $data['event_id'] ?? null;
+        $accident = $eventId !== null
+            ? Accident::firstOrCreate(['deviceEventId' => $eventId], [
+                ...$attributes,
+                'deviceEventId' => $eventId,
+            ])
+            : Accident::create($attributes);
 
-        if ($bicycle) {
+        if ($accident->wasRecentlyCreated && $bicycle) {
             $bicycle->update(['status' => Bicycle::STATUS_MAINTENANCE]);
         }
 
-        $this->notifyAccident($accident, $severity);
+        if ($accident->wasRecentlyCreated) {
+            $this->notifyAccident($accident, $severity);
+        }
 
         return [
             'accidentId' => $accident->id,
             'severity' => $severity,
             'status' => 'reported',
+            'duplicate' => ! $accident->wasRecentlyCreated,
         ];
     }
 

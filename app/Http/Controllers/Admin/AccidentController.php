@@ -148,6 +148,9 @@ class AccidentController extends Controller
     public function formatIncidentPayload(Accident $incident): array
     {
         $hasGps = !empty($incident->gpsLocation['lat']) && !empty($incident->gpsLocation['lng']);
+        $sensorContext = $incident->sensorContext ?? [];
+        $hall = $sensorContext['hall'] ?? [];
+        $gps = $sensorContext['gps'] ?? [];
         $rentalId = $incident->rentalId ? ('#' . $incident->rentalId) : ($incident->bicycle?->currentRental ? ('#' . $incident->bicycle->currentRental->id) : null);
 
         $mapParams = ['bike' => $incident->bicycleId];
@@ -183,6 +186,20 @@ class AccidentController extends Controller
             'locationText' => $hasGps ? ($incident->gpsLocation['lat'] . ', ' . $incident->gpsLocation['lng']) : 'No GPS Coordinates',
             'impactForce' => $incident->impactForce !== null ? number_format((float) $incident->impactForce, 2) . ' G' : null,
             'speedKmh' => $incident->speedKmh !== null ? (float) $incident->speedKmh : null,
+            'sensorContext' => $sensorContext,
+            'deviceEventId' => $incident->deviceEventId,
+            'detectionSource' => $sensorContext['detectionSource'] ?? null,
+            'detectionReason' => $sensorContext['detectionReason'] ?? null,
+            'sensorStatus' => $hall['status'] ?? null,
+            'movementStatus' => $hall['movementStatus'] ?? null,
+            'wheelCircumferenceM' => $hall['wheelCircumferenceM'] ?? null,
+            'hallPulseCount' => $hall['pulseCount'] ?? null,
+            'hallPulseAgeMs' => $hall['lastPulseAgeMs'] ?? null,
+            'gpsSpeedKmh' => $gps['speedKmh'] ?? ($sensorContext['gpsSpeedKmh'] ?? null),
+            'gpsFixAgeMs' => $gps['fixAgeMs'] ?? ($sensorContext['gpsFixAgeMs'] ?? null),
+            'rotationDps' => $sensorContext['rotationDps'] ?? null,
+            'tiltDegrees' => $sensorContext['tiltDegrees'] ?? null,
+            'preImpactSamples' => $sensorContext['preImpactSamples'] ?? [],
             'timestamp' => $incident->created_at->format('M d, Y H:i'),
             'timestampFull' => $incident->created_at->format('M d, Y h:i A'),
             'timestampAgo' => $incident->created_at->diffForHumans(),

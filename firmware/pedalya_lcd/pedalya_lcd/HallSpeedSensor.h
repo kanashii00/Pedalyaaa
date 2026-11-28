@@ -9,6 +9,9 @@ struct HallSpeedReading {
     float speedKmh = 0.0f;
     float wheelCircumferenceM = 0.0f;
     uint32_t pulseCount = 0;
+    uint32_t pulseIntervalMs = 0;
+    uint32_t lastPulseAgeMs = 0;
+    bool hasPulse = false;
     bool speedAvailable = false;
     const char* status = "unconfigured";
 };
@@ -91,6 +94,11 @@ inline HallSpeedReading HallSpeedSensor::reading() const
 
     result.pulseCount = pulseCount;
     result.wheelCircumferenceM = circumferenceM;
+    result.hasPulse = pulseCount > 0;
+    result.pulseIntervalMs = lastIntervalUs / 1000UL;
+    result.lastPulseAgeMs = result.hasPulse
+        ? (uint32_t)(nowUs - lastPulseUs) / 1000UL
+        : 0;
 
     if (circumferenceM <= 0.0f) {
         result.status = "unconfigured";

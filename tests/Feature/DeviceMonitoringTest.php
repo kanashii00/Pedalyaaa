@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Bicycle;
+use App\Models\Accident;
 use App\Models\DeviceCommand;
 use App\Models\DeviceStatus;
 use App\Models\GpsLog;
@@ -190,6 +191,104 @@ class DeviceMonitoringTest extends TestCase
         $this->assertSame('executed', $deployedRow['last_command']['status']);
         $this->assertSame('executed', $deployedRow['last_command']['response']);
         $this->assertFalse($parkedRow['has_registered_device']);
+    }
+
+    public function test_live_feed_exposes_separate_speed_freshness_distance_and_recent_incidents(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->register($this->makeBicycle([
+            'name' => 'Hall Test Bicycle',
+            'serialNumber' => 'PDY-HALL-LIVE',
+            'wheelCircumferenceM' => 2.086,
+            'lastHeartbeat' => now(),
+        ]));
+        DeviceStatus::create([
+            'bicycleId' => $bike->id,
+            'type' => 'gps',
+            'eventTimestamp' => now(),
+            'speedKmh' => 12.3,
+            'wheelCircumferenceM' => 2.086,
+            'hallPulseCount' => 48,
+            'speedSensorStatus' => 'active',
+            'lastHallPulseAt' => now()->subSeconds(2),
+            'pulseIntervalMs' => 610,
+            'estimatedDistanceKm' => 0.1001,
+            'movementStatus' => 'moving',
+        ]);
+        GpsLog::create([
+            'bicycleId' => $bike->id,
+            'lat' => 14.6,
+            'lng' => 120.99,
+            'speed' => 6.5,
+            'timestamp' => now(),
+        ]);
+        Accident::create([
+            'bicycleId' => $bike->id,
+            'type' => 'accident',
+            'severity' => 'moderate',
+            'description' => 'Potential accident',
+            'impactForce' => 2.4,
+            'speedKmh' => 12.3,
+            'sensorContext' => [
+                'detectionSource' => 'mpu6050',
+                'detectionReason' => 'impact_and_rotation',
+                'hall' => ['speedKmh' => 12.3, 'status' => 'active'],
+            ],
+        ]);
+
+        $response = $this->actingAs($admin)->getJson(route('admin.monitoring.live'))->assertOk();
+        $row = collect($response->json('bicycles'))->firstWhere('id', $bike->id);
+        $this->assertSame(6.5, $row['gps_speed']);
+        $this->assertEquals(12.3, $row['hall_speed_kmh']);
+        $this->assertSame('moving', $row['hall_movement_status']);
+        $this->assertTrue($row['hall_telemetry_fresh']);
+        $this->assertEquals(0.1001, $row['hall_estimated_distance_km']);
+        $this->assertSame('online', $row['device_connection']);
+        $this->assertSame('impact_and_rotation', $response->json('recent_incidents.0.detection_reason'));
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.monitoring.index', ['section' => 'gps']))
+            ->assertOk()
+            ->getContent();
+        $this->assertStringContainsString('Recent sensor incidents', $html);
+        $this->assertStringContainsString('GPS 6.5 km/h', $html);
+        $this->assertStringContainsString('Hall 12.3 km/h', $html);
+    }
+
+    public function test_live_feed_marks_old_hall_telemetry_stale_and_device_offline(): void
+    {
+        $admin = $this->makeAdmin();
+        $bike = $this->register($this->makeBicycle([
+            'serialNumber' => 'PDY-HALL-STALE',
+            'wheelCircumferenceM' => 2.086,
+            'lastHeartbeat' => now()->subMinutes(6),
+        ]));
+        DeviceStatus::create([
+            'bicycleId' => $bike->id,
+            'type' => 'gps',
+            'eventTimestamp' => now()->subMinute(),
+            'speedKmh' => 16.0,
+            'wheelCircumferenceM' => 2.086,
+            'hallPulseCount' => 90,
+            'speedSensorStatus' => 'active',
+            'lastHallPulseAt' => now()->subMinute(),
+            'pulseIntervalMs' => 469,
+            'estimatedDistanceKm' => 0.1877,
+            'movementStatus' => 'moving',
+        ]);
+
+        $response = $this->actingAs($admin)->getJson(route('admin.monitoring.live'))->assertOk();
+        $row = collect($response->json('bicycles'))->firstWhere('id', $bike->id);
+        $this->assertNull($row['hall_speed_kmh']);
+        $this->assertSame('stale', $row['hall_status']);
+        $this->assertSame('stale', $row['hall_movement_status']);
+        $this->assertSame('offline', $row['device_connection']);
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.monitoring.index', ['section' => 'gps']))
+            ->assertOk()
+            ->getContent();
+        $this->assertStringContainsString('Offline · Stale', $html);
     }
 
     public function test_monitoring_prefers_hall_speed_from_gps_telemetry_and_reports_stopped_as_zero(): void

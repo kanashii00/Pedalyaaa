@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Accident;
 use App\Models\Bicycle;
 use App\Services\GeofenceService;
 use App\Services\GpsIngestService;
@@ -46,11 +47,35 @@ class MonitoringController extends Controller
             ->get();
 
         $geofence = $this->geofenceService->getConfig();
+        $recentIncidents = $this->recentIncidents();
 
         foreach ($bicycles as $bike) {
             $gps = $this->gpsSnapshot($bike);
             $bike->setAttribute('gps_data', $gps);
             $bike->setAttribute('speed_data', $this->speedSnapshot($bike, $gps));
+            $telemetry = $bike->latestSpeedTelemetry;
+            $telemetryIsFresh = $telemetry?->eventTimestamp !== null
+                && $telemetry->eventTimestamp->greaterThanOrEqualTo(now()->subSeconds(45));
+            $hallStatus = $telemetryIsFresh
+                ? ($telemetry->speedSensorStatus ?? 'unavailable')
+                : ($telemetry ? 'stale' : 'unavailable');
+            $bike->setAttribute('hall_status', $hallStatus);
+            $bike->setAttribute('hall_movement_status', match ($hallStatus) {
+                'active' => 'moving',
+                'stopped' => 'stationary',
+                'waiting' => 'waiting',
+                'unconfigured' => 'unconfigured',
+                'configuration_mismatch' => 'configuration_mismatch',
+                'stale' => 'stale',
+                default => 'unavailable',
+            });
+            $bike->setAttribute('hall_telemetry_fresh', $telemetryIsFresh);
+            $bike->setAttribute('device_connection', ! $bike->hasRegisteredDevice()
+                ? 'unregistered'
+                : ($bike->lastHeartbeat !== null
+                    && $bike->lastHeartbeat->greaterThanOrEqualTo(now()->subMinutes(5))
+                    ? 'online'
+                    : 'offline'));
 
             if ($gps['status'] === 'fix') {
                 $bike->zone = $this->geofenceService->checkPoint($gps['latitude'], $gps['longitude'], $geofence);
@@ -59,7 +84,12 @@ class MonitoringController extends Controller
             }
         }
 
-        return response()->view('admin.monitoring', compact('bicycles', 'geofence', 'section'));
+        return response()->view('admin.monitoring', compact(
+            'bicycles',
+            'geofence',
+            'section',
+            'recentIncidents'
+        ));
     }
 
     public function bicycleStatusIndex(Request $request): Response
@@ -180,6 +210,25 @@ class MonitoringController extends Controller
         foreach ($bicycles as $bike) {
             $gps = $this->gpsSnapshot($bike);
             $speed = $this->speedSnapshot($bike, $gps);
+            $telemetry = $bike->latestSpeedTelemetry;
+            $telemetryIsFresh = $telemetry?->eventTimestamp !== null
+                && $telemetry->eventTimestamp->greaterThanOrEqualTo(now()->subSeconds(45));
+            $deviceRegistered = $bike->hasRegisteredDevice();
+            $deviceOnline = $deviceRegistered
+                && $bike->lastHeartbeat !== null
+                && $bike->lastHeartbeat->greaterThanOrEqualTo(now()->subMinutes(5));
+            $hallStatus = $telemetryIsFresh
+                ? ($telemetry->speedSensorStatus ?? 'unavailable')
+                : ($telemetry ? 'stale' : 'unavailable');
+            $movementStatus = match ($hallStatus) {
+                'active' => 'moving',
+                'stopped' => 'stationary',
+                'waiting' => 'waiting',
+                'unconfigured' => 'unconfigured',
+                'configuration_mismatch' => 'configuration_mismatch',
+                'stale' => 'stale',
+                default => 'unavailable',
+            };
 
             if ($gps['status'] === 'fix') {
                 $zone = $this->geofenceService->checkPoint($gps['latitude'], $gps['longitude'], $geofence);
@@ -203,15 +252,30 @@ class MonitoringController extends Controller
                 'gps_satellites' => $gps['satellites'],
                 'gps_speed' => $gps['speed'],
                 'speed_kmh' => $speed['speed'],
+                'hall_speed_kmh' => $speed['source'] === 'hall' ? $speed['speed'] : null,
                 'speed_source' => $speed['source'],
                 'speed_sensor_status' => $speed['sensor_status'],
                 'wheel_circumference_m' => $speed['wheel_circumference_m'],
                 'hall_pulse_count' => $speed['hall_pulse_count'],
+                'hall_status' => $hallStatus,
+                'hall_movement_status' => $movementStatus,
+                'hall_telemetry_fresh' => $telemetryIsFresh,
+                'hall_last_pulse_at' => $telemetry?->lastHallPulseAt?->toIso8601String(),
+                'hall_pulse_age_seconds' => $telemetry?->lastHallPulseAt
+                    ? $telemetry->lastHallPulseAt->diffInSeconds(now())
+                    : null,
+                'hall_pulse_interval_ms' => $telemetry?->pulseIntervalMs,
+                'hall_estimated_distance_km' => $telemetry?->estimatedDistanceKm !== null
+                    ? (float) $telemetry->estimatedDistanceKm
+                    : null,
                 'battery_level' => $bike->batteryLevel,
                 'lock_status' => $bike->lockStatus,
                 'last_lock_action' => $bike->lastLockAction?->toIso8601String(),
                 'last_heartbeat' => $bike->lastHeartbeat?->toIso8601String(),
-                'has_registered_device' => $bike->hasRegisteredDevice(),
+                'has_registered_device' => $deviceRegistered,
+                'device_connection' => ! $deviceRegistered
+                    ? 'unregistered'
+                    : ($deviceOnline ? 'online' : 'offline'),
                 'device_version' => $bike->latestTelemetry?->deviceVersion,
                 'device_uptime' => $bike->latestTelemetry?->uptime,
                 'last_telemetry' => $bike->latestTelemetry?->eventTimestamp?->toIso8601String(),
@@ -226,7 +290,32 @@ class MonitoringController extends Controller
             ];
         }
 
-        return response()->json(['bicycles' => $data, 'geofence' => $geofence]);
+        return response()->json([
+            'bicycles' => $data,
+            'geofence' => $geofence,
+            'recent_incidents' => $this->recentIncidents(),
+        ]);
+    }
+
+    private function recentIncidents(): array
+    {
+        return Accident::with('bicycle')
+            ->whereIn('type', ['accident', 'impact_detected'])
+            ->latest('id')
+            ->limit(5)
+            ->get()
+            ->map(fn (Accident $incident) => [
+                'id' => $incident->id,
+                'bicycle_name' => $incident->bicycle?->name ?? ('Bicycle #' . $incident->bicycleId),
+                'serial_number' => $incident->bicycle?->serialNumber,
+                'severity' => $incident->severity,
+                'detection_reason' => $incident->sensorContext['detectionReason'] ?? null,
+                'hall_speed_kmh' => $incident->speedKmh !== null
+                    ? (float) $incident->speedKmh
+                    : null,
+                'created_at' => $incident->created_at?->toIso8601String(),
+            ])
+            ->all();
     }
 
     /**

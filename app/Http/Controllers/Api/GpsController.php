@@ -34,6 +34,8 @@ class GpsController extends Controller
             'speedKmh' => 'nullable|numeric|between:0,120',
             'wheelCircumferenceM' => 'nullable|numeric|between:0.5,4',
             'hallPulseCount' => 'nullable|integer|min:0',
+            'hallPulseAgeMs' => 'nullable|integer|between:0,86400000',
+            'pulseIntervalMs' => 'nullable|integer|between:1,600000',
             'speedSensorStatus' => 'nullable|string|in:unconfigured,waiting,active,stopped',
             'timestamp' => 'nullable|date',
         ]);
@@ -53,6 +55,8 @@ class GpsController extends Controller
             'speedKmh' => $validated['speedKmh'] ?? null,
             'wheelCircumferenceM' => $validated['wheelCircumferenceM'] ?? null,
             'hallPulseCount' => $validated['hallPulseCount'] ?? null,
+            'hallPulseAgeMs' => $validated['hallPulseAgeMs'] ?? null,
+            'pulseIntervalMs' => $validated['pulseIntervalMs'] ?? null,
             'speedSensorStatus' => $validated['speedSensorStatus'] ?? null,
             'timestamp' => $validated['timestamp'] ?? null,
         ]);
@@ -79,6 +83,8 @@ class GpsController extends Controller
             'speedKmh' => 'nullable|numeric|between:0,120',
             'wheelCircumferenceM' => 'nullable|numeric|between:0.5,4',
             'hallPulseCount' => 'nullable|integer|min:0',
+            'hallPulseAgeMs' => 'nullable|integer|between:0,86400000',
+            'pulseIntervalMs' => 'nullable|integer|between:1,600000',
             'speedSensorStatus' => 'required_without_all:lat,lng|nullable|string|in:unconfigured,waiting,active,stopped',
             'timestamp' => 'nullable|date',
         ]);
@@ -105,6 +111,8 @@ class GpsController extends Controller
             'speedKmh' => $validated['speedKmh'] ?? null,
             'wheelCircumferenceM' => $validated['wheelCircumferenceM'] ?? null,
             'hallPulseCount' => $validated['hallPulseCount'] ?? null,
+            'hallPulseAgeMs' => $validated['hallPulseAgeMs'] ?? null,
+            'pulseIntervalMs' => $validated['pulseIntervalMs'] ?? null,
             'speedSensorStatus' => $validated['speedSensorStatus'] ?? null,
             'timestamp' => $validated['timestamp'] ?? null,
         ]);

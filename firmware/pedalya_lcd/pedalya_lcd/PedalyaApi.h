@@ -5,6 +5,7 @@
 #include "config.h"
 #include "GpsReceiver.h"
 #include "HallSpeedSensor.h"
+#include "SensorHistory.h"
 #include <ArduinoJson.h>
 
 struct RentalState {
@@ -193,33 +194,14 @@ public:
      * bicycle comes from the payload's bicycle_id. The per-bicycle endpoints
      * (rental, commands, GPS) keep using DEVICE_API_KEY.
      *
-     * The coordinates are only sent when `hasFix` is true. An accident during a
-     * GPS outage still has to reach the admin, so the report is posted without
-     * a location instead of being withheld or rejected as invalid.
+     * Location is included only when a fresh fix exists. The report also carries
+     * the bounded pre-impact sensor history and a stable event ID for retries.
      *
-     * @param latitude      Latest latitude, used only when hasFix is true.
-     * @param longitude     Latest longitude, used only when hasFix is true.
-     * @param hasFix        Whether the GPS fix was valid at that moment.
-     * @param impactG       Peak acceleration magnitude of the event, in g.
-     * @param rotationDps   Peak rotation rate of the event, in degrees/second.
-     * @param tiltDegrees   How far the bike was from upright, in degrees.
-     * @param accelXG       Accelerometer X axis at that sample, in g.
-     * @param accelYG       Accelerometer Y axis at that sample, in g.
-     * @param accelZG       Accelerometer Z axis at that sample, in g.
+     * @param context       Snapshot of the detected event and related sensors.
      * @param error         On failure, this is set to a descriptive string.
      * @return true when the backend accepted the report.
      */
-    bool reportAccident(double latitude,
-                        double longitude,
-                        bool hasFix,
-                        const HallSpeedReading& hallSpeed,
-                        float impactG,
-                        float rotationDps,
-                        float tiltDegrees,
-                        float accelXG,
-                        float accelYG,
-                        float accelZG,
-                        String& error);
+    bool reportAccident(const AccidentReportContext& context, String& error);
 
     /**
      * Read-only connectivity probe against the public HEALTH_PATH.

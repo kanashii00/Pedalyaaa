@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Bicycle;
 use App\Models\DeviceCommand;
 use App\Models\GpsLog;
+use App\Models\Accident;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -204,6 +205,49 @@ class ApiDeviceTest extends TestCase
         ]);
     }
 
+    public function test_accident_report_without_gps_persists_context_and_deduplicates_retries(): void
+    {
+        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.086]);
+        $payload = [
+            'bicycle_id' => $bike->id,
+            'device_id' => 'ESP-001',
+            'event_id' => 'device-event-001',
+            'detection_source' => 'mpu6050',
+            'detection_reason' => 'impact_and_rotation',
+            'impact_force' => 2.4,
+            'speedKmh' => 12.3,
+            'gps_speed_kmh' => 10.1,
+            'gps_fix_age_ms' => 2500,
+            'wheelCircumferenceM' => 2.086,
+            'hallPulseCount' => 18,
+            'hallPulseAgeMs' => 120,
+            'pulseIntervalMs' => 610,
+            'speedSensorStatus' => 'active',
+            'sensor_context' => [
+                'classification' => 'potential_accident',
+                'detectionSource' => 'mpu6050',
+                'detectionReason' => 'impact_and_rotation',
+                'preImpactSamples' => [
+                    ['ageMs' => 100, 'hallSpeedKmh' => 12.3, 'gpsSpeedKmh' => 10.1],
+                ],
+            ],
+        ];
+
+        $this->postJson('/api/iot/accident-report', $payload, $this->deviceHeaders())
+            ->assertOk()
+            ->assertJsonPath('result.duplicate', false);
+        $this->postJson('/api/iot/accident-report', $payload, $this->deviceHeaders())
+            ->assertOk()
+            ->assertJsonPath('result.duplicate', true);
+
+        $this->assertDatabaseCount('accidents', 1);
+        $incident = Accident::firstOrFail();
+        $this->assertNull($incident->gpsLocation);
+        $this->assertSame('device-event-001', $incident->deviceEventId);
+        $this->assertSame('impact_and_rotation', $incident->sensorContext['detectionReason']);
+        $this->assertSame(1, count($incident->sensorContext['preImpactSamples']));
+    }
+
     public function test_geofence_alert_processes(): void
     {
         $bike = $this->makeBicycle();
@@ -351,6 +395,8 @@ class ApiDeviceTest extends TestCase
             'speedKmh' => 90,
             'wheelCircumferenceM' => 2.086,
             'hallPulseCount' => 48,
+            'hallPulseAgeMs' => 350,
+            'pulseIntervalMs' => 840,
             'speedSensorStatus' => 'active',
         ], ['X-API-Key' => $deviceKey])
             ->assertOk()
@@ -361,9 +407,31 @@ class ApiDeviceTest extends TestCase
             'type' => 'gps',
             'speedKmh' => 90,
             'speedSensorStatus' => 'active',
+            'pulseIntervalMs' => 840,
         ]);
+        $telemetry = $bike->deviceStatuses()->latest('id')->firstOrFail();
+        $this->assertNotNull($telemetry->lastHallPulseAt);
+        $this->assertSame(840, $telemetry->pulseIntervalMs);
         $this->assertDatabaseCount('gps_logs', 0);
         $this->assertNull($bike->fresh()->lastGpsUpdate);
+    }
+
+    public function test_hall_circumference_mismatch_does_not_store_speed_or_distance(): void
+    {
+        $bike = $this->makeBicycle(['wheelCircumferenceM' => 2.086]);
+        $deviceKey = $bike->issueDeviceKey();
+
+        $this->postJson("/api/iot/bicycle/{$bike->id}/gps", [
+            'speedKmh' => 12.3,
+            'wheelCircumferenceM' => 2.2,
+            'hallPulseCount' => 48,
+            'speedSensorStatus' => 'active',
+        ], ['X-API-Key' => $deviceKey])->assertOk();
+
+        $telemetry = $bike->deviceStatuses()->latest('id')->firstOrFail();
+        $this->assertSame('configuration_mismatch', $telemetry->speedSensorStatus);
+        $this->assertNull($telemetry->speedKmh);
+        $this->assertNull($telemetry->estimatedDistanceKm);
     }
 
     public function test_gps_location_triggers_geofence_breach(): void

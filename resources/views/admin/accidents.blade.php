@@ -474,6 +474,36 @@
                     </div>
                 </div>
 
+                <div class="theft-modal-section mb-3">
+                    <div class="theft-modal-section__title"><i class="bi bi-activity text-success"></i> Sensor context at event</div>
+                    <div class="acc-card-grid">
+                        <div class="acc-field-group">
+                            <span class="acc-field-label">Detection source / reason</span>
+                            <span class="acc-field-value" id="modalDetectionReason">Not reported</span>
+                        </div>
+                        <div class="acc-field-group">
+                            <span class="acc-field-label">Hall movement / configuration</span>
+                            <span class="acc-field-value" id="modalHallStatus">Not reported</span>
+                        </div>
+                        <div class="acc-field-group">
+                            <span class="acc-field-label">GPS speed / fix age</span>
+                            <span class="acc-field-value" id="modalGpsSpeed">Not reported</span>
+                        </div>
+                        <div class="acc-field-group">
+                            <span class="acc-field-label">Wheel circumference / pulse count</span>
+                            <span class="acc-field-value" id="modalHallConfiguration">Not reported</span>
+                        </div>
+                        <div class="acc-field-group">
+                            <span class="acc-field-label">Rotation / tilt</span>
+                            <span class="acc-field-value" id="modalRotationTilt">Not reported</span>
+                        </div>
+                        <div class="acc-field-group acc-field-group--full">
+                            <span class="acc-field-label">Recent pre-impact sensor samples</span>
+                            <span class="acc-field-value fw-normal" id="modalPreImpactSamples">No sample history recorded.</span>
+                        </div>
+                    </div>
+                </div>
+
                 {{-- D. Location & Telemetry – two-column grid --}}
                 <div class="row g-3 mb-3">
                     {{-- Left card: Location & Recorded GPS --}}
@@ -694,7 +724,85 @@
         }
 
         var elSensor = document.getElementById('modalSensorStatus');
-        if (elSensor) elSensor.textContent = acc.sensorStatus || 'IoT Telemetry';
+        if (elSensor) elSensor.textContent = acc.sensorStatus || 'Not reported';
+
+        var sensorContext = acc.sensorContext || {};
+        var hall = sensorContext.hall || {};
+        var gps = sensorContext.gps || {};
+        var detection = [acc.detectionSource, acc.detectionReason].filter(Boolean).join(' · ');
+        var elDetection = document.getElementById('modalDetectionReason');
+        if (elDetection) elDetection.textContent = detection || 'Not reported';
+
+        var elHallStatus = document.getElementById('modalHallStatus');
+        if (elHallStatus) {
+            elHallStatus.textContent = [
+                acc.movementStatus || hall.movementStatus || 'Unknown',
+                acc.sensorStatus || hall.status || 'Unavailable'
+            ].join(' · ');
+        }
+
+        var gpsSpeed = acc.gpsSpeedKmh !== null && acc.gpsSpeedKmh !== undefined
+            && Number.isFinite(Number(acc.gpsSpeedKmh))
+            ? Number(acc.gpsSpeedKmh).toFixed(1) + ' km/h'
+            : 'Unavailable';
+        var gpsAge = acc.gpsFixAgeMs !== null && acc.gpsFixAgeMs !== undefined
+            && Number.isFinite(Number(acc.gpsFixAgeMs))
+            ? (Number(acc.gpsFixAgeMs) / 1000).toFixed(1) + 's old'
+            : 'age unknown';
+        var elGpsSpeed = document.getElementById('modalGpsSpeed');
+        if (elGpsSpeed) elGpsSpeed.textContent = gpsSpeed + ' · ' + gpsAge;
+
+        var circumference = acc.wheelCircumferenceM || hall.wheelCircumferenceM;
+        var pulseCount = acc.hallPulseCount !== null && acc.hallPulseCount !== undefined
+            ? acc.hallPulseCount
+            : hall.pulseCount;
+        var pulseAge = acc.hallPulseAgeMs !== null && acc.hallPulseAgeMs !== undefined
+            ? acc.hallPulseAgeMs
+            : hall.lastPulseAgeMs;
+        var elHallConfiguration = document.getElementById('modalHallConfiguration');
+        if (elHallConfiguration) {
+            elHallConfiguration.textContent = [
+                Number.isFinite(Number(circumference)) && Number(circumference) > 0
+                    ? Number(circumference).toFixed(3) + ' m'
+                    : 'Circumference unavailable',
+                pulseCount !== null && pulseCount !== undefined
+                    ? Number(pulseCount).toLocaleString() + ' pulses'
+                    : 'Pulse count unavailable',
+                pulseAge !== null && pulseAge !== undefined
+                    ? (Number(pulseAge) / 1000).toFixed(1) + 's since pulse'
+                    : null
+            ].filter(Boolean).join(' · ');
+        }
+
+        var rotation = acc.rotationDps !== null && acc.rotationDps !== undefined
+            ? Number(acc.rotationDps).toFixed(1) + ' dps'
+            : 'Rotation unavailable';
+        var tilt = acc.tiltDegrees !== null && acc.tiltDegrees !== undefined
+            ? Number(acc.tiltDegrees).toFixed(1) + '°'
+            : 'Tilt unavailable';
+        var elRotationTilt = document.getElementById('modalRotationTilt');
+        if (elRotationTilt) elRotationTilt.textContent = rotation + ' · ' + tilt;
+
+        var samples = Array.isArray(acc.preImpactSamples) ? acc.preImpactSamples : [];
+        var elSamples = document.getElementById('modalPreImpactSamples');
+        if (elSamples) {
+            elSamples.textContent = samples.length
+                ? samples.map(function (sample) {
+                    var parts = [];
+                    if (sample.ageMs !== undefined) parts.push('-' + sample.ageMs + ' ms');
+                    parts.push('Hall ' + (sample.hallSpeedKmh !== null && sample.hallSpeedKmh !== undefined
+                        ? Number(sample.hallSpeedKmh).toFixed(1) + ' km/h'
+                        : (sample.hallStatus || 'unavailable')));
+                    parts.push('GPS ' + (sample.gpsSpeedKmh !== null && sample.gpsSpeedKmh !== undefined
+                        ? Number(sample.gpsSpeedKmh).toFixed(1) + ' km/h'
+                        : 'unavailable'));
+                    parts.push('MPU ' + (sample.magnitudeG !== undefined
+                        ? Number(sample.magnitudeG).toFixed(2) + ' g'
+                        : 'unavailable'));
+                    return parts.join(' · ');
+                }).join(' | ')
+                : 'No sample history recorded.';
+        }
 
         // C. Rider & Rental Information
         var elRider = document.getElementById('modalRiderName');

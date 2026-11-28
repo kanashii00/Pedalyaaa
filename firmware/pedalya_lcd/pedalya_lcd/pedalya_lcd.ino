@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <math.h>
 #include <Wire.h>
+#include <string.h>
 #include "AccidentDetector.h"
 #include "BuzzerAlarm.h"
 #include "CommandHandler.h"
@@ -17,6 +18,7 @@
 #include "EC20FDiagnostic.h"
 #include "config.h"
 #include <WiFi.h>
+#include <esp_system.h>
 /*
  * One part per tab. Each module owns its own hardware and its own decision, and
  * the sketch below only wires them together and runs the loop:
@@ -71,21 +73,15 @@ static void setNetworkWait(bool waiting);
 /** An accident report waiting to be delivered, or delivered. */
 struct PendingAccident {
     bool active = false;
-    bool hasFix = false;
-    double latitude = 0.0;
-    double longitude = 0.0;
-    HallSpeedReading hallSpeed;
-    float impactG = 0.0f;
-    float rotationDps = 0.0f;
-    float tiltDegrees = 0.0f;
-    float accelXG = 0.0f;
-    float accelYG = 0.0f;
-    float accelZG = 0.0f;
+    AccidentReportContext context;
     uint32_t attempts = 0;
     uint32_t nextAttemptMs = 0;
 };
 
 static PendingAccident pendingAccident;
+static SensorHistory sensorHistory;
+static uint32_t lastSensorHistoryMs = 0;
+static bool sensorHistoryStarted = false;
 struct CountdownDisplaySnapshot {
     RentalState rental;
     bool locked = false;
@@ -108,7 +104,7 @@ static void setNetworkWait(bool waiting) {
         countdownDisplaySnapshot.rental = state;
         countdownDisplaySnapshot.locked = lock.locked();
         countdownDisplaySnapshot.accidentPending = pendingAccident.active;
-        countdownDisplaySnapshot.accidentHasFix = pendingAccident.hasFix;
+        countdownDisplaySnapshot.accidentHasFix = pendingAccident.context.hasGpsFix;
         xSemaphoreGive(countdownSnapshotMutex);
     }
 
@@ -125,33 +121,56 @@ static void setNetworkWait(bool waiting) {
  */
 static void queueAccidentReport(const AccidentEvent& event) {
     if (pendingAccident.active) {
-        pendingAccident.impactG = max(pendingAccident.impactG, event.peakMagnitudeG);
-        pendingAccident.rotationDps = max(pendingAccident.rotationDps, event.peakRotationDps);
-        pendingAccident.tiltDegrees = max(pendingAccident.tiltDegrees, event.peakTiltDegrees);
+        pendingAccident.context.event.peakMagnitudeG =
+            max(pendingAccident.context.event.peakMagnitudeG, event.peakMagnitudeG);
+        pendingAccident.context.event.peakRotationDps =
+            max(pendingAccident.context.event.peakRotationDps, event.peakRotationDps);
+        pendingAccident.context.event.peakTiltDegrees =
+            max(pendingAccident.context.event.peakTiltDegrees, event.peakTiltDegrees);
         Serial.println("[accident] second event merged into the report in flight");
         return;
     }
 
     pendingAccident = {};
     pendingAccident.active = true;
-    pendingAccident.impactG = event.peakMagnitudeG;
-    pendingAccident.rotationDps = event.peakRotationDps;
-    pendingAccident.tiltDegrees = event.peakTiltDegrees;
-    pendingAccident.accelXG = event.accelXG;
-    pendingAccident.accelYG = event.accelYG;
-    pendingAccident.accelZG = event.accelZG;
-    pendingAccident.hallSpeed = hallSpeed.reading();
+    pendingAccident.context.event = event;
+    pendingAccident.context.eventAtMs = millis();
+    pendingAccident.context.hallSpeed = hallSpeed.reading();
+    pendingAccident.context.historyCount = sensorHistory.copyRecent(
+        pendingAccident.context.history, SENSOR_HISTORY_CAPACITY);
+    snprintf(pendingAccident.context.eventId, sizeof(pendingAccident.context.eventId),
+             "%08lx%08lx%08lx%08lx",
+             (unsigned long)esp_random(), (unsigned long)esp_random(),
+             (unsigned long)esp_random(), (unsigned long)esp_random());
 
     // Read the fix now. GPS_FIX_STALE_MS has already retired any fix that
     // stopped being updated, so hasFreshFix() means this position is current.
     if (gps.hasFreshFix()) {
-        pendingAccident.hasFix = true;
-        pendingAccident.latitude = gps.fix().latitude;
-        pendingAccident.longitude = gps.fix().longitude;
+        pendingAccident.context.hasGpsFix = true;
+        pendingAccident.context.gpsFix = gps.fix();
     }
 }
 
 #if ACCIDENT_ENABLED
+static void recordSensorHistory() {
+    const uint32_t now = millis();
+    if (sensorHistoryStarted
+        && now - lastSensorHistoryMs < ACCIDENT_SAMPLE_INTERVAL_MS) {
+        return;
+    }
+
+    SensorHistorySample sample;
+    sample.capturedAtMs = now;
+    sample.hall = hallSpeed.reading();
+    sample.gpsFresh = gps.hasFreshFix();
+    if (sample.gpsFresh) sample.gps = gps.fix();
+    sample.mpuFresh = accidentDetector.hasValidSample();
+    if (sample.mpuFresh) sample.mpu = accidentDetector.reading();
+    sensorHistory.record(sample);
+    lastSensorHistoryMs = now;
+    sensorHistoryStarted = true;
+}
+
 /**
  * Why the detector will or will not report a crash, in a few words.
  *
@@ -195,6 +214,7 @@ static void pollAccidentDetection() {
     // serviceAccidentReport() below is untouched.
     return;
 #endif
+    recordSensorHistory();
     accidentDetector.poll();
 
 #if ACCIDENT_SERIAL_TRACE && ACCIDENT_ENABLED
@@ -264,19 +284,14 @@ static void serviceAccidentReport() {
 
     String error;
     setNetworkWait(true);
-    const bool reported = api.reportAccident(
-        pendingAccident.latitude, pendingAccident.longitude,
-        pendingAccident.hasFix, pendingAccident.hallSpeed, pendingAccident.impactG,
-        pendingAccident.rotationDps, pendingAccident.tiltDegrees,
-        pendingAccident.accelXG, pendingAccident.accelYG,
-        pendingAccident.accelZG, error
-    );
+    const bool reported = api.reportAccident(pendingAccident.context, error);
     setNetworkWait(false);
     if (reported) {
         Serial.printf("[accident] admin notified (attempt %lu)%s\n",
                       (unsigned long)pendingAccident.attempts,
-                      pendingAccident.hasFix ? " with GPS location" : " without GPS location");
-        display.showMessageFor(3000, "! ACCIDENT ALERT", pendingAccident.hasFix ? "ADMIN NOTIF +GPS" : "ADMIN NOTIFIED  ");
+                      pendingAccident.context.hasGpsFix ? " with GPS location" : " without GPS location");
+        display.showMessageFor(3000, "! ACCIDENT ALERT",
+                               pendingAccident.context.hasGpsFix ? "ADMIN NOTIF +GPS" : "ADMIN NOTIFIED  ");
         pendingAccident.active = false;
         paintScreen();
         return;
@@ -360,14 +375,14 @@ static void connectWifi() {
  */
 static void reportTelemetry() {
     static bool hallTelemetryAttempted = false;
-    static uint32_t lastHallTelemetryMs = 0;
+    static uint32_t nextHallTelemetryMs = 0;
+    static const char* lastHallTelemetryStatus = nullptr;
     const uint32_t now = millis();
     String error;
     const uint32_t pollInterval = pollIntervalMs();
     const HallSpeedReading hallReading = hallSpeed.reading();
-    const uint32_t heartbeatInterval = hallSpeed.configured()
-        ? min(pollInterval, (uint32_t)HALL_TELEMETRY_INTERVAL_MS)
-        : pollInterval;
+    const uint32_t heartbeatInterval = min(
+        pollInterval, (uint32_t)HEARTBEAT_INTERVAL_MS);
 
     if (!heartbeatAttempted || now - lastHeartbeatMs >= heartbeatInterval) {
         heartbeatAttempted = true;
@@ -387,27 +402,46 @@ static void reportTelemetry() {
 
     const bool gpsReportDue = gps.hasFreshFix()
         && now - lastGpsReportMs >= GPS_REPORT_INTERVAL_MS;
+    const bool hallMoving =
+        strcmp(hallReading.status, "active") == 0
+        || (strcmp(hallReading.status, "waiting") == 0
+            && hallReading.hasPulse
+            && hallReading.lastPulseAgeMs <= HALL_STOP_TIMEOUT_MS);
+    const uint32_t hallIntervalMs = hallMoving
+        ? HALL_TELEMETRY_INTERVAL_MS
+        : HALL_IDLE_TELEMETRY_INTERVAL_MS;
+    const bool hallStatusChanged = lastHallTelemetryStatus == nullptr
+        || strcmp(hallReading.status, lastHallTelemetryStatus) != 0;
+    const bool hallReportDue = !hallTelemetryAttempted
+        || hallStatusChanged
+        || (int32_t)(now - nextHallTelemetryMs) >= 0;
+
     if (gpsReportDue) {
         lastGpsReportMs = now;
-        lastHallTelemetryMs = now;
         hallTelemetryAttempted = true;
-        const GpsFix& fix = gps.fix();
         setNetworkWait(true);
         const bool sent = api.sendGps(
-            fix.latitude, fix.longitude, fix.speedKph, fix.heading, hallReading, error);
+            gps.fix().latitude, gps.fix().longitude, gps.fix().speedKph,
+            gps.fix().heading, hallReading, error);
         setNetworkWait(false);
+        lastHallTelemetryStatus = hallReading.status;
+        nextHallTelemetryMs = now + (sent
+            ? hallIntervalMs
+            : HALL_TELEMETRY_RETRY_INTERVAL_MS);
         if (!sent) {
             Serial.printf("[telemetry] GPS upload failed: %s\n", error.c_str());
         } else {
             Serial.printf("[telemetry] GPS/Hall upload accepted (HTTP %d)\n", api.lastStatus());
         }
-    } else if (!hallTelemetryAttempted
-               || now - lastHallTelemetryMs >= HALL_TELEMETRY_INTERVAL_MS) {
+    } else if (hallReportDue) {
         hallTelemetryAttempted = true;
-        lastHallTelemetryMs = now;
         setNetworkWait(true);
         const bool sent = api.sendHallSpeed(hallReading, error);
         setNetworkWait(false);
+        lastHallTelemetryStatus = hallReading.status;
+        nextHallTelemetryMs = now + (sent
+            ? hallIntervalMs
+            : HALL_TELEMETRY_RETRY_INTERVAL_MS);
         if (!sent) {
             Serial.printf("[telemetry] Hall upload failed: %s\n", error.c_str());
         } else {
@@ -441,12 +475,12 @@ static void paintScreen() {
         const uint32_t now = millis();
         if (state.hasRental) {
             if (((now / 2000UL) % 2) == 0) {
-                display.showAccidentAlert(false, pendingAccident.hasFix);
+                display.showAccidentAlert(false, pendingAccident.context.hasGpsFix);
                 return;
             }
             // Alternate pass falls through to rental screen
         } else {
-            display.showAccidentAlert(false, pendingAccident.hasFix);
+            display.showAccidentAlert(false, pendingAccident.context.hasGpsFix);
             return;
         }
     }

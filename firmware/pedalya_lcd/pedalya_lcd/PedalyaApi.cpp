@@ -7,6 +7,7 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
+#include <string.h>
 #include <time.h>
 #include <esp_sntp.h>
 
@@ -670,6 +671,14 @@ bool PedalyaApi::postJson(const char* path, const String& payload, String& error
 static void addHallSpeedPayload(JsonDocument& payload, const HallSpeedReading& speed) {
     payload["speedSensorStatus"] = speed.status;
     payload["hallPulseCount"] = speed.pulseCount;
+    if (speed.hasPulse) {
+        payload["hallPulseAgeMs"] = speed.lastPulseAgeMs;
+    } else {
+        payload["hallPulseAgeMs"] = nullptr;
+    }
+    if (speed.pulseIntervalMs > 0) {
+        payload["pulseIntervalMs"] = speed.pulseIntervalMs;
+    }
     if (speed.wheelCircumferenceM > 0.0f) {
         payload["wheelCircumferenceM"] = speed.wheelCircumferenceM;
     }
@@ -739,17 +748,7 @@ bool PedalyaApi::sendHallSpeed(const HallSpeedReading& hallSpeed, String& error)
     return postJson(GPS_PATH, body, error);
 }
 
-bool PedalyaApi::reportAccident(double latitude,
-                                double longitude,
-                                bool hasFix,
-                                const HallSpeedReading& hallSpeed,
-                                float impactG,
-                                float rotationDps,
-                                float tiltDegrees,
-                                float accelXG,
-                                float accelYG,
-                                float accelZG,
-                                String& error) {
+bool PedalyaApi::reportAccident(const AccidentReportContext& context, String& error) {
     // Cleared up front so a stale status from an earlier poll cannot be read as
     // the verdict on this report.
     lastStatus_ = 0;
@@ -759,9 +758,9 @@ bool PedalyaApi::reportAccident(double latitude,
     // Only claim a position when there is one. A crash under a bridge or in a
     // tunnel must still be reported, so the coordinates are left out entirely
     // rather than sent as zero, which would point at Null Island.
-    if (hasFix) {
-        payload["lat"] = latitude;
-        payload["lng"] = longitude;
+    if (context.hasGpsFix) {
+        payload["lat"] = context.gpsFix.latitude;
+        payload["lng"] = context.gpsFix.longitude;
     }
 
     // The fleet-wide endpoint has no authenticated bicycle of its own, so the
@@ -771,23 +770,159 @@ bool PedalyaApi::reportAccident(double latitude,
 
     // impact is what the backend bands into a severity, so it carries the
     // measured peak. impact_force is kept in step for the older endpoint.
-    payload["impact"] = impactG;
-    payload["impact_force"] = impactG;
-    payload["rotation_dps"] = rotationDps;
-    payload["tilt_degrees"] = tiltDegrees;
-    addHallSpeedPayload(payload, hallSpeed);
+    payload["impact"] = context.event.peakMagnitudeG;
+    payload["impact_force"] = context.event.peakMagnitudeG;
+    payload["rotation_dps"] = context.event.peakRotationDps;
+    payload["tilt_degrees"] = context.event.peakTiltDegrees;
+    payload["event_id"] = context.eventId;
+    payload["detection_source"] = "mpu6050";
+    payload["detection_reason"] = context.event.detectionReason;
+    if (context.hasGpsFix) {
+        payload["gps_fix_age_ms"] =
+            (uint32_t)(context.eventAtMs - context.gpsFix.receivedAtMs);
+        payload["gps_speed_kmh"] = context.gpsFix.speedKph;
+    }
+    addHallSpeedPayload(payload, context.hallSpeed);
 
     // The vector the event was judged on, so the record shows what the sensor
     // actually saw and not only the verdict derived from it.
     JsonArray accelerometer = payload["accelerometer"].to<JsonArray>();
-    accelerometer.add(accelXG);
-    accelerometer.add(accelYG);
-    accelerometer.add(accelZG);
+    accelerometer.add(context.event.accelXG);
+    accelerometer.add(context.event.accelYG);
+    accelerometer.add(context.event.accelZG);
+    JsonArray gyroscope = payload["gyroscope"].to<JsonArray>();
+    gyroscope.add(context.event.gyroXDps);
+    gyroscope.add(context.event.gyroYDps);
+    gyroscope.add(context.event.gyroZDps);
 
-    // The timestamp is optional; the server stamps it on arrival.
+    JsonObject sensorContext = payload["sensor_context"].to<JsonObject>();
+    sensorContext["classification"] = "potential_accident";
+    sensorContext["detectionSource"] = "mpu6050";
+    sensorContext["detectionReason"] = context.event.detectionReason;
+    sensorContext["eventUptimeMs"] = context.eventAtMs;
+
+    JsonObject gps = sensorContext["gps"].to<JsonObject>();
+    gps["available"] = context.hasGpsFix;
+    if (context.hasGpsFix) {
+        gps["speedKmh"] = context.gpsFix.speedKph;
+    } else {
+        gps["speedKmh"] = nullptr;
+    }
+    if (context.hasGpsFix) {
+        gps["fixAgeMs"] = (uint32_t)(context.eventAtMs - context.gpsFix.receivedAtMs);
+        gps["lat"] = context.gpsFix.latitude;
+        gps["lng"] = context.gpsFix.longitude;
+    } else {
+        gps["fixAgeMs"] = nullptr;
+    }
+
+    JsonObject hall = sensorContext["hall"].to<JsonObject>();
+    hall["status"] = context.hallSpeed.status;
+    hall["movementStatus"] = strcmp(context.hallSpeed.status, "active") == 0
+        ? "moving"
+        : (strcmp(context.hallSpeed.status, "stopped") == 0 ? "stationary" : "unknown");
+    if (context.hallSpeed.speedAvailable) {
+        hall["speedKmh"] = context.hallSpeed.speedKmh;
+    } else {
+        hall["speedKmh"] = nullptr;
+    }
+    if (context.hallSpeed.wheelCircumferenceM > 0.0f) {
+        hall["wheelCircumferenceM"] = context.hallSpeed.wheelCircumferenceM;
+    } else {
+        hall["wheelCircumferenceM"] = nullptr;
+    }
+    hall["pulseCount"] = context.hallSpeed.pulseCount;
+    hall["pulseIntervalMs"] = context.hallSpeed.pulseIntervalMs > 0
+        ? context.hallSpeed.pulseIntervalMs
+        : 0;
+    if (context.hallSpeed.hasPulse) {
+        hall["lastPulseAgeMs"] = context.hallSpeed.lastPulseAgeMs;
+    } else {
+        hall["lastPulseAgeMs"] = nullptr;
+    }
+    if (context.hallSpeed.wheelCircumferenceM > 0.0f) {
+        hall["estimatedDistanceKm"] =
+            context.hallSpeed.pulseCount * context.hallSpeed.wheelCircumferenceM / 1000.0f;
+    } else {
+        hall["estimatedDistanceKm"] = nullptr;
+    }
+
+    JsonObject mpu = sensorContext["mpu"].to<JsonObject>();
+    mpu["peakMagnitudeG"] = context.event.peakMagnitudeG;
+    mpu["peakRotationDps"] = context.event.peakRotationDps;
+    mpu["peakTiltDegrees"] = context.event.peakTiltDegrees;
+    JsonArray currentAccel = mpu["accelerometerG"].to<JsonArray>();
+    currentAccel.add(context.event.accelXG);
+    currentAccel.add(context.event.accelYG);
+    currentAccel.add(context.event.accelZG);
+    JsonArray currentGyro = mpu["gyroscopeDps"].to<JsonArray>();
+    currentGyro.add(context.event.gyroXDps);
+    currentGyro.add(context.event.gyroYDps);
+    currentGyro.add(context.event.gyroZDps);
+
+    JsonArray history = sensorContext["preImpactSamples"].to<JsonArray>();
+    for (uint8_t i = 0; i < context.historyCount; ++i) {
+        const SensorHistorySample& sample = context.history[i];
+        JsonObject item = history.add<JsonObject>();
+        item["ageMs"] = (uint32_t)(context.eventAtMs - sample.capturedAtMs);
+        item["hallStatus"] = sample.hall.status;
+        if (sample.hall.speedAvailable) {
+            item["hallSpeedKmh"] = sample.hall.speedKmh;
+        } else {
+            item["hallSpeedKmh"] = nullptr;
+        }
+        item["hallPulseCount"] = sample.hall.pulseCount;
+        if (sample.hall.pulseIntervalMs > 0) {
+            item["pulseIntervalMs"] = sample.hall.pulseIntervalMs;
+        } else {
+            item["pulseIntervalMs"] = nullptr;
+        }
+        if (sample.hall.hasPulse) {
+            item["hallPulseAgeMs"] = sample.hall.lastPulseAgeMs;
+        } else {
+            item["hallPulseAgeMs"] = nullptr;
+        }
+        if (sample.hall.wheelCircumferenceM > 0.0f) {
+            item["wheelCircumferenceM"] = sample.hall.wheelCircumferenceM;
+        } else {
+            item["wheelCircumferenceM"] = nullptr;
+        }
+        item["gpsFresh"] = sample.gpsFresh;
+        if (sample.gpsFresh) {
+            item["gpsSpeedKmh"] = sample.gps.speedKph;
+        } else {
+            item["gpsSpeedKmh"] = nullptr;
+        }
+        if (sample.gpsFresh) {
+            item["gpsFixAgeMs"] =
+                (uint32_t)(context.eventAtMs - sample.gps.receivedAtMs);
+            item["lat"] = sample.gps.latitude;
+            item["lng"] = sample.gps.longitude;
+        } else {
+            item["gpsFixAgeMs"] = nullptr;
+        }
+        item["mpuFresh"] = sample.mpuFresh;
+        if (sample.mpuFresh) {
+            item["magnitudeG"] = sample.mpu.magnitudeG;
+            item["rotationDps"] = sample.mpu.gyroMagnitudeDps;
+            item["tiltDegrees"] = sample.mpu.tiltDegrees;
+            JsonArray accel = item["accelerometerG"].to<JsonArray>();
+            accel.add(sample.mpu.accelXG);
+            accel.add(sample.mpu.accelYG);
+            accel.add(sample.mpu.accelZG);
+            JsonArray gyro = item["gyroscopeDps"].to<JsonArray>();
+            gyro.add(sample.mpu.gyroXDps);
+            gyro.add(sample.mpu.gyroYDps);
+            gyro.add(sample.mpu.gyroZDps);
+        }
+    }
+
     String body;
     serializeJson(payload, body);
-    Serial.printf("[api] accident report -> %s %s\n", ACCIDENT_REPORT_PATH, body.c_str());
+    Serial.printf("[api] accident report -> %s (event %s; GPS %s; %u history samples)\n",
+                  ACCIDENT_REPORT_PATH, context.eventId,
+                  context.hasGpsFix ? "available" : "unavailable",
+                  (unsigned)context.historyCount);
     return postJson(ACCIDENT_REPORT_PATH, body, error, PEDALYA_API_KEY);
 }
 

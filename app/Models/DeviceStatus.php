@@ -21,6 +21,10 @@ class DeviceStatus extends Model
         'wheelCircumferenceM',
         'hallPulseCount',
         'speedSensorStatus',
+        'lastHallPulseAt',
+        'pulseIntervalMs',
+        'estimatedDistanceKm',
+        'movementStatus',
         'accelerometer',
         'battery',
         'lockStatus',
@@ -59,6 +63,9 @@ class DeviceStatus extends Model
             'speedKmh' => 'decimal:2',
             'wheelCircumferenceM' => 'decimal:3',
             'hallPulseCount' => 'integer',
+            'lastHallPulseAt' => 'datetime',
+            'pulseIntervalMs' => 'integer',
+            'estimatedDistanceKm' => 'decimal:4',
         ];
     }
 

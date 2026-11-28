@@ -494,6 +494,7 @@ void AccidentDetector::acknowledge() {
 
 void AccidentDetector::evaluate(const uint8_t* raw, uint32_t now) {
     AccidentReading sample;
+    sample.sampledAtMs = now;
 
     // Decode: big-endian signed 16-bit, divide by the verified LSB/g scale.
     const int16_t rawAxC = (int16_t)((raw[0] << 8) | raw[1]);
@@ -619,6 +620,19 @@ void AccidentDetector::fire(const AccidentReading& sample, uint32_t now) {
     event_.gyroXDps = sample.gyroXDps;
     event_.gyroYDps = sample.gyroYDps;
     event_.gyroZDps = sample.gyroZDps;
+    if (sample.magnitudeG >= ACCIDENT_HARD_IMPACT_G) {
+        event_.detectionReason = "hard_impact";
+    } else if (sample.impact && sample.rotation && sample.tilt) {
+        event_.detectionReason = "impact_rotation_and_tilt";
+    } else if (sample.impact && sample.rotation) {
+        event_.detectionReason = "impact_and_rotation";
+    } else if (sample.impact && sample.tilt) {
+        event_.detectionReason = "impact_and_tilt";
+    } else if (sample.rotation && sample.tilt) {
+        event_.detectionReason = "rotation_and_tilt";
+    } else {
+        event_.detectionReason = "sustained_tilt";
+    }
 
     triggered_ = true;
     armed_ = false;

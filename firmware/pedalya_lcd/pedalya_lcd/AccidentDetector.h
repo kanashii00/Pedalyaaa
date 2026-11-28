@@ -27,6 +27,7 @@ struct AccidentReading {
     float deltaMagnitudeG = 0.0f;
     // How far the bike is from upright, in degrees. 0 upright, 90 on its side.
     float tiltDegrees = 0.0f;
+    uint32_t sampledAtMs = 0;
 
     bool impact = false;
     bool rotation = false;
@@ -53,6 +54,7 @@ struct AccidentEvent {
     float gyroXDps = 0.0f;
     float gyroYDps = 0.0f;
     float gyroZDps = 0.0f;
+    const char* detectionReason = "mpu6050_candidate";
 };
 
 /**

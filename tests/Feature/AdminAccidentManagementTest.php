@@ -128,6 +128,22 @@ class AdminAccidentManagementTest extends TestCase
             'impactForce' => 4.25,
             'speedKmh' => 24.5,
             'gpsLocation' => ['lat' => 14.5821, 'lng' => 120.9788],
+            'sensorContext' => [
+                'detectionSource' => 'mpu6050',
+                'detectionReason' => 'impact_and_rotation',
+                'gpsSpeedKmh' => 20.0,
+                'gpsFixAgeMs' => 1200,
+                'rotationDps' => 80.0,
+                'tiltDegrees' => 60.0,
+                'hall' => [
+                    'status' => 'active',
+                    'movementStatus' => 'moving',
+                    'wheelCircumferenceM' => 2.086,
+                    'pulseCount' => 20,
+                    'lastPulseAgeMs' => 100,
+                ],
+                'preImpactSamples' => [['ageMs' => 100]],
+            ],
             'acknowledged' => false,
         ]);
 
@@ -151,6 +167,10 @@ class AdminAccidentManagementTest extends TestCase
 
         $this->assertStringContainsString('14.5821', $res->json('incident.locationText'));
         $this->assertStringContainsString(route('admin.monitoring.index'), $res->json('incident.mapUrl'));
+        $this->assertSame('impact_and_rotation', $res->json('incident.detectionReason'));
+        $this->assertSame('active', $res->json('incident.sensorStatus'));
+        $this->assertEquals(20.0, $res->json('incident.gpsSpeedKmh'));
+        $this->assertSame(1, count($res->json('incident.preImpactSamples')));
     }
 
     public function test_accident_details_handles_unrented_bicycle_cleanly(): void

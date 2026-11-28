@@ -228,7 +228,7 @@
                 <th>Longitude</th>
                 <th>Accuracy / HDOP</th>
                 <th>Zone</th>
-                <th>Speed</th>
+                <th>GPS / Hall Speed</th>
                 <th>Distance from center</th>
                 <th>Last GPS</th>
                 <th>Last heartbeat</th>
@@ -278,6 +278,16 @@
                             ? 'Hall pulses '.number_format($speed['hall_pulse_count'])
                             : 'Hall pulses unavailable',
                     ];
+                    $hallTelemetry = $bike->latestSpeedTelemetry;
+                    $hallTelemetryFresh = $hallTelemetry?->eventTimestamp !== null
+                        && $hallTelemetry->eventTimestamp->greaterThanOrEqualTo(now()->subSeconds(45));
+                    $hallMovement = $hallTelemetryFresh
+                        ? ($hallTelemetry->movementStatus ?? match ($hallTelemetry->speedSensorStatus) {
+                            'active' => 'moving',
+                            'stopped' => 'stationary',
+                            default => 'unknown',
+                        })
+                        : ($hallTelemetry ? 'stale' : 'unavailable');
                 @endphp
                 <tr data-gps-bike-id="{{ $bike->id }}">
                     <td data-label="Bicycle">
@@ -313,7 +323,20 @@
                     <td data-label="Speed">
                         <span data-gps-field="speed">{{ $speed['speed'] !== null ? number_format($speed['speed'], 1).' km/h' : 'N/A' }}</span>
                         <small class="badge-admin {{ $speedSourceClass }} d-block mt-1" data-gps-field="speed-source">{{ $speedSource }}</small>
+                        <small class="text-muted d-block" data-gps-field="speed-comparison">
+                            GPS {{ $gps['speed'] !== null ? number_format($gps['speed'], 1).' km/h' : 'N/A' }}
+                            · Hall {{ $speed['source'] === 'hall' && $speed['speed'] !== null ? number_format($speed['speed'], 1).' km/h' : 'N/A' }}
+                        </small>
                         <small class="text-muted d-block" data-gps-field="speed-details">{{ implode(' · ', $speedDetails) }}</small>
+                        <small class="text-muted d-block" data-gps-field="hall-details">
+                            {{ ucfirst($bike->device_connection) }} · {{ ucfirst(str_replace('_', ' ', $hallMovement)) }}
+                            @if($hallTelemetryFresh && $hallTelemetry?->lastHallPulseAt)
+                                · Last pulse {{ $hallTelemetry->lastHallPulseAt->diffForHumans() }}
+                            @endif
+                            @if($hallTelemetry?->estimatedDistanceKm !== null)
+                                · Est. {{ number_format((float) $hallTelemetry->estimatedDistanceKm, 3) }} km
+                            @endif
+                        </small>
                     </td>
                     <td data-label="Distance from center" data-gps-field="distance">{{ $bike->zone['distance'] !== null ? number_format($bike->zone['distance'], 0) . ' m' : 'N/A' }}</td>
                     <td data-label="Last GPS" data-gps-field="updated-at">
@@ -333,6 +356,36 @@
             @endforelse
         </tbody>
     </table>
+</div>
+<div class="mt-4">
+<x-admin.card title="Recent sensor incidents">
+    <div class="table-responsive">
+        <table class="admin-table mb-0">
+            <thead>
+                <tr>
+                    <th>Bicycle</th>
+                    <th>Detection</th>
+                    <th>Hall speed</th>
+                    <th>Severity</th>
+                    <th>Reported</th>
+                </tr>
+            </thead>
+            <tbody id="recentIncidentFeed">
+                @forelse($recentIncidents as $incident)
+                    <tr>
+                        <td>{{ $incident['bicycle_name'] }} <small class="text-muted">{{ $incident['serial_number'] }}</small></td>
+                        <td>{{ $incident['detection_reason'] ? str_replace('_', ' ', $incident['detection_reason']) : 'MPU6050 report' }}</td>
+                        <td>{{ $incident['hall_speed_kmh'] !== null ? number_format($incident['hall_speed_kmh'], 1).' km/h' : 'Not reported' }}</td>
+                        <td>{{ ucfirst($incident['severity']) }}</td>
+                        <td>{{ $incident['created_at'] ? \Carbon\Carbon::parse($incident['created_at'])->diffForHumans() : '—' }}</td>
+                    </tr>
+                @empty
+                    <tr><td colspan="5" class="text-muted">No sensor incidents reported.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+</x-admin.card>
 </div>
 @endif
 
@@ -552,10 +605,20 @@
         'speed_sensor_status' => $b->speed_data['sensor_status'],
         'wheel_circumference_m' => $b->speed_data['wheel_circumference_m'],
         'hall_pulse_count' => $b->speed_data['hall_pulse_count'],
+        'hall_speed_kmh' => $b->speed_data['source'] === 'hall' ? $b->speed_data['speed'] : null,
+        'hall_status' => $b->hall_status,
+        'hall_movement_status' => $b->hall_movement_status,
+        'hall_telemetry_fresh' => $b->hall_telemetry_fresh,
+        'hall_telemetry_at' => $b->latestSpeedTelemetry?->eventTimestamp?->toISOString(),
+        'hall_last_pulse_at' => $b->latestSpeedTelemetry?->lastHallPulseAt?->toISOString(),
+        'hall_pulse_interval_ms' => $b->latestSpeedTelemetry?->pulseIntervalMs,
+        'hall_estimated_distance_km' => $b->latestSpeedTelemetry?->estimatedDistanceKm !== null
+            ? (float) $b->latestSpeedTelemetry->estimatedDistanceKm
+            : null,
+        'device_connection' => $b->device_connection,
         'status' => $b->status,
         'battery' => $b->batteryLevel,
         'lockStatus' => $b->lockStatus,
-        'heartbeat' => $b->lastHeartbeat?->toISOString(),
         'zone' => $b->zone['level'] ?? 'unknown',
         'distance' => $b->zone['distance'] ?? null,
     ])->values();
@@ -669,11 +732,82 @@
                 speedDetails.textContent = detailParts.join(' · ');
             }
 
+            var speedComparison = row.querySelector('[data-gps-field="speed-comparison"]');
+            if (speedComparison) {
+                var gpsSpeed = Number(bike.gps_speed);
+                var hallSpeed = Number(bike.hall_speed_kmh);
+                speedComparison.textContent = 'GPS '
+                    + (bike.gps_speed !== null && bike.gps_speed !== undefined && Number.isFinite(gpsSpeed)
+                        ? gpsSpeed.toFixed(1) + ' km/h'
+                        : 'N/A')
+                    + ' · Hall '
+                    + (bike.hall_speed_kmh !== null && bike.hall_speed_kmh !== undefined && Number.isFinite(hallSpeed)
+                        ? hallSpeed.toFixed(1) + ' km/h'
+                        : 'N/A');
+            }
+
+            var hallDetails = row.querySelector('[data-gps-field="hall-details"]');
+            if (hallDetails) {
+                var lastPulse = bike.hall_last_pulse_at
+                    ? Math.max(0, Math.floor((Date.now() - new Date(bike.hall_last_pulse_at).getTime()) / 1000)) + 's ago'
+                    : 'No pulse recorded';
+                var estimatedDistance = Number(bike.hall_estimated_distance_km);
+                var detailParts = [
+                    (bike.device_connection || 'unregistered').replace(/_/g, ' '),
+                    (bike.hall_movement_status || bike.hall_status || 'unavailable').replace(/_/g, ' '),
+                    lastPulse,
+                    bike.hall_estimated_distance_km !== null
+                        && bike.hall_estimated_distance_km !== undefined
+                        && Number.isFinite(estimatedDistance)
+                        ? 'Est. ' + estimatedDistance.toFixed(3) + ' km'
+                        : null,
+                    bike.hall_pulse_interval_ms
+                        ? 'Interval ' + bike.hall_pulse_interval_ms + ' ms'
+                        : null
+                ].filter(Boolean);
+                hallDetails.textContent = detailParts.join(' · ');
+            }
+
             var updatedCell = row.querySelector('[data-gps-field="updated-at"]');
             if (updatedCell && bike.last_gps_update) {
                 updatedCell.title = bike.last_gps_update;
             }
         });
+        updateRecentIncidents(data.recent_incidents || []);
+    }
+
+    function updateRecentIncidents(incidents) {
+        var body = document.getElementById('recentIncidentFeed');
+        if (!body) return;
+        if (!incidents.length) {
+            body.innerHTML = '<tr><td colspan="5" class="text-muted">No sensor incidents reported.</td></tr>';
+            return;
+        }
+        body.innerHTML = incidents.map(function (incident) {
+            var hallSpeed = incident.hall_speed_kmh !== null && incident.hall_speed_kmh !== undefined
+                ? Number(incident.hall_speed_kmh).toFixed(1) + ' km/h'
+                : 'Not reported';
+            var reported = incident.created_at
+                ? new Date(incident.created_at).toLocaleString()
+                : '—';
+            var reason = incident.detection_reason
+                ? incident.detection_reason.replace(/_/g, ' ')
+                : 'MPU6050 report';
+            return '<tr>'
+                + '<td>' + escapeIncidentText(incident.bicycle_name) + ' <small class="text-muted">'
+                + escapeIncidentText(incident.serial_number || '') + '</small></td>'
+                + '<td>' + escapeIncidentText(reason) + '</td>'
+                + '<td>' + escapeIncidentText(hallSpeed) + '</td>'
+                + '<td>' + escapeIncidentText(incident.severity || '—') + '</td>'
+                + '<td>' + escapeIncidentText(reported) + '</td>'
+                + '</tr>';
+        }).join('');
+    }
+
+    function escapeIncidentText(value) {
+        var span = document.createElement('span');
+        span.textContent = value === null || value === undefined ? '' : String(value);
+        return span.innerHTML;
     }
 
     var mapCtx = window.PedalyaGeoLibre.init({
@@ -681,7 +815,7 @@
         geofence: geofence,
         bicycles: bicycles,
         liveUrl: {!! json_encode(route('admin.monitoring.live')) !!},
-        pollMs: 15000,
+        pollMs: 3000,
         zoom: 15,
         gpsZoom: 17,
         centerOnGps: true,
