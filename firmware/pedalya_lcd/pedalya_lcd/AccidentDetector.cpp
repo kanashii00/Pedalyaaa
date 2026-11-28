@@ -594,8 +594,9 @@ void AccidentDetector::evaluate(const uint8_t* raw, uint32_t now) {
         }
         fallHadImpact_ = fallHadImpact_ || sample.impact;
         fallHadRotation_ = fallHadRotation_ || sample.rotation;
+        sample.fallTiltElapsedMs = (uint32_t)(now - fallTiltStartedAtMs_);
         sample.sustainedFallTilt =
-            (uint32_t)(now - fallTiltStartedAtMs_) >= ACCIDENT_FALL_TILT_HOLD_MS;
+            sample.fallTiltElapsedMs >= ACCIDENT_FALL_TILT_HOLD_MS;
     } else {
         fallTiltActive_ = false;
         fallTiltStartedAtMs_ = 0;
@@ -688,7 +689,9 @@ void AccidentDetector::fire(const AccidentReading& sample, uint32_t now) {
     fallHadImpact_ = false;
     fallHadRotation_ = false;
 
-    Serial.printf("[mpu] crash pattern: %.2f g peak, %.0f dps peak, %.0f deg from upright\n",
+    Serial.printf("[mpu] candidate %s via %s (%s)\n",
+                  event_.classification, event_.detectionTrigger, event_.detectionReason);
+    Serial.printf("[mpu] candidate peaks: %.2f g, %.0f dps, %.0f deg from upright\n",
                   (double)peakMagnitudeG_, (double)peakRotationDps_, (double)peakTiltDegrees_);
 }
 

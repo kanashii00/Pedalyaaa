@@ -243,10 +243,17 @@ static void pollAccidentDetection() {
         lastAccidentTraceMs = now;
         const AccidentReading& sample = accidentDetector.reading();
         const bool valid = accidentDetector.hasValidSample();
-        Serial.printf("[mpu] a=%.2f,%.2f,%.2f g  |a|=%.2f g  w=%.0f dps  tilt=%.0f deg%s%s\n",
+        char fallEvaluation[36] = "";
+        if (sample.fallTilt) {
+            snprintf(fallEvaluation, sizeof(fallEvaluation), "  fall=eval %lu/%lu ms",
+                     (unsigned long)sample.fallTiltElapsedMs,
+                     (unsigned long)ACCIDENT_FALL_TILT_HOLD_MS);
+        }
+        Serial.printf("[mpu] a=%.2f,%.2f,%.2f g  |a|=%.2f g  w=%.0f dps  tilt=%.0f deg%s%s%s\n",
                       (double)sample.accelXG, (double)sample.accelYG, (double)sample.accelZG,
                       (double)sample.magnitudeG, (double)sample.gyroMagnitudeDps,
                       (double)sample.tiltDegrees,
+                      fallEvaluation,
                       valid ? "" : "  [stale/invalid reading]",
                       accidentArmNote());
     }
@@ -328,13 +335,13 @@ static void serviceAccidentReport() {
         Serial.println("[accident] but no admin was alerted and the server has no record of it.");
         Serial.println("[accident] This is a provisioning fault, not a network one, so the");
         Serial.println("[accident] report was abandoned instead of retried. To fix it:");
-        Serial.println("[accident]   1. provision a key for the bicycle in that path:");
-        Serial.printf("[accident]      php artisan devices:provision-key %u\n",
-                      (unsigned)ACCIDENT_BICYCLE_ID);
-        Serial.println("[accident]   2. put the printed key in pedalya_lcd/secrets.h as");
-        Serial.println("[accident]      DEVICE_API_KEY and reflash the bike.");
-        Serial.println("[accident]   3. the report is only lost for this crash; the next one");
-        Serial.println("[accident]      will be delivered once the key matches.");
+        Serial.println("[accident]   1. Set the fleet PEDALYA_API_KEY in pedalya_lcd/secrets.h.");
+        Serial.println("[accident]   2. It must match backend services.device_api_key");
+        Serial.println("[accident]      (the backend DEVICE_API_KEY environment value).");
+        Serial.println("[accident]   3. Reflash after provisioning; do not use the bicycle's");
+        Serial.println("[accident]      per-bicycle DEVICE_API_KEY for this fleet endpoint.");
+        Serial.println("[accident] This report was not persisted; the next event can send");
+        Serial.println("[accident] after the matching fleet key is configured.");
         pendingAccident.active = false;
         return;
     }

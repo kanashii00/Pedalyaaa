@@ -32,6 +32,7 @@ struct AccidentReading {
     bool rotation = false;
     bool tilt = false;
     bool fallTilt = false;
+    uint32_t fallTiltElapsedMs = 0;
     bool sustainedFallTilt = false;
 };
 

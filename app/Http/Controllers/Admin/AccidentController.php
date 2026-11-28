@@ -43,6 +43,35 @@ class AccidentController extends Controller
         return response()->view('admin.accidents', compact('incidents', 'selectedIncident'));
     }
 
+    public function live(): JsonResponse
+    {
+        $incidents = Accident::with([
+            'bicycle.currentRental.rider',
+            'bicycle.currentRiderUser',
+            'riderUser',
+            'rental.rider',
+            'acknowledger',
+        ])
+            ->whereIn('type', ['accident', 'impact_detected'])
+            ->latest('id')
+            ->paginate(20);
+
+        $incidents->withPath(route('admin.accidents.index'));
+
+        return response()->json([
+            'success' => true,
+            'paginationHtml' => $incidents->hasPages()
+                ? '<div class="p-3 border-top">'.$incidents->links()->render().'</div>'
+                : '',
+            'incidents' => $incidents->getCollection()
+                ->map(fn (Accident $incident) => $this->formatIncidentPayload($incident))
+                ->values(),
+            'currentPage' => $incidents->currentPage(),
+            'lastPage' => $incidents->lastPage(),
+            'total' => $incidents->total(),
+        ]);
+    }
+
     public function details(int $id): JsonResponse
     {
         $incident = Accident::with([

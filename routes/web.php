@@ -111,6 +111,7 @@ Route::middleware(['auth', 'role:admin', 'no-cache'])->prefix('admin')->name('ad
 
     // Accidents
     Route::get('/accidents', [AdminAccident::class, 'index'])->name('accidents.index');
+    Route::get('/accidents/live', [AdminAccident::class, 'live'])->name('accidents.live');
     Route::get('/accidents/{id}/details', [AdminAccident::class, 'details'])->name('accidents.details');
     Route::post('/accidents/{id}/acknowledge', [AdminAccident::class, 'acknowledge'])->name('accidents.acknowledge');
 

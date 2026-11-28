@@ -68,6 +68,38 @@ class AdminAccidentManagementTest extends TestCase
         $this->assertStringNotContainsString('data-confirm="Acknowledge this accident report?"', $html);
     }
 
+    public function test_live_accident_feed_returns_the_latest_incidents_for_dashboard_polling(): void
+    {
+        $this->adminAuth();
+        $bike = $this->makeBicycle(['name' => 'Live Feed Bicycle', 'serialNumber' => 'LIVE-01']);
+        $incident = Accident::create([
+            'bicycleId' => $bike->id,
+            'type' => 'accident',
+            'severity' => 'moderate',
+            'description' => 'Potential fall awaiting review',
+            'sensorContext' => [
+                'classification' => 'POTENTIAL_FALL',
+                'detectionTrigger' => 'sustained_tilt',
+            ],
+            'acknowledged' => false,
+        ]);
+
+        $response = $this->getJson(route('admin.accidents.live'));
+        $response
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('total', 1);
+        $this->assertSame($incident->id, $response->json('incidents.0.id'));
+        $this->assertSame('Live Feed Bicycle', $response->json('incidents.0.bicycleName'));
+        $this->assertSame('POTENTIAL_FALL', $response->json('incidents.0.classification'));
+        $this->assertSame('sustained_tilt', $response->json('incidents.0.detectionTrigger'));
+
+        $this->get(route('admin.accidents.index'))
+            ->assertOk()
+            ->assertSee('admin\\/accidents\\/live', false)
+            ->assertSee('window.setInterval(pollAccidentFeed, 3000)', false);
+    }
+
     public function test_accident_details_modal_renders_all_required_incident_data(): void
     {
         $this->adminAuth();

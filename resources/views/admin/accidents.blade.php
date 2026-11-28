@@ -262,7 +262,7 @@
                 <th class="col-actions">Actions</th>
             </tr>
         </thead>
-        <tbody>
+        <tbody id="accidentReportsTableBody">
             @forelse($incidents as $accident)
             @php
                 $hasGps = !empty($accident->gpsLocation['lat']) && !empty($accident->gpsLocation['lng']);
@@ -361,11 +361,13 @@
     </table>
     </div>
 
-    @if($incidents->hasPages())
-        <div class="p-3 border-top">
-            {{ $incidents->links() }}
-        </div>
-    @endif
+    <div id="accidentReportsPagination">
+        @if($incidents->hasPages())
+            <div class="p-3 border-top">
+                {{ $incidents->links() }}
+            </div>
+        @endif
+    </div>
 </div>
 
 {{-- Detail Modal: Redesigned with exact required hierarchy A -> B -> C -> D -> E -> F --}}
@@ -606,10 +608,215 @@
 <script>
 (function () {
     var accidentsData = @json($initialAccidents);
+    var accidentsLiveUrl = @json(route('admin.accidents.live', ['page' => $incidents->currentPage()]));
     var currentAccident = null;
     var isAcknowledging = false;
+    var accidentFeedSignature = null;
+    var accidentFeedInFlight = false;
+    var accidentFeedErrorLogged = false;
     var csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
     var modalEl = document.getElementById('accidentDetailModal');
+    var accidentTableBody = document.getElementById('accidentReportsTableBody');
+
+    function appendTextCell(row, label, value, className) {
+        var cell = document.createElement('td');
+        cell.setAttribute('data-label', label);
+        if (className) cell.className = className;
+        cell.textContent = value || '';
+        row.appendChild(cell);
+        return cell;
+    }
+
+    function renderAccidentRow(incident) {
+        var row = document.createElement('tr');
+        row.setAttribute('data-accident-row', incident.id);
+
+        var bicycleCell = document.createElement('td');
+        bicycleCell.setAttribute('data-label', 'Bicycle');
+        bicycleCell.className = 'cell-title';
+        var bicycleLink = document.createElement('a');
+        bicycleLink.href = 'javascript:void(0)';
+        bicycleLink.setAttribute('role', 'button');
+        bicycleLink.className = 'accident-bike-link';
+        bicycleLink.setAttribute('data-view-accident', incident.id);
+        bicycleLink.title = 'View accident #' + incident.id + ' details';
+        var bicycleName = document.createElement('span');
+        bicycleName.className = 'fw-semibold';
+        bicycleName.textContent = incident.bicycleName || ('Bicycle #' + incident.bicycleId);
+        bicycleLink.appendChild(bicycleName);
+        if (incident.serialNumber && incident.serialNumber !== '—') {
+            var serial = document.createElement('span');
+            serial.className = 'text-muted small d-block font-monospace';
+            serial.textContent = incident.serialNumber;
+            bicycleLink.appendChild(serial);
+        }
+        bicycleCell.appendChild(bicycleLink);
+        row.appendChild(bicycleCell);
+
+        var typeCell = appendTextCell(row, 'Type', incident.typeLabel);
+        var classification = document.createElement('small');
+        classification.className = 'text-muted d-block';
+        classification.textContent = incident.classification || '';
+        typeCell.appendChild(classification);
+
+        var severityCell = document.createElement('td');
+        severityCell.setAttribute('data-label', 'Severity');
+        var severityBadge = document.createElement('span');
+        severityBadge.className = 'theft-badge ' + ({
+            minor: 'theft-badge--info',
+            moderate: 'theft-badge--warning',
+            major: 'theft-badge--critical',
+            critical: 'theft-badge--critical'
+        }[incident.severity] || 'theft-badge--neutral');
+        severityBadge.textContent = incident.severityLabel || 'Unknown';
+        severityCell.appendChild(severityBadge);
+        row.appendChild(severityCell);
+
+        var riderCell = document.createElement('td');
+        riderCell.setAttribute('data-label', 'Rider');
+        riderCell.className = 'text-truncate';
+        riderCell.style.maxWidth = '170px';
+        riderCell.title = incident.riderName || '';
+        var riderName = document.createElement('span');
+        riderName.className = incident.riderName === 'No Active Rental'
+            ? 'text-muted'
+            : 'text-primary fw-medium';
+        riderName.textContent = incident.riderName || 'No Active Rental';
+        riderCell.appendChild(riderName);
+        row.appendChild(riderCell);
+
+        var rentalCell = document.createElement('td');
+        rentalCell.setAttribute('data-label', 'Rental');
+        if (incident.rentalId) {
+            var rentalBadge = document.createElement('span');
+            rentalBadge.className = 'badge-admin badge-admin--neutral badge-admin--plain';
+            rentalBadge.textContent = incident.rentalId;
+            rentalCell.appendChild(rentalBadge);
+        } else {
+            rentalCell.textContent = '—';
+            rentalCell.className = 'text-muted';
+        }
+        row.appendChild(rentalCell);
+
+        var descriptionCell = appendTextCell(row, 'Description', incident.description, 'text-truncate');
+        descriptionCell.style.maxWidth = '200px';
+        descriptionCell.title = incident.description || '';
+
+        var location = incident.hasGps
+            ? incident.lat + ', ' + incident.lng
+            : (incident.locationText || '—');
+        var locationCell = appendTextCell(row, 'Location', location, 'text-truncate font-monospace');
+        locationCell.style.maxWidth = '150px';
+        locationCell.title = location;
+
+        var timestampCell = document.createElement('td');
+        timestampCell.setAttribute('data-label', 'Timestamp');
+        var timestamp = document.createElement('small');
+        timestamp.textContent = incident.timestamp || '';
+        timestampCell.appendChild(timestamp);
+        row.appendChild(timestampCell);
+
+        var acknowledgedCell = document.createElement('td');
+        acknowledgedCell.setAttribute('data-label', 'Acknowledged');
+        acknowledgedCell.setAttribute('data-accident-ack-cell', incident.id);
+        var acknowledgedBadge = document.createElement('span');
+        acknowledgedBadge.className = incident.acknowledged
+            ? 'theft-badge theft-badge--success'
+            : 'theft-badge theft-badge--warning';
+        var acknowledgedIcon = document.createElement('i');
+        acknowledgedIcon.className = incident.acknowledged
+            ? 'bi bi-check-circle-fill'
+            : 'bi bi-clock-history';
+        acknowledgedBadge.appendChild(acknowledgedIcon);
+        acknowledgedBadge.appendChild(document.createTextNode(
+            incident.acknowledged ? ' Acknowledged' : ' Pending'
+        ));
+        acknowledgedCell.appendChild(acknowledgedBadge);
+        row.appendChild(acknowledgedCell);
+
+        var actionsCell = document.createElement('td');
+        actionsCell.setAttribute('data-label', 'Actions');
+        actionsCell.className = 'col-actions';
+        var actions = document.createElement('div');
+        actions.className = 'actions-row';
+        var mapLink = document.createElement('a');
+        mapLink.href = incident.mapUrl || '#';
+        mapLink.className = 'btn-admin btn-admin--ghost btn-admin--sm';
+        mapLink.title = 'View on Live GPS Tracking Map';
+        mapLink.setAttribute('aria-label', 'View on Map');
+        var mapIcon = document.createElement('i');
+        mapIcon.className = 'bi bi-geo-alt me-1';
+        mapLink.appendChild(mapIcon);
+        mapLink.appendChild(document.createTextNode('Map'));
+        actions.appendChild(mapLink);
+        actionsCell.appendChild(actions);
+        row.appendChild(actionsCell);
+
+        return row;
+    }
+
+    function renderAccidentFeed(incidents) {
+        if (!accidentTableBody) return;
+        if (incidents.length === 0) {
+            var emptyRow = document.createElement('tr');
+            var emptyCell = document.createElement('td');
+            emptyCell.colSpan = 10;
+            emptyCell.className = 'text-center py-4';
+            emptyCell.textContent = 'No accident reports found';
+            emptyRow.appendChild(emptyCell);
+            accidentTableBody.replaceChildren(emptyRow);
+            return;
+        }
+
+        var rows = incidents.map(function (incident) {
+            accidentsData[String(incident.id)] = incident;
+            return renderAccidentRow(incident);
+        });
+        accidentTableBody.replaceChildren.apply(accidentTableBody, rows);
+
+        var searchInput = document.querySelector('[data-table-search]');
+        if (searchInput && searchInput.value) {
+            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    }
+
+    function pollAccidentFeed() {
+        if (accidentFeedInFlight || document.hidden) return;
+        accidentFeedInFlight = true;
+        fetch(accidentsLiveUrl, {
+            cache: 'no-store',
+            headers: { 'Accept': 'application/json' }
+        })
+        .then(function (response) {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
+        })
+        .then(function (data) {
+            if (!data || !data.success || !Array.isArray(data.incidents)) {
+                throw new Error('Invalid accident feed response');
+            }
+            accidentFeedErrorLogged = false;
+            var signature = JSON.stringify(data.incidents) + (data.paginationHtml || '');
+            if (signature !== accidentFeedSignature) {
+                accidentFeedSignature = signature;
+                renderAccidentFeed(data.incidents);
+                var pagination = document.getElementById('accidentReportsPagination');
+                if (pagination) pagination.innerHTML = data.paginationHtml || '';
+            }
+        })
+        .catch(function (error) {
+            if (!accidentFeedErrorLogged) {
+                console.error('Failed to refresh accident reports:', error);
+                accidentFeedErrorLogged = true;
+            }
+        })
+        .finally(function () {
+            accidentFeedInFlight = false;
+        });
+    }
+
+    pollAccidentFeed();
+    window.setInterval(pollAccidentFeed, 3000);
 
     function openModal() {
         if (modalEl) {

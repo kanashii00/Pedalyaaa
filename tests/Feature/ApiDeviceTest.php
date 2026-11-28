@@ -248,6 +248,43 @@ class ApiDeviceTest extends TestCase
         $this->assertSame(1, count($incident->sensorContext['preImpactSamples']));
     }
 
+    public function test_potential_fall_report_flows_from_device_api_to_admin_live_feed(): void
+    {
+        $bike = $this->makeBicycle(['name' => 'PDY-001', 'serialNumber' => 'PDY-001']);
+
+        $this->postJson('/api/iot/accident-report', [
+            'bicycle_id' => $bike->id,
+            'device_id' => 'pedalya-esp32-1',
+            'event_id' => 'pdy001-fall-integration-001',
+            'classification' => 'POTENTIAL_FALL',
+            'detection_source' => 'mpu6050',
+            'detection_trigger' => 'sustained_tilt',
+            'detection_reason' => 'sustained_tilt',
+            'impact_detected' => false,
+            'accelerometer' => [0, 0.82, 0.49],
+            'gyroscope' => [0, 2, 0],
+            'tilt_degrees' => 62,
+            'speedKmh' => 0,
+            'speedSensorStatus' => 'stopped',
+            'gps_fix_status' => 'unavailable',
+            'timestamp' => now()->toIso8601String(),
+        ], $this->deviceHeaders())
+            ->assertOk()
+            ->assertJsonPath('result.duplicate', false);
+
+        $this->actingAs($this->makeAdmin())
+            ->getJson(route('admin.accidents.live'))
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('incidents.0.bicycleName', 'PDY-001')
+            ->assertJsonPath('incidents.0.serialNumber', 'PDY-001')
+            ->assertJsonPath('incidents.0.classification', 'POTENTIAL_FALL')
+            ->assertJsonPath('incidents.0.detectionTrigger', 'sustained_tilt')
+            ->assertJsonPath('incidents.0.tiltDegrees', 62);
+
+        $this->assertDatabaseCount('accidents', 1);
+    }
+
     public function test_potential_fall_without_impact_keeps_stationary_hall_and_stale_gps_context(): void
     {
         $bike = $this->makeBicycle([
